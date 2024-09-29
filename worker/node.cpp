@@ -1,0 +1,5 @@
+namespace worker {
+    class node{
+        
+    };
+};
