@@ -1,0 +1,5 @@
+namespace ncn {
+    class nodecli {
+        
+    };
+};
