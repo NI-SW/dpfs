@@ -1,0 +1,206 @@
+[
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/adler32.c.o -c /home/workdir/dpfs/thirdparty/zlib/adler32.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/adler32.c",
+  "output": "CMakeFiles/zlib.dir/adler32.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/compress.c.o -c /home/workdir/dpfs/thirdparty/zlib/compress.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/compress.c",
+  "output": "CMakeFiles/zlib.dir/compress.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/crc32.c.o -c /home/workdir/dpfs/thirdparty/zlib/crc32.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/crc32.c",
+  "output": "CMakeFiles/zlib.dir/crc32.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/deflate.c.o -c /home/workdir/dpfs/thirdparty/zlib/deflate.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/deflate.c",
+  "output": "CMakeFiles/zlib.dir/deflate.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/gzclose.c.o -c /home/workdir/dpfs/thirdparty/zlib/gzclose.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/gzclose.c",
+  "output": "CMakeFiles/zlib.dir/gzclose.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/gzlib.c.o -c /home/workdir/dpfs/thirdparty/zlib/gzlib.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/gzlib.c",
+  "output": "CMakeFiles/zlib.dir/gzlib.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/gzread.c.o -c /home/workdir/dpfs/thirdparty/zlib/gzread.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/gzread.c",
+  "output": "CMakeFiles/zlib.dir/gzread.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/gzwrite.c.o -c /home/workdir/dpfs/thirdparty/zlib/gzwrite.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/gzwrite.c",
+  "output": "CMakeFiles/zlib.dir/gzwrite.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/inflate.c.o -c /home/workdir/dpfs/thirdparty/zlib/inflate.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/inflate.c",
+  "output": "CMakeFiles/zlib.dir/inflate.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/infback.c.o -c /home/workdir/dpfs/thirdparty/zlib/infback.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/infback.c",
+  "output": "CMakeFiles/zlib.dir/infback.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/inftrees.c.o -c /home/workdir/dpfs/thirdparty/zlib/inftrees.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/inftrees.c",
+  "output": "CMakeFiles/zlib.dir/inftrees.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/inffast.c.o -c /home/workdir/dpfs/thirdparty/zlib/inffast.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/inffast.c",
+  "output": "CMakeFiles/zlib.dir/inffast.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/trees.c.o -c /home/workdir/dpfs/thirdparty/zlib/trees.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/trees.c",
+  "output": "CMakeFiles/zlib.dir/trees.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/uncompr.c.o -c /home/workdir/dpfs/thirdparty/zlib/uncompr.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/uncompr.c",
+  "output": "CMakeFiles/zlib.dir/uncompr.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -fPIC -o CMakeFiles/zlib.dir/zutil.c.o -c /home/workdir/dpfs/thirdparty/zlib/zutil.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/zutil.c",
+  "output": "CMakeFiles/zlib.dir/zutil.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/adler32.c.o -c /home/workdir/dpfs/thirdparty/zlib/adler32.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/adler32.c",
+  "output": "CMakeFiles/zlibstatic.dir/adler32.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/compress.c.o -c /home/workdir/dpfs/thirdparty/zlib/compress.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/compress.c",
+  "output": "CMakeFiles/zlibstatic.dir/compress.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/crc32.c.o -c /home/workdir/dpfs/thirdparty/zlib/crc32.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/crc32.c",
+  "output": "CMakeFiles/zlibstatic.dir/crc32.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/deflate.c.o -c /home/workdir/dpfs/thirdparty/zlib/deflate.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/deflate.c",
+  "output": "CMakeFiles/zlibstatic.dir/deflate.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/gzclose.c.o -c /home/workdir/dpfs/thirdparty/zlib/gzclose.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/gzclose.c",
+  "output": "CMakeFiles/zlibstatic.dir/gzclose.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/gzlib.c.o -c /home/workdir/dpfs/thirdparty/zlib/gzlib.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/gzlib.c",
+  "output": "CMakeFiles/zlibstatic.dir/gzlib.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/gzread.c.o -c /home/workdir/dpfs/thirdparty/zlib/gzread.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/gzread.c",
+  "output": "CMakeFiles/zlibstatic.dir/gzread.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/gzwrite.c.o -c /home/workdir/dpfs/thirdparty/zlib/gzwrite.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/gzwrite.c",
+  "output": "CMakeFiles/zlibstatic.dir/gzwrite.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/inflate.c.o -c /home/workdir/dpfs/thirdparty/zlib/inflate.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/inflate.c",
+  "output": "CMakeFiles/zlibstatic.dir/inflate.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/infback.c.o -c /home/workdir/dpfs/thirdparty/zlib/infback.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/infback.c",
+  "output": "CMakeFiles/zlibstatic.dir/infback.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/inftrees.c.o -c /home/workdir/dpfs/thirdparty/zlib/inftrees.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/inftrees.c",
+  "output": "CMakeFiles/zlibstatic.dir/inftrees.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/inffast.c.o -c /home/workdir/dpfs/thirdparty/zlib/inffast.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/inffast.c",
+  "output": "CMakeFiles/zlibstatic.dir/inffast.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/trees.c.o -c /home/workdir/dpfs/thirdparty/zlib/trees.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/trees.c",
+  "output": "CMakeFiles/zlibstatic.dir/trees.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/uncompr.c.o -c /home/workdir/dpfs/thirdparty/zlib/uncompr.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/uncompr.c",
+  "output": "CMakeFiles/zlibstatic.dir/uncompr.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/zlibstatic.dir/zutil.c.o -c /home/workdir/dpfs/thirdparty/zlib/zutil.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/zutil.c",
+  "output": "CMakeFiles/zlibstatic.dir/zutil.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/example.dir/test/example.c.o -c /home/workdir/dpfs/thirdparty/zlib/test/example.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/test/example.c",
+  "output": "CMakeFiles/example.dir/test/example.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -o CMakeFiles/minigzip.dir/test/minigzip.c.o -c /home/workdir/dpfs/thirdparty/zlib/test/minigzip.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/test/minigzip.c",
+  "output": "CMakeFiles/minigzip.dir/test/minigzip.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -D_FILE_OFFSET_BITS=64 -o CMakeFiles/example64.dir/test/example.c.o -c /home/workdir/dpfs/thirdparty/zlib/test/example.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/test/example.c",
+  "output": "CMakeFiles/example64.dir/test/example.c.o"
+},
+{
+  "directory": "/home/workdir/dpfs/build",
+  "command": "/usr/bin/gcc -D_LARGEFILE64_SOURCE=1 -I/home/workdir/dpfs/build -I/home/workdir/dpfs/thirdparty/zlib -g -D_FILE_OFFSET_BITS=64 -o CMakeFiles/minigzip64.dir/test/minigzip.c.o -c /home/workdir/dpfs/thirdparty/zlib/test/minigzip.c",
+  "file": "/home/workdir/dpfs/thirdparty/zlib/test/minigzip.c",
+  "output": "CMakeFiles/minigzip64.dir/test/minigzip.c.o"
+}
+]
