@@ -49,3 +49,21 @@ DPDK->高性能网络
 量化交易系统
 1、要求
 
+
+
+
+
+
+
+
+deps:
+yum install kernel-headers
+
+
+
+,
+                "/usr/src/kernels/5.14.0-592.el9.x86_64/include/uapi",
+                "/usr/src/kernels/5.14.0-592.el9.x86_64/arch/x86/include/generated/uapi",
+                "/usr/src/kernels/5.14.0-592.el9.x86_64/tools/arch/x86/include",
+                "/usr/src/kernels/5.14.0-592.el9.x86_64/arch/x86/include",
+                "/usr/src/kernels/5.14.0-592.el9.x86_64/include"
