@@ -1,0 +1,5 @@
+
+[root@stream9 nvme]# modprobe nvme-fabrics
+[root@stream9 nvme]# modprobe nvme_tcp
+[root@stream9 nvme]# modprobe nvme_core
+../../../thirdparty/spdk/build/fio/spdk_nvme
