@@ -17,15 +17,13 @@ int main() {
         perror("new fail");
         return -1;
     }
-    memset(buffer, 'A', 4096);
+    memset(buffer, 0, 4096);
 
-    
     struct nvme_user_io io;
-    io.addr = (__u64)buffer;
+    io.addr = (unsigned long long)buffer;
     io.slba = 0;
     io.nblocks = 1;
     io.opcode = 2;
-    io.flags = 0;
 
     if(ioctl(fd, NVME_IOCTL_SUBMIT_IO, &io) == -1) {
         perror("fail\n");
@@ -33,8 +31,8 @@ int main() {
     }
 
     close(fd);
+    delete[] buffer;
     cout << " ok " << endl;
     cout << buffer << endl;
-    delete[] buffer;
     return 0;
 }
