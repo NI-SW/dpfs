@@ -1,0 +1,14 @@
+[2025-05-06 17:43:30.167853] thread.c:2964:spdk_interrupt_mode_enable: *NOTICE*: Set SPDK running in interrupt mode.
+[2025-05-06 17:43:30.168753] Starting SPDK v25.01-pre git sha1 ffd9f7465 / DPDK 24.03.0 initialization...
+[2025-05-06 17:43:30.169136] [ DPDK EAL parameters: Mr.Li --no-shconf -c 0x1 --huge-unlink --no-telemetry --log-level=lib.eal:6 --log-level=lib.cryptodev:5 --log-level=lib.power:5 --log-level=user1:6 --iova-mode=pa --base-virtaddr=0x200000000000 --match-allocations --file-prefix=spdk_pid454838 ]
+[2025-05-06 17:43:30.180446] app.c: 919:spdk_app_start: *NOTICE*: Total cores available: 1
+[2025-05-06 17:43:30.195094] reactor.c:1005:reactor_run: *NOTICE*: Reactor started on core 0
+[2025-05-06 17:43:30.195503] thread.c:2115:spdk_thread_set_interrupt_mode: *NOTICE*: Set spdk_thread (app_thread) to intr mode from intr mode.
+[2025-05-06 17:43:30.226459] thread.c:2115:spdk_thread_set_interrupt_mode: *NOTICE*: Set spdk_thread (nvmf_tgt_poll_group_000) to intr mode from intr mode.
+[2025-05-06 17:43:30.275151] thread.c:2115:spdk_thread_set_interrupt_mode: *NOTICE*: Set spdk_thread (iscsi_poll_group_0) to intr mode from intr mode.
+[2025-05-06 17:43:30.275892] request: {"jsonrpc":"2.0","id":0,"method":"bdev_aio_create","params":{              "name": "aio0",              "filename": "/dev/sdb",              "readonly": false,              "fallocate": false,              "block_size": 4096            }}
+[2025-05-06 17:43:30.275964] bdev_aio.c: 957:create_aio_bdev: *WARNING*: Specified block size 4096 does not match auto-detected block size 512
+[2025-05-06 17:43:30.363348] response: {"jsonrpc":"2.0","id":0,"result":"aio0"}
+[2025-05-06 17:43:30.363484] spdkcontrol.cpp: 168:spdk_entry: *NOTICE*: start_entry() called
+[2025-05-06 17:44:27.019910] request: {  "jsonrpc": "2.0",  "method": "bdev_get_bdevs",  "id": 1}
+[2025-05-06 17:44:27.023941] response: {"jsonrpc":"2.0","id":1,"result":[{"name":"aio0","aliases":["2f183876-aeb4-4a90-9865-29e524b0c260"],"product_name":"AIO disk","block_size":4096,"num_blocks":33554432,"uuid":"2f183876-aeb4-4a90-9865-29e524b0c260","assigned_rate_limits":{"rw_ios_per_sec":0,"rw_mbytes_per_sec":0,"r_mbytes_per_sec":0,"w_mbytes_per_sec":0},"claimed":false,"zoned":false,"supported_io_types":{"read":true,"write":true,"unmap":false,"flush":true,"reset":true,"nvme_admin":false,"nvme_io":false,"nvme_io_md":false,"write_zeroes":true,"zcopy":false,"get_zone_info":false,"zone_management":false,"zone_append":false,"compare":false,"compare_and_write":false,"abort":false,"seek_hole":false,"seek_data":false,"copy":false,"nvme_iov_md":false},"driver_specific":{"aio":{"filename":"/dev/sdb","block_size_override":true,"readonly":false,"fallocate":false}}}]}

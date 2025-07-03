@@ -1,0 +1,1 @@
+cmd_/home/workdir/dpfs/Lib/kernel/foodfs.ko := ld -r -m elf_x86_64 -z noexecstack --build-id=sha1  -T scripts/module.lds -o /home/workdir/dpfs/Lib/kernel/foodfs.ko /home/workdir/dpfs/Lib/kernel/foodfs.o /home/workdir/dpfs/Lib/kernel/foodfs.mod.o;  make -f ./arch/x86/Makefile.postlink /home/workdir/dpfs/Lib/kernel/foodfs.ko
