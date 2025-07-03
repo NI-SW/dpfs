@@ -1,0 +1,2 @@
+[2025-07-02 23:39:36.998325] request: {"jsonrpc":"2.0","id":0,"method":"bdev_aio_create","params":{              "name": "aio0",              "filename": "/dev/sdb",              "readonly": false,              "fallocate": false,              "block_size": 2048            }}
+[2025-07-02 23:39:37.019380] response: {"jsonrpc":"2.0","id":0,"result":"aio0"}
