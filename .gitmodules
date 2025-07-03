@@ -7,3 +7,9 @@
 [submodule "fio"]
   path = thirdparty/fio
   url =https://github.com/axboe/fio.git
+[submodule "openssl"]
+  path = thirdparty/openssl
+  url =https://github.com/openssl/openssl.git
+[submodule "zlib"]
+  path = thirdparty/zlib
+  url =https://github.com/zlib/zlib.git
