@@ -12,8 +12,6 @@ rw=randrw
 bs=4k
 
 [test]
-# filename=/root/github/dpfs/Lib/storage/fiotest/testfio
-# filename=/dev/nvme2n1
-filename=/root/github/dpfs/Lib/storage/fiotest/mnt/testfio
+filename=/dev/nvme0n2
 size=1G
-numjobs=8
+numjobs=10
