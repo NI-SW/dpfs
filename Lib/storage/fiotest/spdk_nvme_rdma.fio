@@ -11,6 +11,6 @@ iodepth=128
 rw=randrw
 
 [test]
-filename=trtype=rdma adrfam=IPv4 traddr=192.168.34.12 trsvcid=4421 ns=1
-size=4096
-numjobs=10
+filename=trtype=rdma adrfam=IPv4 traddr=192.168.34.12 trsvcid=50658 ns=1    
+size=1G
+numjobs=4

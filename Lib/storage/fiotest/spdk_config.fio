@@ -13,6 +13,6 @@ rw=randrw
 bs=4k
 
 [test]
-filename=nvme1
+filename=nvme_0
 size=1G
-numjobs=10
+numjobs=8
