@@ -183,7 +183,7 @@
           "params": {
             "name": "nvme_0",
             "block_size": 512,
-            "filename": "/dev/nvme1n1",
+            "filename": "/dev/nvme0n2",
             "readonly": false,
             "fallocate": false,
             "uuid": "993a15f4-99b3-404a-9062-71f1049c27b5"

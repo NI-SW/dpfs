@@ -8,9 +8,11 @@ cd spdk
 /*
   to build spdk 
   yum install -y gcc-c++ libaio-devel numactl-devel openssl-devel CUnit-devel libuuid-devel
+
+
 */
 
-// nvme over tcp
+// use nvme_tcp
 // ports
 # echo ipv4 > addr_adrfam
 # echo tcp > addr_trtype
@@ -45,20 +47,20 @@ modprobe vmw_pvrdma
 nvme远程连接时注意防火墙问题
 
 安装依赖：：
-libnvme          \
-libverto         \
-nvme-cli         \
-nvmetcli         \
-libnvme-devel    \
-librdmacm        \
-rdma-core-devel  \
-rdma-core        \
-libverto-libev   \
-libverto-devel   \
-perftest-23*     \
+libnvme
+libverto
+nvme-cli
+nvmetcli
+libnvme-devel
+librdmacm
+rdma-core-devel
+rdma-core
+libverto-libev
+libverto-devel
+perftest-23*
 
 
-
+./rpc.py nvmf_create_transport -t RDMA -u 8192 -i 32768 -c 8192
 
 ./rpc.py nvmf_get_subsystems
 [
@@ -71,39 +73,18 @@ perftest-23*     \
   }
 ]
 
+./rpc.py nvmf_subsystem_add_listener -t RDMA -a 192.168.34.12 -f ipv4 -s 50658  nqn.2014-08.org.nvmexpress.discovery
+
+
+
+Block扩容策略
+块容量不够时向后追加块，追加的块的数量为： <equation>()
+
+
+
 
 SPDK attach:
 
 start up -> nvme_tgt
-# 添加远程rdma控制器
-# ./rpc.py bdev_nvme_attach_controller -b nvme1 -t rdma -a 192.168.34.12 -f ipv4 -s 4420 -n nvme-subsys
+./rpc.py bdev_nvme_attach_controller -b nvme1 -t rdma -a 192.168.34.12 -f ipv4 -s 4420 -n nvme-subsys
 
-# 添加本地pcie控制器
-./rpc.py bdev_nvme_attach_controller -b nvme4 -t pcie -a 0000:1b:00.0
-# 创建rdma传输通道
-modprobe nvme_fabrics
-modprobe nvme_tcp
-modprobe nvme_rdma
-modprobe nvmet
-modprobe nvmet_rdma
-modprobe rdma_rxe
-rdma link add rxe_0 type rxe netdev ens160
-./rpc.py nvmf_create_transport -t RDMA -u 8192 -i 32768 -c 8192
-
-
-
-# 创建nvmf子系统
-./rpc.py nvmf_create_subsystem nqn.2016-06.io.spdk:cnode1 -a -s SPDK00000000000001 -d SPDK_Controller1
-# 添加 namespace
-./rpc.py nvmf_subsystem_add_ns nqn.2016-06.io.spdk:cnode1 nvme4n1
-
-# 创建rdma监听端口
-./rpc.py nvmf_subsystem_add_listener -t RDMA -a 192.168.34.12 -f ipv4 -s 50658  nqn.2016-06.io.spdk:cnode1
-
-
-
-
-
-# io_uring权限问题，查看
-sysctl kernel.io_uring_disabled
-# 如果输出不为0，则设置为0即可
