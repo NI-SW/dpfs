@@ -7,11 +7,11 @@ verify=0
 time_based=1
 ramp_time=0
 runtime=20
-iodepth=128
+iodepth=1
 rw=randrw
 bs=4k
 
 [test]
-filename=/dev/nvme0n2
+filename=/dev/nvme3n1
 size=1G
-numjobs=10
+numjobs=4

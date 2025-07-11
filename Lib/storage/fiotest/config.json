@@ -182,7 +182,7 @@
           "method": "bdev_aio_create",
           "params": {
             "name": "nvme_0",
-            "block_size": 512,
+            "block_size": 4096,
             "filename": "/dev/nvme0n2",
             "readonly": false,
             "fallocate": false,

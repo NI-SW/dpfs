@@ -1,7 +1,6 @@
 [global]
-ioengine=../../../thirdparty/spdk/build/fio/spdk_bdev
-spdk_json_conf=./config.json
-thread=4
+ioengine=../../../thirdparty/spdk/build/fio/spdk_nvme
+thread=1
 group_reporting=1
 direct=1
 verify=0
@@ -10,9 +9,8 @@ ramp_time=0
 runtime=20
 iodepth=1
 rw=randrw
-bs=4k
 
 [test]
-filename=nvme_0
+filename=trtype=PCIe traddr=0000.1b.00.0 ns=1
 size=1G
 numjobs=4

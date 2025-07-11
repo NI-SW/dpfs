@@ -1,6 +1,5 @@
 [global]
-ioengine=../../../thirdparty/spdk/build/fio/spdk_bdev
-spdk_json_conf=./config.json
+ioengine=io_uring
 thread=4
 group_reporting=1
 direct=1
@@ -13,6 +12,6 @@ rw=randrw
 bs=4k
 
 [test]
-filename=nvme_0
+filename=/dev/nvme3n1
 size=1G
 numjobs=4
