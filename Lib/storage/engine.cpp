@@ -1,6 +1,7 @@
 #include <storage/spdkcontrol.hpp>
 #include <unistd.h>
 #include <iostream>
+#include <vector>
 #include <signal.h>
 using namespace std;
 pid_t pid = getpid();
@@ -25,9 +26,9 @@ void handle_sigint(int sig) {
 }
  
 
-
 int main(int argc, char **argv) {
     
+
     signal(SIGINT, handle_sigint);
 
     CSpdkControl *spdkControl = new CSpdkControl("./test2.json");
