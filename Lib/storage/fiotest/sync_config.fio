@@ -12,6 +12,6 @@ rw=randrw
 bs=4k
 
 [test]
-filename=/dev/nvme3n1
+filename=/dev/nvme0n2
 size=1G
 numjobs=2
