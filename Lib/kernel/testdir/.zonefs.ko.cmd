@@ -1,1 +1,0 @@
-cmd_/home/workdir/dpfs/Lib/kernel/testdir/zonefs.ko := ld -r -m elf_x86_64 -z noexecstack --build-id=sha1  -T scripts/module.lds -o /home/workdir/dpfs/Lib/kernel/testdir/zonefs.ko /home/workdir/dpfs/Lib/kernel/testdir/zonefs.o /home/workdir/dpfs/Lib/kernel/testdir/zonefs.mod.o;  make -f ./arch/x86/Makefile.postlink /home/workdir/dpfs/Lib/kernel/testdir/zonefs.ko

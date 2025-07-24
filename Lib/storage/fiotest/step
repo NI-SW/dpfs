@@ -1,8 +1,7 @@
 
 // configure nvme over rdma
 cd spdk 
-./configure --with-rdma --with-fio=../fio 
-// --with-shared
+./configure --with-fio=../fio --with-rdma --with-shared
 
 
 /*

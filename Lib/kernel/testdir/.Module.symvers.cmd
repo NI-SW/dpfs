@@ -1,1 +1,0 @@
-cmd_/home/workdir/dpfs/Lib/kernel/testdir/Module.symvers := sed 's/ko$$/o/' /home/workdir/dpfs/Lib/kernel/testdir/modules.order | scripts/mod/modpost -m -a  -o /home/workdir/dpfs/Lib/kernel/testdir/Module.symvers -e -i Module.symvers   -T -
