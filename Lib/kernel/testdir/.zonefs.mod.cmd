@@ -1,1 +1,0 @@
-cmd_/home/workdir/dpfs/Lib/kernel/testdir/zonefs.mod := printf '%s\n'   super.o file.o sysfs.o | awk '!x[$$0]++ { print("/home/workdir/dpfs/Lib/kernel/testdir/"$$0) }' > /home/workdir/dpfs/Lib/kernel/testdir/zonefs.mod
