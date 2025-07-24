@@ -45,6 +45,8 @@ modprobe vmw_pvrdma
 nvme远程连接时注意防火墙问题
 
 安装依赖：：
+libibverbs
+libibverbs-utils
 libnvme          \
 libverto         \
 nvme-cli         \
@@ -100,14 +102,121 @@ rdma link add rxe_0 type rxe netdev ens160
 ./rpc.py nvmf_subsystem_add_ns nqn.2016-06.io.spdk:cnode1 nvme4n1
 
 # spdk nvme over rdma
-./rpc.py nvmf_create_transport -t RDMA -u 8192 -i 32768 -c 8192
+./rpc.py nvmf_create_transport -t RDMA -u 8192 -i 131072 -c 8192
 ./rpc.py nvmf_subsystem_add_listener -t RDMA -a 192.168.34.12 -f ipv4 -s 50658  nqn.2016-06.io.spdk:cnode1
 
 
 # spdk nvme over tcp
-./rpc.py nvmf_create_transport -t TCP -u 8192 -i 32768 -c 8192
+./rpc.py nvmf_create_transport -t TCP -u 8192 -i 131072 -c 8192
 ./rpc.py nvmf_subsystem_add_listener -t TCP -a 192.168.34.12 -f ipv4 -s 50659  nqn.2016-06.io.spdk:cnode1
 
 # io_uring权限问题，查看
 sysctl kernel.io_uring_disabled
 # 如果输出不为0，则设置为0即可
+
+
+
+# ------------------------------------issue-------------------------------------
+
+# Sighting report
+modprobe nvme_fabrics
+modprobe nvme_tcp
+modprobe nvme_rdma
+modprobe nvmet
+modprobe nvmet_rdma
+modprobe rdma_rxe
+rdma link add rxe_0 type rxe netdev ens160
+
+./rpc.py bdev_nvme_attach_controller -b nvme4 -t pcie -a 0000:1b:00.0
+./rpc.py nvmf_create_subsystem nqn.2016-06.io.spdk:cnode1 -a -s SPDK00000000000001 -d SPDK_Controller1
+./rpc.py nvmf_subsystem_add_ns nqn.2016-06.io.spdk:cnode1 nvme4n1
+
+# spdk nvme over rdma
+./rpc.py nvmf_create_transport -t RDMA -u 8192 -i 131072 -c 8192
+./rpc.py nvmf_subsystem_add_listener -t RDMA -a 192.168.34.12 -f ipv4 -s 50658  nqn.2016-06.io.spdk:cnode1
+
+# spdk nvme over tcp
+./rpc.py nvmf_create_transport -t TCP -u 8192 -i 131072 -c 8192
+./rpc.py nvmf_subsystem_add_listener -t TCP -a 192.168.34.12 -f ipv4 -s 50659  nqn.2016-06.io.spdk:cnode1
+
+## Expected Behavior
+
+[root@localhost fiotest]# nvme discover -t tcp -a 192.168.34.12 -s 50659
+Discovery Log Number of Records 2, Generation counter 2
+=====Discovery Log Entry 0======
+trtype:  tcp
+adrfam:  ipv4
+subtype: nvme subsystem
+treq:    not required
+portid:  1
+trsvcid: 50659
+subnqn:  nqn.2016-06.io.spdk:cnode1
+traddr:  192.168.34.12
+eflags:  none
+sectype: none
+
+[root@localhost fiotest]# nvme discover -t rdma -a 192.168.34.12 -s 50658
+=====Discovery Log Entry 0======
+trtype:  rdma
+adrfam:  ipv4
+subtype: nvme subsystem
+treq:    not required
+portid:  0
+trsvcid: 50658
+subnqn:  nqn.2016-06.io.spdk:cnode1
+traddr:  192.168.34.12
+eflags:  none
+rdma_prtype: not specified
+rdma_qptype: connected
+rdma_cms:    rdma-cm
+rdma_pkey: 0000
+
+
+## Current Behavior
+[root@localhost fiotest]# nvme discover -t tcp -a 192.168.34.12 -s 50659
+Discovery Log Number of Records 2, Generation counter 2
+=====Discovery Log Entry 0======
+trtype:  tcp
+adrfam:  ipv4
+subtype: nvme subsystem
+treq:    not required
+portid:  1
+trsvcid: 50659
+subnqn:  nqn.2016-06.io.spdk:cnode1
+traddr:  192.168.34.12
+eflags:  none
+sectype: none
+=====Discovery Log Entry 1======
+trtype:  rdma
+adrfam:  ipv4
+subtype: nvme subsystem
+treq:    not required
+portid:  0
+trsvcid: 50658
+subnqn:  nqn.2016-06.io.spdk:cnode1
+traddr:  192.168.34.12
+eflags:  none
+rdma_prtype: not specified
+rdma_qptype: connected
+rdma_cms:    rdma-cm
+rdma_pkey: 0000
+
+[root@localhost fiotest]# nvme discover -t rdma -a 192.168.34.12 -s 50658
+failed to add controller, error failed to write to nvme-fabrics device
+
+## Possible Solution
+
+<!--- Not obligatory, but suggest a fix/reason for the potential issue, -->
+
+## Steps to Reproduce
+
+<!--- Provide a link to a live example, or an unambiguous set of steps to -->
+<!--- reproduce this sighting. Include code to reproduce, if relevant -->
+1.
+2.
+3.
+4.
+
+## Context (Environment including OS version, SPDK version, etc.)
+
+<!--- Providing context helps us come up with a solution that is most useful in the real world -->

@@ -1,6 +1,6 @@
 [global]
 ioengine=../../../thirdparty/spdk/build/fio/spdk_bdev
-spdk_json_conf=./config.json
+spdk_json_conf=./config_bdev_aio.json
 thread=4
 group_reporting=1
 direct=1

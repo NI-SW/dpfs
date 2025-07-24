@@ -18,8 +18,6 @@ reactor -> deal all the callback function
 
 块设备：
 
-
-
 */
 
 struct spdkctx {
@@ -296,14 +294,14 @@ int CSpdkControl::open_blob_device() {
 
 
 
-#include <iostream>
+// #include <iostream>
 
-void CSpdkControl::test() {
-    spdk_thread* t = spdk_get_thread();
-    if(t) {
-        std::cout << "get" << std::endl;
-    } else {
-        std::cout << "not get" << std::endl;
-    }
-    return;
-}
+// void CSpdkControl::test() {
+//     spdk_thread* t = spdk_get_thread();
+//     if(t) {
+//         std::cout << "get" << std::endl;
+//     } else {
+//         std::cout << "not get" << std::endl;
+//     }
+//     return;
+// }
