@@ -1,0 +1,16 @@
+[global]
+ioengine=../../../thirdparty/spdk/build/fio/spdk_nvme
+thread=1
+group_reporting=1
+direct=1
+verify=0
+time_based=1
+ramp_time=0
+runtime=20
+iodepth=128
+rw=randrw
+
+[test]
+filename=trtype=pcie traddr=0000.1b.00.0 ns=1
+size=1G
+numjobs=4
