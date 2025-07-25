@@ -1,1 +1,4 @@
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/code/github/dpfs/thirdparty/spdk/build/lib:/code/github/dpfs/thirdparty/spdk/dpdk/build/lib
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:\
+/code/github/dpfs/thirdparty/spdk/build/lib:\
+/code/github/dpfs/thirdparty/spdk/dpdk/build/lib:\
+/code/github/dpfs/lib
