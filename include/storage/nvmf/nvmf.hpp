@@ -1,9 +1,10 @@
 
 #include <threadlock.hpp>
+#include <log/logbinary.h>
 #include <iostream>
 #include <list>
 #include <vector>
-#include <spdk/nvme.h>
+// #include <spdk/nvme.h>
 
 // for each disk host
 // this class will become context for each disk host
@@ -31,6 +32,18 @@ struct ns_entry {
 	struct spdk_nvme_qpair	*qpair;
 };
 
+class nvmfDevice {
+public:
+	nvmfDevice();
+	// delete copy construct to prevent mulity instance conflict.
+	nvmfDevice(nvmfDevice&) = delete;
+	nvmfDevice(nvmfDevice&& tgt);
+	~nvmfDevice();
+
+	struct spdk_nvme_transport_id* trid;
+	bool attached;
+};
+
 class CNvmfhost {
 public:
     CNvmfhost() = delete;
@@ -40,11 +53,14 @@ public:
 	void cleanup();
 	void register_ns(struct spdk_nvme_ctrlr *ctrlr, struct spdk_nvme_ns *ns);
 	void hello_world();
+	void set_logdir(const std::string& log_path);
 
 // private:
-    std::pair<spdk_nvme_transport_id*, bool> controls; 
-    std::vector<spdk_nvme_transport_id*> trids;
+	logrecord log;
+    std::vector<nvmfDevice> devices;
 	std::list<ctrlr_entry*> controllers;
 	std::list<ns_entry*> namespaces;
     int nvmf_attach();
 };
+
+
