@@ -57,6 +57,13 @@ rdma-core        \
 libverto-libev   \
 libverto-devel   \
 perftest-23*     \
+libnuma-devel   \
+python3-pip   
+
+pip install pyelftools
+
+ubuntu:
+apt install  libssl-dev libnvme-dev rdma-core-dev libverto-dev libnuma-dev libcunit1-dev uuid-dev libaio-dev
 
 
 

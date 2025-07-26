@@ -16,6 +16,8 @@ logrecord::~logrecord() {
 }
 
 logrecord::logrecord() {
+	log_path.clear();
+	logl = LOG_INFO;
 	log_info.reserve(1024);
 	print_info_format.reserve(1024);
 	print_info = new char[16];
@@ -24,6 +26,8 @@ logrecord::logrecord() {
 }
 
 logrecord::logrecord(const std::string& s) {
+	log_path.clear();
+	logl = LOG_INFO;
 	log_info.reserve(1024);
 	print_info_format.reserve(1024);
 	print_info = new char[16];
@@ -34,6 +38,8 @@ logrecord::logrecord(const std::string& s) {
 }
 
 logrecord::logrecord(const char*& s) {
+	log_path.clear();
+	logl = LOG_INFO;
 	log_info.reserve(1024);
 	print_info_format.reserve(1024);
 	print_info = new char[16];
@@ -59,7 +65,7 @@ void logrecord::set_log_path(const char* s) {
 	log_path = s;
 }
 
-void logrecord::set_log_path(std::string& s) {
+void logrecord::set_log_path(const std::string& s) {
 	log_path = s;
 }
 
@@ -209,19 +215,81 @@ int logrecord::judge_format(std::string::iterator iter)
 }
 
 void logrecord::log_inf(const char* str,...) {
+	if(log_path.empty() || logl < LOG_INFO) {
+		return;
+	}
 	FILE* fp;
 	fp = fopen(log_path.c_str(), "a");
 	va_list ap;
 	va_start(ap, str);
+	fprintf(fp, "[INFO]");
+	vfprintf(fp, str, ap);
+	va_end(ap);
+	fclose(fp);
+}
+
+
+void logrecord::log_notic(const char* str, ...) {
+	if(log_path.empty() || logl < LOG_NOTIC) {
+		return;
+	}
+	FILE* fp;
+	fp = fopen(log_path.c_str(), "a");
+	va_list ap;
+	va_start(ap, str);
+	fprintf(fp, "[NOTIC]");
+	vfprintf(fp, str, ap);
+	va_end(ap);
+	fclose(fp);
+}
+void logrecord::log_error(const char* str, ...) {
+	if(log_path.empty() || logl < LOG_ERROR) {
+		return;
+	}
+	FILE* fp;
+	fp = fopen(log_path.c_str(), "a");
+	va_list ap;
+	va_start(ap, str);
+	fprintf(fp, "[ERROR]");
+	vfprintf(fp, str, ap);
+	va_end(ap);
+	fclose(fp);
+}
+void logrecord::log_fatal(const char* str, ...) {
+	if(log_path.empty() || logl < LOG_FATAL) {
+		return;
+	}
+	FILE* fp;
+	fp = fopen(log_path.c_str(), "a");
+	va_list ap;
+	va_start(ap, str);
+	fprintf(fp, "[FATAL]");
+	vfprintf(fp, str, ap);
+	va_end(ap);
+	fclose(fp);
+}
+void logrecord::log_debug(const char* str, ...) {
+	if(log_path.empty() || logl < LOG_DEBUG) {
+		return;
+	}
+	FILE* fp;
+	fp = fopen(log_path.c_str(), "a");
+	va_list ap;
+	va_start(ap, str);
+	fprintf(fp, "[DEBUG]");
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
 
 void logrecord::log_into_file() {
+	if(log_path.empty()) {
+		return;
+	}
 	FILE* fp;
 	fp = fopen(log_path.c_str(), "a");
-	fprintf(fp, print_info_format.c_str());
+	fwrite(print_info_format.c_str(), print_info_format.size(), print_info_format.size(), fp);
+	// fprintf(fp, print_info_format.c_str());
 	fclose(fp);
 }
 
@@ -255,7 +323,12 @@ char* getCmdoutput(size_t& n) {
 
 	memset(ss, '\0', n);
 	fp = fopen("/tmp/templgbin", "r");
-	fread(ss, 1, n, fp);
+	int rs = fread(ss, 1, n, fp);
+	if(rs == 0) {
+		delete ss;
+		fclose(fp);
+		return nullptr;
+	}
 	fclose(fp);
 	return ss;
 }
@@ -264,5 +337,9 @@ char* getCmdoutput(size_t& n) {
 void Cmdoutput(const char* s) {
 	std::string op = s;
 	op.append(" > /tmp/templgbin");
-	system(op.c_str());
+	int rc = system(op.c_str());
+	if (rc != 0) {
+		return;
+	}
+	return;
 }

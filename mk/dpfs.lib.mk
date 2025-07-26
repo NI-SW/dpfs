@@ -14,5 +14,8 @@ $(LIB) : $(OBJS)
 $(OBJS) : $(CXXSOURCE)
 	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -c $^
 
+# $(LIB) : $(CXXSOURCE)
+# 	$(CXX) -o $@ $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -c $^
+
 clean : 
 	rm -f $(LIB) $(OBJS)

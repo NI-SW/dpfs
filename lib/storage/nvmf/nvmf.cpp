@@ -6,6 +6,7 @@
 #include <storage/nvmf/nvmf.hpp>
 
 #include <spdk/vmd.h>
+#include <spdk/nvme.h>
 #include <spdk/nvme_zns.h>
 #include <spdk/env.h>
 #include <spdk/string.h>
@@ -19,14 +20,26 @@
 // for each disk host
 // this class will become context for each disk host
 
-#define DATA_BUFFER_STRING "Hello world!"
-
 // static TAILQ_HEAD(, ctrlr_entry) g_controllers = TAILQ_HEAD_INITIALIZER(g_controllers);
 // static TAILQ_HEAD(, ns_entry) g_namespaces = TAILQ_HEAD_INITIALIZER(g_namespaces);
 
 static std::mutex init_mutex;
 static bool initialized = false;
 static bool g_vmd = false;
+
+
+nvmfDevice::nvmfDevice() {
+	trid = new spdk_nvme_transport_id;
+	attached = false;
+}
+nvmfDevice::nvmfDevice(nvmfDevice&& tgt) : trid(tgt.trid) {
+	attached = tgt.attached;
+}
+nvmfDevice::~nvmfDevice() {
+	delete trid;
+	attached = false;
+}
+
 
 int initSpdk() {
 	int rc = 0;
@@ -43,20 +56,21 @@ int initSpdk() {
 	spdk_env_opts_init(&opts);
 
 	opts.name = "hello_world";
-	if (spdk_env_init(&opts) < 0) {
+	rc = spdk_env_init(&opts);
+	if (rc < 0) {
 		fprintf(stderr, "Unable to initialize SPDK env\n");
-		return 1;
+		return rc;
 	}
 
 	printf("Initializing NVMe Controllers\n");
-
-	if (g_vmd && spdk_vmd_init()) {
+	rc = spdk_vmd_init();
+	if (g_vmd && rc) {
 		fprintf(stderr, "Failed to initialize VMD."
 			" Some NVMe devices can be unavailable.\n");
-			return 1;
+			return rc;
 	}
 
-	return 0;
+	return rc;
 }
 
 
@@ -291,11 +305,17 @@ void CNvmfhost::hello_world() {
 	}
 }
 
-static bool
-probe_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, struct spdk_nvme_ctrlr_opts *opts) {
+static bool probe_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, struct spdk_nvme_ctrlr_opts *opts) {
     CNvmfhost *nfhost = (CNvmfhost *)cb_ctx;
-	printf("Attaching to %s\n", trid->traddr);
+	nfhost->log.log_inf("Attaching to %s\n", trid->traddr);
 
+	for(auto& device : nfhost->devices) {
+		if(device.trid == trid) {
+			nfhost->log.log_notic("double attach occur!");
+			// throw std::runtime_error("double attach occur!");
+			break;
+		}
+	}
 	return true;
 }
 
@@ -351,10 +371,21 @@ static void attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, s
 
 static void remove_cb(void *cb_ctx, struct spdk_nvme_ctrlr *ctrlr) {
     CNvmfhost *nfhost = (CNvmfhost *)cb_ctx;
-    struct ctrlr_entry *entry;
+    // struct ctrlr_entry *entry;
 
-    // spdk_nvme_ctrlr_get_transport_id(ctrlr, &g_trid);
-    printf("Controller %s removed\n", "wuhuwandan");
+	const spdk_nvme_transport_id* trid = spdk_nvme_ctrlr_get_transport_id(ctrlr);
+	
+	for(auto& device : nfhost->devices) {
+		if(device.trid == trid) {
+			nfhost->log.log_inf("Controller %s removed\n", device.trid->traddr);
+			device.attached = false;
+			// throw std::runtime_error("double attach occur!");
+			break;
+		}
+	}
+
+    nfhost->log.log_notic("Controller not found");
+
 }
 
 
@@ -376,14 +407,13 @@ CNvmfhost::CNvmfhost(const std::string& trid_str) {
 		}
 	}
 
+	devices.emplace_back();
 
-    spdk_nvme_transport_id* trid = new spdk_nvme_transport_id;
-    if (spdk_nvme_transport_id_parse(trid, trid_str.c_str()) != 0) {
+    if (spdk_nvme_transport_id_parse(devices.back().trid, trid_str.c_str()) != 0) {
         fprintf(stderr, "Error parsing transport address\n");
-        delete trid;
+        devices.pop_back();
         return;
     }
-    trids.emplace_back(trid);
     nvmf_attach();
    
 }
@@ -411,13 +441,13 @@ CNvmfhost::CNvmfhost(const std::vector<std::string>& trid_strs) {
     }
 
     for(const auto& trid_str : trid_strs) {
-        spdk_nvme_transport_id* trid = new spdk_nvme_transport_id;
-        if (spdk_nvme_transport_id_parse(trid, trid_str.c_str()) != 0) {
+		devices.emplace_back();
+        if (spdk_nvme_transport_id_parse(devices.back().trid, trid_str.c_str()) != 0) {
             fprintf(stderr, "Error parsing transport address\n");
-            delete trid;
+            devices.pop_back();
             return;
         }
-        trids.emplace_back(trid);
+		
         printf("CNvmfhost created with trid: %s\n", trid_str.c_str());
     }
 
@@ -426,14 +456,14 @@ CNvmfhost::CNvmfhost(const std::vector<std::string>& trid_strs) {
 }
 
 int CNvmfhost::nvmf_attach() {
-    if (trids.empty()) {
+    if (devices.empty()) {
         fprintf(stderr, "No transport addresses to attach\n");
         return -1;
     }
     int rc = 0;
 
-    for(auto& trid : trids) {
-        rc = spdk_nvme_probe(trid, this, probe_cb, attach_cb, remove_cb);
+    for(auto& device : devices) {
+        rc = spdk_nvme_probe(device.trid, this, probe_cb, attach_cb, remove_cb);
         if (rc != 0) {
             fprintf(stderr, "spdk_nvme_probe failed\n");
             return rc;
@@ -443,10 +473,7 @@ int CNvmfhost::nvmf_attach() {
 }
 
 CNvmfhost::~CNvmfhost() {
-    for(auto& trid : trids) {
-        delete trid;
-    }
-    trids.clear();
+    devices.clear();
 
     // Cleanup all controllers and namespaces
     std::cout << "CNvmfhost destroyed" << std::endl;
@@ -455,7 +482,7 @@ CNvmfhost::~CNvmfhost() {
 void CNvmfhost::cleanup() {
 	// struct ns_entry *ns_entry, *tmp_ns_entry;
 	// struct ctrlr_entry *ctrlr_entry, *tmp_ctrlr_entry;
-	struct spdk_nvme_detach_ctx **detach_ctx = new spdk_nvme_detach_ctx *[trids.size()] { nullptr };
+	struct spdk_nvme_detach_ctx **detach_ctx = new spdk_nvme_detach_ctx *[devices.size()] { nullptr };
 
 
     // remove all namespaces and controllers
@@ -520,6 +547,22 @@ void CNvmfhost::register_ns(struct spdk_nvme_ctrlr *ctrlr, struct spdk_nvme_ns *
 
 	printf("  Namespace ID: %d size: %juGB\n", spdk_nvme_ns_get_id(ns),
 	       spdk_nvme_ns_get_size(ns) / 1000000000);
+}
+
+static std::vector<std::string> spdk_trans_type {"pcie", "rdma", "tcp", "unknow"};
+static std::string& trtypeCvt(spdk_nvme_transport_type type) {
+	if(type == SPDK_NVME_TRANSPORT_PCIE) {
+		return spdk_trans_type[0];
+	} else if (type == SPDK_NVME_TRANSPORT_RDMA) {
+		return spdk_trans_type[1];
+	} else if (type == SPDK_NVME_TRANSPORT_TCP) {
+		return spdk_trans_type[2];
+	}
+	return spdk_trans_type.back();
+};
+
+void CNvmfhost::set_logdir(const std::string& log_path) {
+	log.set_log_path(log_path + "_" + trtypeCvt(devices[0].trid->trtype) + "_" + devices[0].trid->traddr);
 }
 
 
