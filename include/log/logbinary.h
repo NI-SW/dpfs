@@ -1,3 +1,7 @@
+/*  DPFS-License-Identifier: Apache-2.0 license
+ *  Copyright (C) 2025 LBR.
+ *  All rights reserved.
+ */
 #pragma once
 #include <string>
 #include <string.h>
@@ -23,9 +27,9 @@ public:
 	std::string print_info_format;
 
 	logrecord();
-	logrecord(const std::string& s);
-	logrecord(const char*& s);
-
+	logrecord(const std::string& s) = delete;
+	logrecord(const char*& s) = delete;
+	~logrecord();
 	// out put str to file at log path you set before
 	void log_inf(const char* str, ...);
 	void log_notic(const char* str, ...);
@@ -51,10 +55,11 @@ public:
 	void set_loglevel(loglevel level);
 
 	void reset();
-	~logrecord();
 
 private:
 	loglevel logl;
+	static volatile size_t logCount;
+	static void initlogTimeguard();
 };
 char* getCmdoutput(size_t& n);
 

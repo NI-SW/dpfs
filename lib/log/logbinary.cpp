@@ -1,7 +1,15 @@
+/*  DPFS-License-Identifier: Apache-2.0 license
+ *  Copyright (C) 2025 LBR.
+ *  All rights reserved.
+ */
 #include <log/logbinary.h>
+#include <threadlock.hpp>
 #include <iostream>
 #include <cstdarg>
 #include <sys/stat.h>
+// #include <chrono>
+#include <ctime>
+#include <thread>
 #define IS_ASCII 0
 #define IS_UTF8 1
 #define IS_GBK 2
@@ -11,11 +19,36 @@
 uint8_t cvthex[16] = {0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
 		0x38, 0x39, 'a', 'b', 'c', 'd', 'e', 'f'};
 		
-logrecord::~logrecord() {
-	delete print_info;
+
+char nowtmStr[64]{ 0 };
+volatile size_t logrecord::logCount = 0;
+bool timeGuard = false;
+CSpin timeMutex;
+std::thread timeguard;
+void logrecord::initlogTimeguard() {
+	if (timeGuard) {
+		return;
+	}
+	timeGuard = true;
+
+	timeguard = std::thread([](){
+		while(logrecord::logCount > 0) {
+			time_t nowtm = time(nullptr);
+			strftime(nowtmStr, sizeof(nowtmStr), "%Y-%m-%d %H:%M:%S", localtime(&nowtm));
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		}
+		timeGuard = false;
+	});
+	
+
 }
 
 logrecord::logrecord() {
+	timeMutex.lock();
+	++logCount;
+	initlogTimeguard();
+	timeMutex.unlock();
+
 	log_path.clear();
 	logl = LOG_INFO;
 	log_info.reserve(1024);
@@ -25,6 +58,16 @@ logrecord::logrecord() {
 	print_screen = 0;
 }
 
+logrecord::~logrecord() {
+	timeMutex.lock();
+	--logCount;
+	if(logCount == 0) {
+		timeguard.join();
+	}
+	timeMutex.unlock();
+	delete print_info;
+}
+/*
 logrecord::logrecord(const std::string& s) {
 	log_path.clear();
 	logl = LOG_INFO;
@@ -48,7 +91,7 @@ logrecord::logrecord(const char*& s) {
 	print_screen = 0;
 	handle_info();
 }
-
+*/
 void logrecord::set_string(std::string& s) {
 	log_info.clear();
 	log_info = s;
@@ -66,7 +109,7 @@ void logrecord::set_log_path(const char* s) {
 }
 
 void logrecord::set_log_path(const std::string& s) {
-	log_path = s;
+	log_path.assign(s.c_str(), s.size());
 }
 
 void logrecord::handle_info() {
@@ -214,80 +257,104 @@ int logrecord::judge_format(std::string::iterator iter)
 	return IS_OTHER;
 }
 
-void logrecord::log_inf(const char* str,...) {
-	if(log_path.empty() || logl < LOG_INFO) {
+void logrecord::set_loglevel(loglevel level) {
+	logl = level;
+}
+
+void logrecord::log_inf(const char* str, ...) {
+	if(logl < LOG_INFO) {
 		return;
 	}
 	FILE* fp;
-	fp = fopen(log_path.c_str(), "a");
+	if(!log_path.empty()) {
+		fp = fopen(log_path.c_str(), "a");
+	} else {
+		fp = fopen("./logbinary.log", "a");
+	}
+
 	va_list ap;
 	va_start(ap, str);
-	fprintf(fp, "[INFO]");
+	fprintf(fp, "[%s] [INFO]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
-
-
 void logrecord::log_notic(const char* str, ...) {
-	if(log_path.empty() || logl < LOG_NOTIC) {
+	if(logl < LOG_NOTIC) {
 		return;
 	}
 	FILE* fp;
-	fp = fopen(log_path.c_str(), "a");
+	if(!log_path.empty()) {
+		fp = fopen(log_path.c_str(), "a");
+	} else {
+		fp = fopen("./logbinary.log", "a");
+	}
 	va_list ap;
 	va_start(ap, str);
-	fprintf(fp, "[NOTIC]");
+	fprintf(fp, "[%s] [NOTIC]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
 void logrecord::log_error(const char* str, ...) {
-	if(log_path.empty() || logl < LOG_ERROR) {
+	if(logl < LOG_ERROR) {
 		return;
 	}
 	FILE* fp;
-	fp = fopen(log_path.c_str(), "a");
+	if(!log_path.empty()) {
+		fp = fopen(log_path.c_str(), "a");
+	} else {
+		fp = fopen("./logbinary.log", "a");
+	}
 	va_list ap;
 	va_start(ap, str);
-	fprintf(fp, "[ERROR]");
+	fprintf(fp, "[%s] [ERROR]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
 void logrecord::log_fatal(const char* str, ...) {
-	if(log_path.empty() || logl < LOG_FATAL) {
+	if(logl < LOG_FATAL) {
 		return;
 	}
 	FILE* fp;
-	fp = fopen(log_path.c_str(), "a");
+	if(!log_path.empty()) {
+		fp = fopen(log_path.c_str(), "a");
+	} else {
+		fp = fopen("./logbinary.log", "a");
+	}
 	va_list ap;
 	va_start(ap, str);
-	fprintf(fp, "[FATAL]");
+	fprintf(fp, "[%s] [FATAL]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
 void logrecord::log_debug(const char* str, ...) {
-	if(log_path.empty() || logl < LOG_DEBUG) {
+	if(logl < LOG_DEBUG) {
 		return;
 	}
 	FILE* fp;
-	fp = fopen(log_path.c_str(), "a");
+	if(!log_path.empty()) {
+		fp = fopen(log_path.c_str(), "a");
+	} else {
+		fp = fopen("./logbinary.log", "a");
+	}
 	va_list ap;
 	va_start(ap, str);
-	fprintf(fp, "[DEBUG]");
+	fprintf(fp, "[%s] [DEBUG]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
 
 void logrecord::log_into_file() {
-	if(log_path.empty()) {
-		return;
-	}
 	FILE* fp;
-	fp = fopen(log_path.c_str(), "a");
+	if(!log_path.empty()) {
+		fp = fopen(log_path.c_str(), "a");
+	} else {
+		fp = fopen("./logbinary.log", "a");
+	}
 	fwrite(print_info_format.c_str(), print_info_format.size(), print_info_format.size(), fp);
 	// fprintf(fp, print_info_format.c_str());
 	fclose(fp);

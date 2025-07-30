@@ -1,5 +1,9 @@
-
+/*  DPFS-License-Identifier: Apache-2.0 license
+ *  Copyright (C) 2025 LBR.
+ *  All rights reserved.
+ */
 #include <threadlock.hpp>
+#include <storage/engine.hpp>
 #include <log/logbinary.h>
 #include <iostream>
 #include <list>
@@ -19,48 +23,127 @@
  * 'trtype:pcie traddr:0000.1b.00.0'
 */
 
-struct ctrlr_entry {
-	struct spdk_nvme_ctrlr		*ctrlr;
-	// TAILQ_ENTRY(ctrlr_entry)	link;
-	char				name[1024];
-};
 
-struct ns_entry {
-	struct spdk_nvme_ctrlr	*ctrlr;
-	struct spdk_nvme_ns	*ns;
-	// TAILQ_ENTRY(ns_entry)	link;
-	struct spdk_nvme_qpair	*qpair;
-};
-
+// nvmf device class
+class CNvmfhost;
+class nvmfnsDesc;
+struct io_sequence;
+// release 1.0 only support 1 namespace per controller
+// maybe in future we can support multiple namespaces per controller
+// for now, we just use a vector to store the namespaces
 class nvmfDevice {
 public:
-	nvmfDevice();
-	// delete copy construct to prevent mulity instance conflict.
-	nvmfDevice(nvmfDevice&) = delete;
+	nvmfDevice(CNvmfhost& host);
 	nvmfDevice(nvmfDevice&& tgt);
+	// delete copy construct to prevent mulity instance conflict.
+	nvmfDevice() = delete;
+	nvmfDevice(nvmfDevice&) = delete;
 	~nvmfDevice();
 
+	CNvmfhost&	nfhost;
+	std::string devdesc_str = "";
 	struct spdk_nvme_transport_id* trid;
-	bool attached;
+	struct spdk_nvme_ctrlr*	ctrlr = nullptr;
+	struct spdk_nvme_qpair	*qpair = nullptr;
+	const struct spdk_nvme_ctrlr_data *cdata = nullptr;
+	// std::vector<struct spdk_nvme_ns*> ns;
+	std::vector<nvmfnsDesc*> nsfield;
+	bool attached = false;
+
+	// total logic block count of this device
+	size_t lba_count = 0;
+	// lba start position of this device in the nvmf host
+	size_t lba_start = 0;
+	// position in the device list for this Nvmf host
+	size_t position = 0;
+
+	int read(size_t lbaPos, void* pBuf, size_t pBufLen);
+	int write(size_t lbaPos, void* pBuf, size_t pBufLen);
+	int lba_judge(size_t lba);
+
 };
 
-class CNvmfhost {
+class nvmfnsDesc {
 public:
-    CNvmfhost() = delete;
-    CNvmfhost(const std::string& trid_str);
-    CNvmfhost(const std::vector<std::string>& trid_strs);
+	nvmfnsDesc(nvmfDevice& dev, struct spdk_nvme_ns* ns);
+	nvmfnsDesc() = delete;
+	nvmfDevice& dev;
+	struct spdk_nvme_ns* ns;
+	
+	const struct spdk_nvme_ns_data* nsdata;
+	uint32_t nsid = 0;
+	uint32_t sector_size = 0; // logical block size in bytes
+	uint64_t size = 0; // in bytes
+
+	size_t blockCount = 0;
+	// lba start position of this namespace in the nvmf device
+	size_t lba_start = 0;
+	// lba bundle in a read/write i/o
+	size_t lba_bundle = 0; 
+	
+	// position in the namespace list for this Nvmf device
+	// size_t position = 0;
+
+	int read(size_t lbaPos, void* pBuf, size_t pBufLen, io_sequence* sequence);
+	int write(size_t lbaPos, void* pBuf, size_t pBufLen, io_sequence* sequence);
+
+};
+
+// for each disk host
+// this class will become context for each disk host
+class CNvmfhost : public dpfsEngine {
+public:
+    CNvmfhost();
+    // CNvmfhost(const std::vector<std::string>& trid_strs);
+
+ 	virtual int attach_device(const std::string& devdesc_str) override;
+ 	virtual int detach_device(const std::string& devdesc_str) override;
+	virtual void cleanup() override;
+    virtual void set_logdir(const std::string& log_path) override;
+    virtual int read(size_t lbaPos, void* pBuf, size_t len) override;
+    virtual int write(size_t lbaPos, void* pBuf, size_t pBufLen) override;
+    virtual int flush() override;
+    virtual int sync() override;
+	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) override;
+	virtual void set_async_mode(bool async) override;
+
     ~CNvmfhost();
-	void cleanup();
-	void register_ns(struct spdk_nvme_ctrlr *ctrlr, struct spdk_nvme_ns *ns);
 	void hello_world();
-	void set_logdir(const std::string& log_path);
+	int device_judge(size_t lba);
+	char* zmalloc(size_t size);
+	void zfree(void*);
+
+
+	void register_ns(nvmfDevice *dev, struct spdk_nvme_ns *ns);
+
+	// @return return all devices block count on this nvmf host
+	size_t total_blocks() const {
+		return devices.size();
+	}
+
+	
 
 // private:
 	logrecord log;
-    std::vector<nvmfDevice> devices;
-	std::list<ctrlr_entry*> controllers;
-	std::list<ns_entry*> namespaces;
-    int nvmf_attach();
+    std::vector<nvmfDevice*> devices;
+	bool async_mode;
+
+	// device's block count for all nvmf target on nvmf host
+	size_t block_count;
+
+	// attach all devices to the nvmf host
+    int nvmf_attach(nvmfDevice* device);
+
+	// if device is first attached, then init it
+	int init_device();
+
+	// read device info from NVMe controller
+	// this function will read the device info from NVMe controller and fill the device's describe field.
+	int read_device_info();
+
+
+	static volatile size_t hostCount;
+
 };
 
 

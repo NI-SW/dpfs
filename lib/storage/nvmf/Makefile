@@ -13,7 +13,7 @@ SPDK_LIB = $(shell PKG_CONFIG_PATH="$(PKG_CONFIG_PATH)" pkg-config --libs spdk_n
 
 CXXHEADER += -I$(SPDK_ROOT_DIR)/build/include # -I$(SPDK_ROOT_DIR)/include
 CXXFLAG += -g
-CXXLIB += $(SPDK_LIB) -ldpfs_log
+CXXLIB += $(SPDK_LIB)
 
 LIB := ../../libdpfs_nvmf.so
 

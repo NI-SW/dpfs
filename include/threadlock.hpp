@@ -58,3 +58,72 @@ private:
     CSpin& m_lock;
 };
 
+
+
+
+// now useless
+class refObj {
+public:
+	refObj() {
+		ref_count = new size_t;
+		m_lock = new CSpin();
+		objName = new std::string();
+		*objName = "refObj";
+		ref_count = 0;
+	}
+	refObj(const refObj& tgt) {
+		tgt.m_lock->lock();
+		objName = tgt.objName;
+		ref_count = tgt.ref_count;
+		m_lock = tgt.m_lock;
+		++ref_count;
+		tgt.m_lock->unlock();
+	}
+
+	refObj& operator=(const refObj& tgt) {
+		m_lock->lock();
+		if (this == &tgt) {
+			m_lock->unlock();
+			return *this;
+		}
+
+		if (--(*ref_count) == 0) {
+			delete objName;
+			delete ref_count;
+		}
+		m_lock->unlock();
+		delete m_lock;
+
+
+		tgt.m_lock->lock();
+		objName = tgt.objName;
+		ref_count = tgt.ref_count;
+		m_lock = tgt.m_lock;
+		++ref_count;
+		tgt.m_lock->unlock();
+		return *this;
+	}
+
+	refObj(refObj&& tgt) {
+		objName = tgt.objName;
+		ref_count = tgt.ref_count;
+		m_lock = tgt.m_lock;
+		tgt.objName = nullptr;
+		tgt.ref_count = nullptr;
+		tgt.m_lock = nullptr;
+	}
+
+	~refObj() {
+		m_lock->lock();
+		if (--(*ref_count) == 0) {
+			delete objName;
+			delete ref_count;
+		}
+		m_lock->unlock();
+		delete m_lock;
+	}
+private:
+	std::string* objName;
+	CSpin* m_lock;
+	size_t* ref_count;
+};
