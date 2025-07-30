@@ -1,0 +1,68 @@
+/*  DPFS-License-Identifier: Apache-2.0 license
+ *  Copyright (C) 2025 LBR.
+ *  All rights reserved.
+ */
+
+#include <string>
+
+const size_t dpfs_lba_size = 4096; // 4KB block size
+
+class dpfsEngine {
+public:
+ 	dpfsEngine() = default;
+ 	~dpfsEngine() = default;
+    
+    /*
+        @param devdesc_str: device description string, format is user defined
+        @return 0 on success, else on failure
+    */
+ 	virtual int attach_device(const std::string& devdesc_str) = 0;
+    
+    /*
+        @param devdesc_str: device description string, format is user defined
+        @return 0 on success, else on failure
+    */
+ 	virtual int detach_device(const std::string& devdesc_str) = 0;
+    
+    // @note: try to detach all devices, and free all resources
+    virtual void cleanup() = 0;
+
+    // @param log_path: log path to write log, if not set, will use default path "./logbinary.log"
+    virtual void set_logdir(const std::string& log_path) = 0;
+
+    virtual void set_async_mode(bool async) = 0;
+    
+    /*
+        @param lbaPos: logical block address position
+        @param pBuf: pointer to the buffer to read data into
+        @param len: length of the buffer in bytes
+        @return 0 on success, else on failure
+    */
+    virtual int read(size_t lbaPos, void* pBuf, size_t len) = 0;
+    
+    /*
+        @param lbaPos: logical block address position
+        @param pBuf: pointer to the buffer to read data into
+        @param len: length of the buffer in bytes
+        @return 0 on success, else on failure
+    */
+    virtual int write(size_t lbaPos, void* pBuf, size_t pBufLen) = 0;
+    
+    // flush all data to the device, ensure all data is written to the device
+    virtual int flush() = 0;
+    
+    // sync all data to the device, ensure all data is written to the device and all caches are flushed
+    virtual int sync() = 0;
+ 
+	/*
+        @param trid_str: old device trid string
+        @param new_trid_str: new device trid string to replace
+        @return 0 on success, else on failure
+        @attention the size of new device must be equal or lager than old device, redundant space in new device will not be used.
+        the new device will be initialized, data will be copied from old device to new device, 
+        after replacement, the old device will be removed from the nvmfhost list.
+        @note replace a device with new one
+	*/
+	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) = 0;
+
+};

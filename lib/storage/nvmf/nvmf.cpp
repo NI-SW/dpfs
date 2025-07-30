@@ -17,45 +17,38 @@
 #include <list>
 #include <vector>
 #include <mutex>
-// for each disk host
-// this class will become context for each disk host
+#include <thread>
 
-// static TAILQ_HEAD(, ctrlr_entry) g_controllers = TAILQ_HEAD_INITIALIZER(g_controllers);
-// static TAILQ_HEAD(, ns_entry) g_namespaces = TAILQ_HEAD_INITIALIZER(g_namespaces);
 
 static std::mutex init_mutex;
 static bool initialized = false;
 static bool g_vmd = false;
+volatile size_t CNvmfhost::hostCount = 0;
+static std::thread engineGuardThread;
 
-
-nvmfDevice::nvmfDevice() {
-	trid = new spdk_nvme_transport_id;
-	attached = false;
-}
-nvmfDevice::nvmfDevice(nvmfDevice&& tgt) : trid(tgt.trid) {
-	attached = tgt.attached;
-}
-nvmfDevice::~nvmfDevice() {
-	delete trid;
-	attached = false;
+void* engineGuardFunction() {
+	while (CNvmfhost::hostCount > 0) {
+		std::this_thread::sleep_for(std::chrono::seconds(1));
+	}
+	return nullptr;
 }
 
 
 int initSpdk() {
+	/*
+	* SPDK relies on an abstraction around the local environment
+	* named env that handles memory allocation and PCI device operations.
+	* This library must be initialized first.
+	*
+	*/
 	int rc = 0;
 	struct spdk_env_opts opts;
 	// CNvmfhost nfhost("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	
-	/*
-	 * SPDK relies on an abstraction around the local environment
-	 * named env that handles memory allocation and PCI device operations.
-	 * This library must be initialized first.
-	 *
-	 */
 	opts.opts_size = sizeof(opts);
 	spdk_env_opts_init(&opts);
 
-	opts.name = "hello_world";
+	opts.name = "DPFS";
 	rc = spdk_env_init(&opts);
 	if (rc < 0) {
 		fprintf(stderr, "Unable to initialize SPDK env\n");
@@ -73,15 +66,60 @@ int initSpdk() {
 	return rc;
 }
 
-
 struct hello_world_sequence {
-	struct ns_entry	*ns_entry;
+	nvmfDevice* dev_entry;
 	char		*buf;
 	unsigned        using_cmb_io;
 	int		is_completed;
 };
 
+struct io_sequence {
+	nvmfnsDesc* 	ns;
+	bool	is_completed;
+};
+
 static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
+	io_sequence* sequence = (io_sequence *)arg;
+
+
+	/* See if an error occurred. If so, display information
+	 * about it, and set completion value so that I/O
+	 * caller is aware that an error occurred.
+	 */
+	if (spdk_nvme_cpl_is_error(completion)) {
+		spdk_nvme_qpair_print_completion(sequence->ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
+		fprintf(stderr, "I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
+		fprintf(stderr, "Read I/O failed, aborting run\n");
+		exit(1);
+	}
+	sequence->is_completed = true;
+
+}
+
+static void write_complete(void *arg, const struct spdk_nvme_cpl *completion)
+{
+	io_sequence* sequence = (io_sequence *)arg;
+
+	/* See if an error occurred. If so, display information
+	 * about it, and set completion value so that I/O
+	 * caller is aware that an error occurred.
+	 */
+	if (spdk_nvme_cpl_is_error(completion)) {
+		spdk_nvme_qpair_print_completion(sequence->ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
+		fprintf(stderr, "I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
+		fprintf(stderr, "Write I/O failed, aborting run\n");
+		exit(1);
+	}
+	/*
+	 * The write I/O has completed.  Free the buffer associated with
+	 *  the write I/O and allocate a new zeroed buffer for reading
+	 *  the data back from the NVMe namespace.
+	 */
+	sequence->is_completed = true;
+}
+
+
+static void hello_read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	struct hello_world_sequence *sequence = (hello_world_sequence *)arg;
 
 	/* Assume the I/O was successful */
@@ -91,7 +129,7 @@ static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	 * caller is aware that an error occurred.
 	 */
 	if (spdk_nvme_cpl_is_error(completion)) {
-		spdk_nvme_qpair_print_completion(sequence->ns_entry->qpair, (struct spdk_nvme_cpl *)completion);
+		spdk_nvme_qpair_print_completion(sequence->dev_entry->qpair, (struct spdk_nvme_cpl *)completion);
 		fprintf(stderr, "I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
 		fprintf(stderr, "Read I/O failed, aborting run\n");
 		sequence->is_completed = 2;
@@ -113,11 +151,10 @@ static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	spdk_free(sequence->buf);
 }
 
-static void
-write_complete(void *arg, const struct spdk_nvme_cpl *completion)
+static void hello_write_complete(void *arg, const struct spdk_nvme_cpl *completion)
 {
 	struct hello_world_sequence	*sequence = (hello_world_sequence *)arg;
-	struct ns_entry			*ns_entry = sequence->ns_entry;
+	// struct ns_entry			*ns_entry = sequence->ns_entry;
 	int				rc;
 
 	/* See if an error occurred. If so, display information
@@ -125,7 +162,7 @@ write_complete(void *arg, const struct spdk_nvme_cpl *completion)
 	 * caller is aware that an error occurred.
 	 */
 	if (spdk_nvme_cpl_is_error(completion)) {
-		spdk_nvme_qpair_print_completion(sequence->ns_entry->qpair, (struct spdk_nvme_cpl *)completion);
+		spdk_nvme_qpair_print_completion(sequence->dev_entry->qpair, (struct spdk_nvme_cpl *)completion);
 		fprintf(stderr, "I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
 		fprintf(stderr, "Write I/O failed, aborting run\n");
 		sequence->is_completed = 2;
@@ -137,67 +174,29 @@ write_complete(void *arg, const struct spdk_nvme_cpl *completion)
 	 *  the data back from the NVMe namespace.
 	 */
 	if (sequence->using_cmb_io) {
-		spdk_nvme_ctrlr_unmap_cmb(ns_entry->ctrlr);
+		spdk_nvme_ctrlr_unmap_cmb(sequence->dev_entry->ctrlr);
 	} else {
 		spdk_free(sequence->buf);
 	}
 	sequence->buf = (char *)spdk_zmalloc(0x1000, 0x1000, NULL, SPDK_ENV_NUMA_ID_ANY, SPDK_MALLOC_DMA);
 
-	rc = spdk_nvme_ns_cmd_read(ns_entry->ns, ns_entry->qpair, sequence->buf,
+	rc = spdk_nvme_ns_cmd_read(sequence->dev_entry->nsfield[0]->ns, sequence->dev_entry->qpair, sequence->buf,
 				   0, /* LBA start */
 				   1, /* number of LBAs */
-				   read_complete, (void *)sequence, 0);
+				   hello_read_complete, (void *)sequence, 0);
 	if (rc != 0) {
 		fprintf(stderr, "starting read I/O failed\n");
 		exit(1);
 	}
 }
 
-static void
-reset_zone_complete(void *arg, const struct spdk_nvme_cpl *completion)
-{
-	struct hello_world_sequence *sequence = (hello_world_sequence *)arg;
-
-	/* Assume the I/O was successful */
-	sequence->is_completed = 1;
-	/* See if an error occurred. If so, display information
-	 * about it, and set completion value so that I/O
-	 * caller is aware that an error occurred.
-	 */
-	if (spdk_nvme_cpl_is_error(completion)) {
-		spdk_nvme_qpair_print_completion(sequence->ns_entry->qpair, (struct spdk_nvme_cpl *)completion);
-		fprintf(stderr, "I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
-		fprintf(stderr, "Reset zone I/O failed, aborting run\n");
-		sequence->is_completed = 2;
-		exit(1);
-	}
-}
-
-static void
-reset_zone_and_wait_for_completion(struct hello_world_sequence *sequence)
-{
-	if (spdk_nvme_zns_reset_zone(sequence->ns_entry->ns, sequence->ns_entry->qpair,
-				     0, /* starting LBA of the zone to reset */
-				     false, /* don't reset all zones */
-				     reset_zone_complete,
-				     sequence)) {
-		fprintf(stderr, "starting reset zone I/O failed\n");
-		exit(1);
-	}
-	while (!sequence->is_completed) {
-		spdk_nvme_qpair_process_completions(sequence->ns_entry->qpair, 0);
-	}
-	sequence->is_completed = 0;
-}
-
 void CNvmfhost::hello_world() {
 	// struct ns_entry			*ns_entry;
 	struct hello_world_sequence	sequence;
-	int				rc;
-	size_t				sz;
+	int				rc = 0;
+	size_t			sz = 0;
 
-    for(auto& ns_entry : namespaces) {
-	// TAILQ_FOREACH(ns_entry, &g_namespaces, link) {
+    for(auto& dev : devices) {
 		/*
 		 * Allocate an I/O qpair that we can use to submit read/write requests
 		 *  to namespaces on the controller.  NVMe controllers typically support
@@ -210,11 +209,20 @@ void CNvmfhost::hello_world() {
 		 *  qpair.  This enables extremely efficient I/O processing by making all
 		 *  I/O operations completely lockless.
 		 */
-		ns_entry->qpair = spdk_nvme_ctrlr_alloc_io_qpair(ns_entry->ctrlr, NULL, 0);
-		if (ns_entry->qpair == NULL) {
-			printf("ERROR: spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
-			return;
-		}
+		// spdk_nvme_io_qpair_opts opts;
+		// spdk_nvme_ctrlr_get_default_io_qpair_opts(dev->ctrlr, &opts, sizeof(opts));
+
+		// if(async_mode) {
+		// 	opts.create_only = true; // Create the qpair without connecting it
+		// } else {
+		// 	opts.create_only = false; // Create and connect the qpair immediately
+		// }
+
+		// dev->qpair = spdk_nvme_ctrlr_alloc_io_qpair(dev->ctrlr, NULL, 0);
+		// if (dev->qpair == NULL) {
+		// 	printf("ERROR: spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
+		// 	return;
+		// }
 
 		/*
 		 * Use spdk_dma_zmalloc to allocate a 4KB zeroed buffer.  This memory
@@ -222,31 +230,32 @@ void CNvmfhost::hello_world() {
 		 * I/O operations.
 		 */
 		sequence.using_cmb_io = 1;
-		sequence.buf = (char *)spdk_nvme_ctrlr_map_cmb(ns_entry->ctrlr, &sz);
+		sequence.buf = (char *)spdk_nvme_ctrlr_map_cmb(dev->ctrlr, &sz);
 		if (sequence.buf == NULL || sz < 0x1000) {
+			log.log_inf("map_cmb sz = %d\n", sz);
 			sequence.using_cmb_io = 0;
 			sequence.buf = (char *)spdk_zmalloc(0x1000, 0x1000, NULL, SPDK_ENV_NUMA_ID_ANY, SPDK_MALLOC_DMA);
 		}
 		if (sequence.buf == NULL) {
-			printf("ERROR: write buffer allocation failed\n");
+			log.log_error("write buffer allocation failed\n");
 			return;
 		}
 		if (sequence.using_cmb_io) {
-			printf("INFO: using controller memory buffer for IO\n");
+			log.log_inf("using controller memory buffer for IO\n");
 		} else {
-			printf("INFO: using host memory buffer for IO\n");
+			log.log_inf("using host memory buffer for IO\n");
 		}
 		sequence.is_completed = 0;
-		sequence.ns_entry = ns_entry;
-
+		sequence.dev_entry = dev;
+		
 		/*
 		 * If the namespace is a Zoned Namespace, rather than a regular
 		 * NVM namespace, we need to reset the first zone, before we
 		 * write to it. This not needed for regular NVM namespaces.
 		 */
-		if (spdk_nvme_ns_get_csi(ns_entry->ns) == SPDK_NVME_CSI_ZNS) {
-			reset_zone_and_wait_for_completion(&sequence);
-		}
+		// if (spdk_nvme_ns_get_csi(dev->nsfield[0]->ns) == SPDK_NVME_CSI_ZNS) {
+		// 	reset_zone_and_wait_for_completion(&sequence);
+		// }
 
 		/*
 		 * Print DATA_BUFFER_STRING to sequence.buf. We will write this data to LBA
@@ -269,10 +278,10 @@ void CNvmfhost::hello_world() {
 		 *  It is the responsibility of the application to trigger the polling
 		 *  process.
 		 */
-		rc = spdk_nvme_ns_cmd_write(ns_entry->ns, ns_entry->qpair, sequence.buf,
+		rc = spdk_nvme_ns_cmd_write(dev->nsfield[0]->ns, dev->qpair, sequence.buf,
 					    0, /* LBA start */
 					    1, /* number of LBAs */
-					    write_complete, &sequence, 0);
+					    hello_write_complete, &sequence, 0);
 		if (rc != 0) {
 			fprintf(stderr, "starting write I/O failed\n");
 			exit(1);
@@ -292,7 +301,7 @@ void CNvmfhost::hello_world() {
 		 *  break this loop and then exit the program.
 		 */
 		while (!sequence.is_completed) {
-			spdk_nvme_qpair_process_completions(ns_entry->qpair, 0);
+			spdk_nvme_qpair_process_completions(dev->qpair, 0);
 		}
 
 		/*
@@ -301,37 +310,141 @@ void CNvmfhost::hello_world() {
 		 *  operation.  It is the responsibility of the caller to ensure all
 		 *  pending I/O are completed before trying to free the qpair.
 		 */
-		spdk_nvme_ctrlr_free_io_qpair(ns_entry->qpair);
+		// spdk_nvme_ctrlr_free_io_qpair(dev->qpair);
 	}
 }
 
-static bool probe_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, struct spdk_nvme_ctrlr_opts *opts) {
-    CNvmfhost *nfhost = (CNvmfhost *)cb_ctx;
-	nfhost->log.log_inf("Attaching to %s\n", trid->traddr);
 
-	for(auto& device : nfhost->devices) {
-		if(device.trid == trid) {
-			nfhost->log.log_notic("double attach occur!");
-			// throw std::runtime_error("double attach occur!");
-			break;
-		}
+nvmfnsDesc::nvmfnsDesc(nvmfDevice& dev, struct spdk_nvme_ns* ns) : dev(dev), ns(ns) {
+	nsdata = spdk_nvme_ns_get_data(ns);
+	nsid = spdk_nvme_ns_get_id(ns);
+	sector_size = spdk_nvme_ns_get_sector_size(ns);
+	size = spdk_nvme_ns_get_size(ns);
+
+	if(dpfs_lba_size % sector_size != 0) {
+		delete this;
+		throw std::runtime_error("NVMf namespace sector size is not suitable for dpfs_lba_size.\n");
 	}
+
+	lba_bundle = dpfs_lba_size / sector_size;
+
+	// inner lba range [0, blockCount - 1]
+	blockCount = size / sector_size; 
+	lba_start = dev.lba_count;
+
+}
+
+int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t pBufLen, io_sequence* sequence) {
+	/*
+	* map device lba to namespace lba
+	*/
+	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
+	size_t lba_count = lba_bundle * (pBufLen % dpfs_lba_size == 0 ? pBufLen / dpfs_lba_size : pBufLen / dpfs_lba_size + 1);
+	return spdk_nvme_ns_cmd_read(ns, dev.qpair, pBuf, lba_ns, lba_count, read_complete, sequence, 0);
+
+}
+
+int nvmfnsDesc::write(size_t lba_device, void* pBuf, size_t pBufLen, io_sequence* sequence) {
+	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
+	size_t lba_count = lba_bundle * (pBufLen % dpfs_lba_size == 0 ? pBufLen / dpfs_lba_size : pBufLen / dpfs_lba_size + 1);
+	return spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_count, write_complete, sequence, 0);
+}
+
+nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
+	attached = false;
+	trid = new spdk_nvme_transport_id;
+}
+
+nvmfDevice::nvmfDevice(nvmfDevice&& tgt) : nfhost(tgt.nfhost) {
+	trid = tgt.trid;
+	attached = tgt.attached;
+	lba_count = tgt.lba_count;
+	nsfield.swap(tgt.nsfield);
+	ctrlr = tgt.ctrlr;
+	qpair = tgt.qpair;
+	devdesc_str.swap(tgt.devdesc_str);
+	lba_start = tgt.lba_start;
+	position = tgt.position;
+
+	tgt.trid = nullptr;
+	tgt.ctrlr = nullptr;
+	tgt.qpair = nullptr;
+
+}
+
+nvmfDevice::~nvmfDevice() {
+	delete trid;
+	attached = false;
+}
+
+int nvmfDevice::lba_judge(size_t lba) {
+	/*
+	* judge lba in which namespace
+	*/
+	int rc = 0;
+	for (auto& nsd : nsfield) {
+		if(nsd->lba_start <= lba) {
+			++rc;
+			continue;
+		}
+		return rc - 1;
+	}
+	return rc - 1; // not found
+}
+
+int nvmfDevice::read(size_t lba_host, void* pBuf, size_t pBufLen) {
+	/*
+	* map host lba to device lba
+	*/
+	size_t lba_device = lba_host - lba_start;
+	io_sequence sequence;
+	sequence.ns = nsfield[lba_judge(lba_device)];
+	sequence.is_completed = false;
+	int rc = sequence.ns->read(lba_device, pBuf, pBufLen, &sequence);
+	
+	while(!sequence.is_completed) {
+		// wait for completion
+		spdk_nvme_qpair_process_completions(qpair, 0);
+	}
+
+	return rc;
+}
+
+int nvmfDevice::write(size_t lba_host, void* pBuf, size_t pBufLen) {
+	size_t lba_device = lba_host - lba_start;
+	io_sequence sequence;
+	sequence.ns = nsfield[lba_judge(lba_device)];
+	sequence.is_completed = false;
+	int rc = sequence.ns->write(lba_device, pBuf, pBufLen, &sequence);
+
+	return rc;
+}
+
+
+
+
+static bool probe_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, struct spdk_nvme_ctrlr_opts *opts) {
+    nvmfDevice *device = (nvmfDevice *)cb_ctx;
+	CNvmfhost *nfhost = &device->nfhost;
+	nfhost->log.log_inf("Attaching to %s\n", trid->traddr);
 	return true;
 }
 
 static void attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, struct spdk_nvme_ctrlr *ctrlr, const struct spdk_nvme_ctrlr_opts *opts) {
-	int nsid;
-	struct ctrlr_entry *entry;
+	uint32_t nsid;
 	struct spdk_nvme_ns *ns;
-	const struct spdk_nvme_ctrlr_data *cdata;
+	nvmfDevice* device = (nvmfDevice*)cb_ctx;
+	CNvmfhost* fh = &device->nfhost;
 
-	CNvmfhost* fh = (CNvmfhost*)cb_ctx;
+	device->ctrlr = ctrlr;
+	device->attached = true;
+	fh->log.log_inf("Controller %s attached\n", trid->traddr);
 
-	entry = (ctrlr_entry *)malloc(sizeof(struct ctrlr_entry));
-	if (entry == NULL) {
-		perror("ctrlr_entry malloc");
-		exit(1);
-	}
+	// entry = (ctrlr_entry *)malloc(sizeof(struct ctrlr_entry));
+	// if (entry == NULL) {
+	// 	perror("ctrlr_entry malloc");
+	// 	exit(1);
+	// }
 
 	printf("Attached to %s\n", trid->traddr);
 
@@ -343,13 +456,13 @@ static void attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, s
 	 *  detailed information on the controller.  Refer to the NVMe
 	 *  specification for more details on IDENTIFY for NVMe controllers.
 	 */
-	cdata = spdk_nvme_ctrlr_get_data(ctrlr);
+	device->cdata = spdk_nvme_ctrlr_get_data(ctrlr);
 
-	snprintf(entry->name, sizeof(entry->name), "%-20.20s (%-20.20s)", cdata->mn, cdata->sn);
+	// snprintf(entry->name, sizeof(entry->name), "%-20.20s (%-20.20s)", cdata->mn, cdata->sn);
 
-	entry->ctrlr = ctrlr;
+	// entry->ctrlr = ctrlr;
 	// TAILQ_INSERT_TAIL(&g_controllers, entry, link);
-    fh->controllers.push_back(entry);
+    // fh->controllers.push_back(entry);
 
 	/*
 	 * Each controller has one or more namespaces.  An NVMe namespace is basically
@@ -359,160 +472,125 @@ static void attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, s
 	 *
 	 * Note that in NVMe, namespace IDs start at 1, not 0.
 	 */
-	for (nsid = spdk_nvme_ctrlr_get_first_active_ns(ctrlr); nsid != 0;
-	     nsid = spdk_nvme_ctrlr_get_next_active_ns(ctrlr, nsid)) {
+	for (nsid = spdk_nvme_ctrlr_get_first_active_ns(ctrlr); nsid != 0; nsid = spdk_nvme_ctrlr_get_next_active_ns(ctrlr, nsid)) {
 		ns = spdk_nvme_ctrlr_get_ns(ctrlr, nsid);
-		if (ns == NULL) {
+		if (ns == nullptr) {
 			continue;
 		}
-		fh->register_ns(ctrlr, ns);
+
+		device->nsfield.emplace_back(new nvmfnsDesc(*device, ns));
+		device->lba_count += (device->nsfield.back()->size / dpfs_lba_size); // adjust 4 KB block size
+
+		fh->register_ns(device, ns);
 	}
 }
 
 static void remove_cb(void *cb_ctx, struct spdk_nvme_ctrlr *ctrlr) {
-    CNvmfhost *nfhost = (CNvmfhost *)cb_ctx;
-    // struct ctrlr_entry *entry;
+	nvmfDevice* device = (nvmfDevice*)cb_ctx;
+	CNvmfhost* fh = &device->nfhost;
 
-	const spdk_nvme_transport_id* trid = spdk_nvme_ctrlr_get_transport_id(ctrlr);
+	// const spdk_nvme_transport_id* trid = spdk_nvme_ctrlr_get_transport_id(ctrlr);
 	
-	for(auto& device : nfhost->devices) {
-		if(device.trid == trid) {
-			nfhost->log.log_inf("Controller %s removed\n", device.trid->traddr);
-			device.attached = false;
-			// throw std::runtime_error("double attach occur!");
-			break;
-		}
-	}
+	// for(auto& dev : fh->devices) {
+	// 	if(dev->trid == trid) {
+	// 		fh->log.log_inf("Controller %s removed\n", dev->trid->traddr);
+	// 		dev->attached = false;
+	// 		// throw std::runtime_error("double attach occur!");
+	// 		break;
+	// 	}
+	// }
 
-    nfhost->log.log_notic("Controller not found");
-
-}
-
-
-
-
-CNvmfhost::CNvmfhost(const std::string& trid_str) {
-	if(!initialized) {
-		init_mutex.lock();
-		if(initialized) {
-			init_mutex.unlock();
-		} else {
-			initialized = true;
-			int rc = initSpdk();
-			if (rc != 0) {
-				throw std::runtime_error("Failed to initialize SPDK environment");
-				exit(1);
-			}
-			init_mutex.unlock();
-		}
-	}
-
-	devices.emplace_back();
-
-    if (spdk_nvme_transport_id_parse(devices.back().trid, trid_str.c_str()) != 0) {
-        fprintf(stderr, "Error parsing transport address\n");
-        devices.pop_back();
-        return;
-    }
-    nvmf_attach();
-   
-}
-
-CNvmfhost::CNvmfhost(const std::vector<std::string>& trid_strs) {
-
-	if(!initialized) {
-		init_mutex.lock();
-		if(initialized) {
-			init_mutex.unlock();
-		} else {
-			initialized = true;
-			int rc = initSpdk();
-			if (rc != 0) {
-				throw std::runtime_error("Failed to initialize SPDK environment");
-				exit(1);
-			}
-			init_mutex.unlock();
-		}
-	}
-
-    if (trid_strs.empty()) {
-        fprintf(stderr, "No transport addresses provided\n");
-        exit(1);
-    }
-
-    for(const auto& trid_str : trid_strs) {
-		devices.emplace_back();
-        if (spdk_nvme_transport_id_parse(devices.back().trid, trid_str.c_str()) != 0) {
-            fprintf(stderr, "Error parsing transport address\n");
-            devices.pop_back();
-            return;
-        }
-		
-        printf("CNvmfhost created with trid: %s\n", trid_str.c_str());
-    }
-
-    nvmf_attach();
+    fh->log.log_notic("Controller removed\n");
 
 }
 
-int CNvmfhost::nvmf_attach() {
-    if (devices.empty()) {
-        fprintf(stderr, "No transport addresses to attach\n");
-        return -1;
-    }
-    int rc = 0;
+CNvmfhost::CNvmfhost() : async_mode(false) {
+	init_mutex.lock();
+	++hostCount;
+	if(initialized) {
 
-    for(auto& device : devices) {
-        rc = spdk_nvme_probe(device.trid, this, probe_cb, attach_cb, remove_cb);
-        if (rc != 0) {
-            fprintf(stderr, "spdk_nvme_probe failed\n");
-            return rc;
-        }
-    }
-    return rc;
+	} else {
+		initialized = true;
+		int rc = initSpdk();
+		if (rc != 0) {
+			log.log_fatal("Failed to initialize SPDK environment: %d\n", rc);
+			// throw std::runtime_error("Failed to initialize SPDK environment");
+			exit(1);
+		}
+		engineGuardThread = std::thread(engineGuardFunction);
+	}
+	init_mutex.unlock();
 }
 
 CNvmfhost::~CNvmfhost() {
-    devices.clear();
-
+	init_mutex.lock();
+	--hostCount;
+	if (hostCount == 0) {
+		spdk_vmd_fini();
+		spdk_env_fini();
+		engineGuardThread.join();
+		initialized = false;
+	}
+	init_mutex.unlock();
+	
     // Cleanup all controllers and namespaces
-    std::cout << "CNvmfhost destroyed" << std::endl;
+	cleanup();
+    log.log_notic("CNvmfhost destroyed\n");
+}
+
+int CNvmfhost::nvmf_attach(nvmfDevice* device) {
+    if (device->attached) {
+        log.log_notic("transport addresses already attached\n");
+        return 1;
+    }
+    int rc = 0;
+
+
+	rc = spdk_nvme_probe(device->trid, device, probe_cb, attach_cb, remove_cb);
+	if (rc != 0) {
+		log.log_error("spdk_nvme_probe failed (%d)\n", rc);
+		return rc;
+	}
+
+    return rc;
 }
 
 void CNvmfhost::cleanup() {
 	// struct ns_entry *ns_entry, *tmp_ns_entry;
 	// struct ctrlr_entry *ctrlr_entry, *tmp_ctrlr_entry;
-	struct spdk_nvme_detach_ctx **detach_ctx = new spdk_nvme_detach_ctx *[devices.size()] { nullptr };
+	if (devices.empty()) {
+		log.log_notic("No devices to cleanup\n");
+		return;
+	}
 
+	struct spdk_nvme_detach_ctx** detach_ctx = new spdk_nvme_detach_ctx* [devices.size()] { nullptr };
+	int rc = 0;
+	int i = 0;
 
-    // remove all namespaces and controllers
-    for(auto it = namespaces.begin(); it != namespaces.end();) {
-        free(*it);
-        it = namespaces.erase(it);
-        continue;
-        ++it;
-    }
-    int i = 0;
-    for(auto it = controllers.begin(); it != controllers.end();) {
-        spdk_nvme_detach_async((*it)->ctrlr, &detach_ctx[i++]);
-        free(*it);
-        it = controllers.erase(it);
-        continue;
-        ++it;
-    }
+	sync();
+	// remove all namespaces and controllers
+	for(auto& dev : devices) {
+		if (dev->attached) {
+			if(dev->qpair) {
+				spdk_nvme_ctrlr_free_io_qpair(dev->qpair);
+				dev->qpair = nullptr;
+			}
 
-
-	// TAILQ_FOREACH_SAFE(ns_entry, &g_namespaces, link, tmp_ns_entry) {
-	// 	TAILQ_REMOVE(&g_namespaces, ns_entry, link);
-	// 	free(ns_entry);
-	// }
-
-	// TAILQ_FOREACH_SAFE(ctrlr_entry, &g_controllers, link, tmp_ctrlr_entry) {
-	// 	TAILQ_REMOVE(&g_controllers, ctrlr_entry, link);
-	// 	spdk_nvme_detach_async(ctrlr_entry->ctrlr, &detach_ctx);
-	// 	free(ctrlr_entry);
-	// }
-
+			rc = spdk_nvme_detach_async(dev->ctrlr, &detach_ctx[i++]);
+			if (rc) {
+				log.log_inf("spdk_nvme_detach_async failed (%d)\n", rc);
+				continue;
+			}
+			for(auto& nsdesc : dev->nsfield) {
+				delete nsdesc;
+			}
+			dev->nsfield.clear();
+			dev->attached = false;
+			log.log_inf("Controller %s detached\n", dev->trid->traddr);
+		} else {
+			log.log_notic("Controller %s already detached\n", dev->trid->traddr);
+		}
+	}
 
     for(int j = 0; j < i; ++j) {
         if (detach_ctx[j]) {
@@ -521,36 +599,17 @@ void CNvmfhost::cleanup() {
     }
 
     delete[] detach_ctx;
-	// if (detach_ctx) {
-	// 	spdk_nvme_detach_poll(detach_ctx);
-	// }
 }
 
-void CNvmfhost::register_ns(struct spdk_nvme_ctrlr *ctrlr, struct spdk_nvme_ns *ns)
-{
-	struct ns_entry *entry;
+void CNvmfhost::register_ns(nvmfDevice* dev, struct spdk_nvme_ns* ns) {
+	
+	log.log_inf("  Namespace ID: %d size: %juGB = %lluB\n", spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_size(ns) / 1024/1024/1024, spdk_nvme_ns_get_size(ns));
+	log.log_inf("nsid : %u  sector_size : %u  size: %llu\n", spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_sector_size(ns), spdk_nvme_ns_get_size(ns));
 
-	if (!spdk_nvme_ns_is_active(ns)) {
-		return;
-	}
-
-	entry = (ns_entry*)malloc(sizeof(struct ns_entry));
-	if (entry == NULL) {
-		perror("ns_entry malloc");
-		exit(1);
-	}
-
-	entry->ctrlr = ctrlr;
-	entry->ns = ns;
-	// TAILQ_INSERT_TAIL(&g_namespaces, entry, link);
-    namespaces.push_back(entry);
-
-	printf("  Namespace ID: %d size: %juGB\n", spdk_nvme_ns_get_id(ns),
-	       spdk_nvme_ns_get_size(ns) / 1000000000);
 }
 
-static std::vector<std::string> spdk_trans_type {"pcie", "rdma", "tcp", "unknow"};
-static std::string& trtypeCvt(spdk_nvme_transport_type type) {
+static const std::vector<std::string> spdk_trans_type {"pcie", "rdma", "tcp", "unknow"};
+static const std::string& trtypeCvt(spdk_nvme_transport_type type) {
 	if(type == SPDK_NVME_TRANSPORT_PCIE) {
 		return spdk_trans_type[0];
 	} else if (type == SPDK_NVME_TRANSPORT_RDMA) {
@@ -562,37 +621,150 @@ static std::string& trtypeCvt(spdk_nvme_transport_type type) {
 };
 
 void CNvmfhost::set_logdir(const std::string& log_path) {
-	log.set_log_path(log_path + "_" + trtypeCvt(devices[0].trid->trtype) + "_" + devices[0].trid->traddr);
+	log.set_log_path(log_path + "nvmfhost_" + trtypeCvt(devices[0]->trid->trtype) + "_" + devices[0]->trid->traddr + ".log");
+}
+void CNvmfhost::set_async_mode(bool async) {
+	async_mode = async;
 }
 
-
-/*
-int
-main(int argc, char **argv)
-{
-	CNvmfhost nfhost("trtype:pcie traddr:0000.1b.00.0");
+int CNvmfhost::attach_device(const std::string& devdesc_str) {
 	int rc = 0;
+	nvmfDevice* ndev = new nvmfDevice(*this);
 
-	if (nfhost.controllers.empty()) {
-		fprintf(stderr, "no NVMe controllers found\n");
-		rc = 1;
-		goto exit;
+	ndev->devdesc_str = devdesc_str;
+	rc = spdk_nvme_transport_id_parse(ndev->trid, devdesc_str.c_str());
+    if (rc != 0) {
+        log.log_error("Error parsing transport address\n");
+		delete ndev;
+        return rc;
+    }
+	
+    rc = nvmf_attach(ndev);
+	if(rc) {
+		log.log_error("Failed to attach device %s\n", devdesc_str.c_str());
+		delete ndev;
+		return rc;
 	}
 
-	printf("Initialization complete.\n");
-	nfhost.hello_world();
+	if(devices.empty()) {
+		ndev->lba_start = 0;
+	} else {
+		ndev->lba_start = devices.back()->lba_start + devices.back()->lba_count;
+	}
+	spdk_nvme_io_qpair_opts qpopts;
+	spdk_nvme_ctrlr_get_default_io_qpair_opts(ndev->ctrlr, &qpopts, sizeof(qpopts));
 
-exit:
-	
-	fflush(stdout);
-	nfhost.cleanup();
-	
-	if (g_vmd) {
-		spdk_vmd_fini();
+	if(async_mode) {
+		qpopts.async_mode = true;
+	} else {
+		qpopts.async_mode = false;
 	}
 
-	spdk_env_fini();
+	ndev->qpair = spdk_nvme_ctrlr_alloc_io_qpair(ndev->ctrlr, &qpopts, sizeof(qpopts));
+	if (ndev->qpair == nullptr) {
+		log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
+		delete ndev;
+		return rc;
+	}
+
+	devices.emplace_back(ndev);
+	return rc;
+	// spdk_nvme_ns_is_active(ns)
+}
+
+int CNvmfhost::detach_device(const std::string& devdesc_str) {
+	int rc = 0;
+	for(auto dev = devices.begin(); dev != devices.end(); ++dev) {
+		if((*dev)->devdesc_str == devdesc_str) {
+			if((*dev)->attached) {
+				if((*dev)->qpair) {
+					while(spdk_nvme_qpair_get_num_outstanding_reqs((*dev)->qpair)) {
+						spdk_nvme_qpair_process_completions((*dev)->qpair, 0);
+						std::this_thread::sleep_for(std::chrono::milliseconds(10));
+					}
+					spdk_nvme_ctrlr_free_io_qpair((*dev)->qpair);
+					(*dev)->qpair = nullptr;
+				}
+				spdk_nvme_detach_ctx *detach_ctx = nullptr;
+				rc = spdk_nvme_detach_async((*dev)->ctrlr, &detach_ctx);
+				if(rc) {
+					log.log_error("spdk_nvme_detach_async failed (%d)\n", rc);
+					return rc;
+				}
+				for(auto& nsdesc : (*dev)->nsfield) {
+					delete nsdesc;
+				}
+
+				(*dev)->nsfield.clear();
+				(*dev)->attached = false;
+
+				if (detach_ctx) {
+					spdk_nvme_detach_poll(detach_ctx);
+				}
+
+
+				log.log_inf("Device %s detached\n", (*dev)->devdesc_str.c_str());
+			} else {
+				log.log_notic("Device %s already detached\n", (*dev)->devdesc_str.c_str());
+			}
+			delete *dev;
+			devices.erase(dev);
+			return rc;
+		}
+	}
 	return rc;
 }
 
-*/
+int CNvmfhost::device_judge(size_t lba) {
+	int rc = 0;
+	for(auto& dev : devices) {
+		if(dev->lba_start <= lba) {
+			++rc;
+			continue;
+		}
+		return rc - 1;
+	}
+	return rc - 1;
+}
+
+int CNvmfhost::read(size_t lba, void* pBuf, size_t pBufLen) { 
+	return devices[device_judge(lba)]->read(lba, pBuf, pBufLen);
+}
+int CNvmfhost::write(size_t lba, void* pBuf, size_t pBufLen) {
+	return devices[device_judge(lba)]->write(lba, pBuf, pBufLen);
+}
+
+int CNvmfhost::flush() { 
+	
+	return 0;
+}
+ 
+int CNvmfhost::sync() {
+	for(auto& dev : devices) {
+		if(dev->attached) {
+			uint32_t num = spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair);
+			while(num) {
+				spdk_nvme_qpair_process_completions(dev->qpair, 0);
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
+				num = spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair);
+			}
+		}
+	}
+	return 0;
+}
+
+int CNvmfhost::replace_device(const std::string& trid_str, const std::string& new_trid_str) {return 0;}
+
+char* CNvmfhost::zmalloc(size_t size) {
+	return (char*)spdk_zmalloc(size, dpfs_lba_size, NULL, SPDK_ENV_NUMA_ID_ANY, SPDK_MALLOC_DMA);
+}
+void CNvmfhost::zfree(void* p) {
+	spdk_free(p);
+}
+
+
+
+
+
+
