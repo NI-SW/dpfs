@@ -19,7 +19,7 @@
  * 对于一个host下的所有nvme设备，使用一个类来管理，对外提供的接口将所有硬盘抽象为一个块空间，块大小为4KB
  * trid_str: 传入的trid字符串列表, 例:
  * 'trtype:tcp  adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1'
- * 'trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1'
+ * 'trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1'
  * 'trtype:pcie traddr:0000.1b.00.0'
 */
 
@@ -103,15 +103,16 @@ public:
     virtual int read(size_t lbaPos, void* pBuf, size_t len) override;
     virtual int write(size_t lbaPos, void* pBuf, size_t pBufLen) override;
     virtual int flush() override;
-    virtual int sync() override;
-	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) override;
+    virtual int sync(size_t n = 0) override;
+	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) override = delete;
 	virtual void set_async_mode(bool async) override;
+	virtual int copy(const dpfsEngine& tgt);
 
     ~CNvmfhost();
 	void hello_world();
-	int device_judge(size_t lba);
-	char* zmalloc(size_t size);
-	void zfree(void*);
+	int device_judge(size_t lba) const;
+	void* zmalloc(size_t size) const;
+	void zfree(void*) const;
 
 
 	void register_ns(nvmfDevice *dev, struct spdk_nvme_ns *ns);

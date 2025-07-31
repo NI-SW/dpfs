@@ -18,7 +18,4 @@ CXXLIB += $(SPDK_LIB)
 LIB := ../../libdpfs_nvmf.so
 
 
-
-# OBJS += 
-
 include $(DPFS_ROOT_DIR)/mk/dpfs.lib.mk

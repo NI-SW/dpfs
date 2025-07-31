@@ -30,6 +30,7 @@ public:
     // @param log_path: log path to write log, if not set, will use default path "./logbinary.log"
     virtual void set_logdir(const std::string& log_path) = 0;
 
+    // @param async: set asynchronous mode, if true, will use asynchronous I/O, else will use synchronous I/O
     virtual void set_async_mode(bool async) = 0;
     
     /*
@@ -38,7 +39,7 @@ public:
         @param len: length of the buffer in bytes
         @return 0 on success, else on failure
     */
-    virtual int read(size_t lbaPos, void* pBuf, size_t len) = 0;
+    virtual int read(size_t lbaPos, void* pBuf, size_t pBufLen) = 0;
     
     /*
         @param lbaPos: logical block address position
@@ -51,8 +52,11 @@ public:
     // flush all data to the device, ensure all data is written to the device
     virtual int flush() = 0;
     
-    // sync all data to the device, ensure all data is written to the device and all caches are flushed
-    virtual int sync() = 0;
+    /*
+       @note sync n async submit, if not specified, sync all asynchronous operations, before use this func you must set_async_mode(true)
+       @param n: number of asynchronous operations to sync, if 0, sync all
+    */
+    virtual int sync(size_t n = 0) = 0;
  
 	/*
         @param trid_str: old device trid string
@@ -63,6 +67,13 @@ public:
         after replacement, the old device will be removed from the nvmfhost list.
         @note replace a device with new one
 	*/
-	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) = 0;
+	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) = delete;
+
+    /*
+        @param tgt: target engine to copy from
+        @return 0 on success, else on failure
+        @note copy the target device to this engine, the target engine must be of the same type as this engine. will create new device handlers to same device
+    */
+    virtual int copy(const dpfsEngine& tgt) = 0;
 
 };
