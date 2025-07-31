@@ -51,6 +51,7 @@ public:
 	// set log path
 	void set_log_path(const char* s);
 	void set_log_path(const std::string& s);
+	const std::string& get_log_path() const;
 	// set log level
 	void set_loglevel(loglevel level);
 

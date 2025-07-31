@@ -35,7 +35,7 @@ void logrecord::initlogTimeguard() {
 		while(logrecord::logCount > 0) {
 			time_t nowtm = time(nullptr);
 			strftime(nowtmStr, sizeof(nowtmStr), "%Y-%m-%d %H:%M:%S", localtime(&nowtm));
-			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 		timeGuard = false;
 	});
@@ -110,6 +110,10 @@ void logrecord::set_log_path(const char* s) {
 
 void logrecord::set_log_path(const std::string& s) {
 	log_path.assign(s.c_str(), s.size());
+}
+
+const std::string& logrecord::get_log_path() const {
+	return log_path;
 }
 
 void logrecord::handle_info() {
