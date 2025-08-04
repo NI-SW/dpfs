@@ -18,18 +18,30 @@
 
 uint8_t cvthex[16] = {0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
 		0x38, 0x39, 'a', 'b', 'c', 'd', 'e', 'f'};
-		
+	
+std::vector<const char*> logrecord::logl_str = {
+		"FATAL",
+		"ERROR",
+		"NOTIC",
+		"INFO ",
+		"DEBUG"
+};
 
-char nowtmStr[64]{ 0 };
+char nowtmStr[32]{ 0 };
+const size_t nowtmStrSize = 20; // "yyyy-mm-dd HH:MM:SS"
+const size_t loglStrLen = 5; // "[DEBUG]" "[INFO ]"
 volatile size_t logrecord::logCount = 0;
 bool timeGuard = false;
 CSpin timeMutex;
 std::thread timeguard;
+
 void logrecord::initlogTimeguard() {
 	if (timeGuard) {
 		return;
 	}
 	timeGuard = true;
+	time_t nowtm = time(nullptr);
+	strftime(nowtmStr, sizeof(nowtmStr), "%Y-%m-%d %H:%M:%S", localtime(&nowtm));
 
 	timeguard = std::thread([](){
 		while(logrecord::logCount > 0) {
@@ -43,55 +55,57 @@ void logrecord::initlogTimeguard() {
 
 }
 
+struct log_sequence {
+	log_sequence() {
+		log_str.resize(1024);
+	}
+	~log_sequence() {
+	}
+	std::string log_str;
+	logrecord::loglevel logl;
+	size_t len;
+	size_t logfile_pos;
+};
+ 
 logrecord::logrecord() {
 	timeMutex.lock();
 	++logCount;
 	initlogTimeguard();
 	timeMutex.unlock();
 
-	log_path.clear();
 	logl = LOG_INFO;
+	log_files.emplace_back("./logbinary.log");
 	log_info.reserve(1024);
 	print_info_format.reserve(1024);
 	print_info = new char[16];
 	memset(print_info, '\0', 16);
 	print_screen = 0;
+	log_seqs.clear();
+	m_exit = false;
+	async_mode = false;
+
 }
 
 logrecord::~logrecord() {
+
+	delete print_info;
+	m_exit = true;
+
+	set_async_mode(false);
+
+	for(auto& seq : log_seqs) {
+		delete seq;
+	}
+	log_seqs.clear();
+	
 	timeMutex.lock();
 	--logCount;
 	if(logCount == 0) {
 		timeguard.join();
 	}
 	timeMutex.unlock();
-	delete print_info;
-}
-/*
-logrecord::logrecord(const std::string& s) {
-	log_path.clear();
-	logl = LOG_INFO;
-	log_info.reserve(1024);
-	print_info_format.reserve(1024);
-	print_info = new char[16];
-	memset(print_info, '\0', 16);
-	log_info = s;
-	print_screen = 0;
-	handle_info();
 }
 
-logrecord::logrecord(const char*& s) {
-	log_path.clear();
-	logl = LOG_INFO;
-	log_info.reserve(1024);
-	print_info_format.reserve(1024);
-	print_info = new char[16];
-	memset(print_info, '\0', 16);
-	log_info = s;
-	print_screen = 0;
-	handle_info();
-}
-*/
 void logrecord::set_string(std::string& s) {
 	log_info.clear();
 	log_info = s;
@@ -104,16 +118,99 @@ void logrecord::set_string(unsigned long long int s, size_t length) {
 	handle_info();
 }
 
-void logrecord::set_log_path(const char* s) {
-	log_path = s;
+void logrecord::set_async_mode(bool async) {
+	if(async_mode == async) {
+		return;
+	}
+
+	async_mode = async;
+
+	if(async_mode == false) {
+		if(logGuard.joinable()) {
+			logGuard.join();
+		}
+		return;
+	}
+
+	volatile bool complete = false;
+	logGuard = std::thread([this, &complete]() {
+		std::queue<log_sequence*> logQue;
+		size_t logf_pos = -1;
+		FILE* fp;
+
+		if(!log_files.empty()) {
+			fp = fopen(log_files.back().c_str(), "a");
+			logf_pos = log_files.size() - 1;
+		} else {
+			fp = fopen("./logbinary.log", "a");
+		}
+
+		if (!fp) {
+			std::cerr << "Failed to open log file: " << log_files.back() << std::endl;
+			return;
+		}
+		complete = true;
+		char loghead[64];
+		memcpy(loghead, "[YYYY-mm-dd hh:mm:ss] [INFO ]: ", 32);
+
+		
+		while(!log_queue.empty() || async_mode) {
+			
+			if(log_queue.empty()) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(200));
+				continue;
+			} 
+
+			logQueMutex.lock();
+			logQue.swap(log_queue);
+			logQueMutex.unlock();
+
+			while(!logQue.empty()) {
+
+				log_sequence* seq = logQue.front();
+				logQue.pop();
+
+				memcpy(loghead + 1, nowtmStr, 19);
+				memcpy(loghead + 23, logl_str[seq->logl], loglStrLen);
+
+				if(logf_pos != seq->logfile_pos) {
+					logf_pos = seq->logfile_pos;
+					char cghead[512];
+					sprintf(cghead, "[%s] [CHANGELOGPATH]: new log path: %s\n", nowtmStr, log_files[logf_pos].c_str());
+					fwrite(cghead, sizeof(char), sizeof(cghead), fp);
+					fclose(fp);
+					fp = fopen(log_files[logf_pos].c_str(), "a");
+				}
+
+
+
+				fwrite(loghead, sizeof(char), 32, fp);
+				fwrite(seq->log_str.c_str(), sizeof(char), seq->len, fp);
+				fflush(fp);
+
+				logSequenceMutex.lock();
+				log_seqs.push_back(seq);
+				logSequenceMutex.unlock();
+			}
+
+
+		}
+
+	});
+
+	while(!complete) {
+		// std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+	// log_inf("async mode enabled, now log path: %s\n", log_files.back().c_str());
+
 }
 
 void logrecord::set_log_path(const std::string& s) {
-	log_path.assign(s.c_str(), s.size());
+	log_files.emplace_back(s);
 }
 
 const std::string& logrecord::get_log_path() const {
-	return log_path;
+	return log_files.back();
 }
 
 void logrecord::handle_info() {
@@ -266,86 +363,303 @@ void logrecord::set_loglevel(loglevel level) {
 }
 
 void logrecord::log_inf(const char* str, ...) {
+	
 	if(logl < LOG_INFO) {
 		return;
 	}
+		
+	va_list ap;
+	va_start(ap, str);
+
+	if(async_mode) {
+		log_sequence* log_seq;
+		size_t len = 0;
+		if(log_seqs.size()) {
+			logSequenceMutex.lock();
+			if(log_seqs.size()) {
+				log_seq = log_seqs.front();
+				log_seqs.pop_front();
+				logSequenceMutex.unlock();
+			} else {
+				logSequenceMutex.unlock();
+				log_seq = new log_sequence;
+			}
+		} else {
+			log_seq = new log_sequence;
+		}
+		
+		// printf(str, ap);
+		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
+		if(len >= log_seq->log_str.size()) {
+			log_seq->log_str.resize(len + 1);
+			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		}
+		va_end(ap);
+
+		log_seq->logl = LOG_INFO;
+		log_seq->len = len + 1;
+		log_seq->logfile_pos = log_files.size() - 1; // current log file position
+
+		// printf("str is : %s len: %lu\n", log_seq->log_str.c_str(), len);
+
+
+		logQueMutex.lock();
+		log_queue.push(log_seq);
+		logQueMutex.unlock();
+		
+		
+		return;
+	} 
+
 	FILE* fp;
-	if(!log_path.empty()) {
-		fp = fopen(log_path.c_str(), "a");
+	if(!log_files.empty()) {
+		fp = fopen(log_files.back().c_str(), "a");
 	} else {
 		fp = fopen("./logbinary.log", "a");
 	}
-
-	va_list ap;
-	va_start(ap, str);
-	fprintf(fp, "[%s] [INFO]: ", nowtmStr);
+	fprintf(fp, "[%s] [INFO ]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
+	
+	return;
 }
+
 void logrecord::log_notic(const char* str, ...) {
 	if(logl < LOG_NOTIC) {
 		return;
 	}
+		
+	va_list ap;
+	va_start(ap, str);
+
+	if(async_mode) {
+		log_sequence* log_seq;
+		size_t len = 0;
+		if(log_seqs.size()) {
+			logSequenceMutex.lock();
+			if(log_seqs.size()) {
+				log_seq = log_seqs.front();
+				log_seqs.pop_front();
+				logSequenceMutex.unlock();
+			} else {
+				logSequenceMutex.unlock();
+				log_seq = new log_sequence;
+			}
+		} else {
+			log_seq = new log_sequence;
+		}
+
+		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		if(len >= log_seq->log_str.size()) {
+			log_seq->log_str.resize(len + 1);
+			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		}
+		va_end(ap);
+		log_seq->logl = LOG_NOTIC;
+		log_seq->len = len + 1;
+		log_seq->logfile_pos = log_files.size() - 1;
+
+		logQueMutex.lock();
+		log_queue.push(log_seq);
+		logQueMutex.unlock();
+		
+		
+		return;
+	}
+
 	FILE* fp;
-	if(!log_path.empty()) {
-		fp = fopen(log_path.c_str(), "a");
+	if(!log_files.empty()) {
+		fp = fopen(log_files.back().c_str(), "a");
 	} else {
 		fp = fopen("./logbinary.log", "a");
 	}
-	va_list ap;
-	va_start(ap, str);
 	fprintf(fp, "[%s] [NOTIC]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
+
+// error and fatal should not be asynchronous.
 void logrecord::log_error(const char* str, ...) {
 	if(logl < LOG_ERROR) {
 		return;
 	}
+		
+	va_list ap;
+	va_start(ap, str);
+	if(async_mode) {
+		log_sequence* log_seq;
+		size_t len = 0;
+		if(log_seqs.size()) {
+			logSequenceMutex.lock();
+			if(log_seqs.size()) {
+				log_seq = log_seqs.front();
+				log_seqs.pop_front();
+				logSequenceMutex.unlock();
+			} else {
+				logSequenceMutex.unlock();
+				log_seq = new log_sequence;
+			}
+		} else {
+			log_seq = new log_sequence;
+		}
+
+		// printf(str, ap);
+		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
+		if(len >= log_seq->log_str.size()) {
+			log_seq->log_str.resize(len + 1);
+			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		}
+		va_end(ap);
+
+		log_seq->logl = LOG_ERROR;
+		log_seq->len = len + 1;
+		log_seq->logfile_pos = log_files.size() - 1; // current log file position
+
+		// printf("str is : %s len: %lu\n", log_seq->log_str.c_str(), len);
+
+
+		logQueMutex.lock();
+		log_queue.push(log_seq);
+		logQueMutex.unlock();
+		
+		
+		return;
+	} 
+
 	FILE* fp;
-	if(!log_path.empty()) {
-		fp = fopen(log_path.c_str(), "a");
+	if(!log_files.empty()) {
+		fp = fopen(log_files.back().c_str(), "a");
 	} else {
 		fp = fopen("./logbinary.log", "a");
 	}
-	va_list ap;
-	va_start(ap, str);
 	fprintf(fp, "[%s] [ERROR]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
+
 void logrecord::log_fatal(const char* str, ...) {
 	if(logl < LOG_FATAL) {
 		return;
 	}
+
+	va_list ap;
+	va_start(ap, str);
+
+	if(async_mode) {
+		log_sequence* log_seq;
+		size_t len = 0;
+		if(log_seqs.size()) {
+			logSequenceMutex.lock();
+			if(log_seqs.size()) {
+				log_seq = log_seqs.front();
+				log_seqs.pop_front();
+				logSequenceMutex.unlock();
+			} else {
+				logSequenceMutex.unlock();
+				log_seq = new log_sequence;
+			}
+		} else {
+			log_seq = new log_sequence;
+		}
+		
+
+		// printf(str, ap);
+		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
+		if(len >= log_seq->log_str.size()) {
+			log_seq->log_str.resize(len + 1);
+			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		}
+		va_end(ap);
+
+		log_seq->logl = LOG_FATAL;
+		log_seq->len = len + 1;
+		log_seq->logfile_pos = log_files.size() - 1; // current log file position
+
+		// printf("str is : %s len: %lu\n", log_seq->log_str.c_str(), len);
+
+
+		logQueMutex.lock();
+		log_queue.push(log_seq);
+		logQueMutex.unlock();
+		
+		
+		return;
+	} 
+
 	FILE* fp;
-	if(!log_path.empty()) {
-		fp = fopen(log_path.c_str(), "a");
+	if(!log_files.empty()) {
+		fp = fopen(log_files.back().c_str(), "a");
 	} else {
 		fp = fopen("./logbinary.log", "a");
 	}
-	va_list ap;
-	va_start(ap, str);
 	fprintf(fp, "[%s] [FATAL]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
 	fclose(fp);
 }
+
 void logrecord::log_debug(const char* str, ...) {
 	if(logl < LOG_DEBUG) {
 		return;
 	}
+
+	va_list ap;
+	va_start(ap, str);
+
+	if(async_mode) {
+		log_sequence* log_seq;
+		size_t len = 0;
+		if(log_seqs.size()) {
+			logSequenceMutex.lock();
+			if(log_seqs.size()) {
+				log_seq = log_seqs.front();
+				log_seqs.pop_front();
+				logSequenceMutex.unlock();
+			} else {
+				logSequenceMutex.unlock();
+				log_seq = new log_sequence;
+			}
+		} else {
+			log_seq = new log_sequence;
+		}
+		
+
+		// printf(str, ap);
+		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
+		if(len >= log_seq->log_str.size()) {
+			log_seq->log_str.resize(len + 1);
+			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		}
+		va_end(ap);
+
+		log_seq->logl = LOG_DEBUG;
+		log_seq->len = len + 1;
+		log_seq->logfile_pos = log_files.size() - 1; // current log file position
+
+		// printf("str is : %s len: %lu\n", log_seq->log_str.c_str(), len);
+
+
+		logQueMutex.lock();
+		log_queue.push(log_seq);
+		logQueMutex.unlock();
+		
+		
+		return;
+	} 
+
 	FILE* fp;
-	if(!log_path.empty()) {
-		fp = fopen(log_path.c_str(), "a");
+	if(!log_files.empty()) {
+		fp = fopen(log_files.back().c_str(), "a");
 	} else {
 		fp = fopen("./logbinary.log", "a");
 	}
-	va_list ap;
-	va_start(ap, str);
 	fprintf(fp, "[%s] [DEBUG]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
@@ -354,8 +668,8 @@ void logrecord::log_debug(const char* str, ...) {
 
 void logrecord::log_into_file() {
 	FILE* fp;
-	if(!log_path.empty()) {
-		fp = fopen(log_path.c_str(), "a");
+	if(!log_files.empty()) {
+		fp = fopen(log_files.back().c_str(), "a");
 	} else {
 		fp = fopen("./logbinary.log", "a");
 	}

@@ -34,7 +34,7 @@ struct io_sequence;
 class nvmfDevice {
 public:
 	nvmfDevice(CNvmfhost& host);
-	nvmfDevice(nvmfDevice&& tgt);
+	nvmfDevice(nvmfDevice&& tgt) = delete;
 	// delete copy construct to prevent mulity instance conflict.
 	nvmfDevice() = delete;
 	nvmfDevice(nvmfDevice&) = delete;
@@ -44,7 +44,7 @@ public:
 	std::string devdesc_str = "";
 	struct spdk_nvme_transport_id* trid;
 	struct spdk_nvme_ctrlr*	ctrlr = nullptr;
-	struct spdk_nvme_qpair	*qpair = nullptr;
+	struct spdk_nvme_qpair* qpair = nullptr;
 	const struct spdk_nvme_ctrlr_data *cdata = nullptr;
 	// std::vector<struct spdk_nvme_ns*> ns;
 	std::vector<nvmfnsDesc*> nsfield;
@@ -57,25 +57,28 @@ public:
 	// position in the device list for this Nvmf host
 	size_t position = 0;
 
-	int read(size_t lbaPos, void* pBuf, size_t pBufLen);
-	int write(size_t lbaPos, void* pBuf, size_t pBufLen);
+	int read(size_t lbaPos, void* pBuf, size_t lbc);
+	int write(size_t lbaPos, void* pBuf, size_t lbc);
 	int lba_judge(size_t lba);
 
 };
+
 
 class nvmfnsDesc {
 public:
 	nvmfnsDesc(nvmfDevice& dev, struct spdk_nvme_ns* ns);
 	nvmfnsDesc() = delete;
+	~nvmfnsDesc();
 	nvmfDevice& dev;
 	struct spdk_nvme_ns* ns;
+	struct io_sequence* sequence;
 	
 	const struct spdk_nvme_ns_data* nsdata;
 	uint32_t nsid = 0;
 	uint32_t sector_size = 0; // logical block size in bytes
 	uint64_t size = 0; // in bytes
 
-	size_t blockCount = 0;
+	size_t lba_count = 0;
 	// lba start position of this namespace in the nvmf device
 	size_t lba_start = 0;
 	// lba bundle in a read/write i/o
@@ -84,8 +87,8 @@ public:
 	// position in the namespace list for this Nvmf device
 	// size_t position = 0;
 
-	int read(size_t lbaPos, void* pBuf, size_t pBufLen, io_sequence* sequence);
-	int write(size_t lbaPos, void* pBuf, size_t pBufLen, io_sequence* sequence);
+	int read(size_t lbaPos, void* pBuf, size_t lbc);
+	int write(size_t lbaPos, void* pBuf, size_t lbc);
 
 };
 

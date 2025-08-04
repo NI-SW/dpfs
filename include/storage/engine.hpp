@@ -37,7 +37,7 @@ public:
         @param lbaPos: logical block address position
         @param pBuf: pointer to the buffer to read data into
         @param len: length of the buffer in bytes
-        @return 0 on success, else on failure
+        @return number of submitted requests on success, else on failure
     */
     virtual int read(size_t lbaPos, void* pBuf, size_t pBufLen) = 0;
     
@@ -45,7 +45,7 @@ public:
         @param lbaPos: logical block address position
         @param pBuf: pointer to the buffer to read data into
         @param len: length of the buffer in bytes
-        @return 0 on success, else on failure
+        @return number of submitted requests on success, else on failure
     */
     virtual int write(size_t lbaPos, void* pBuf, size_t pBufLen) = 0;
     
