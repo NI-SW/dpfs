@@ -23,7 +23,7 @@ public:
         return true;
 	}
 
-    std::atomic<char> m_lock;
+    std::atomic<uint8_t> m_lock;
 };
 
 class CMutexGuard {

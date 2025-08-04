@@ -3,7 +3,7 @@
 #  All rights reserved.
 #
 
-CXXFLAG += -fPIC -shared
+CXXFLAG += -fpie -fPIC -shared
 # CXXFLAG += 
 
 all : $(LIB)

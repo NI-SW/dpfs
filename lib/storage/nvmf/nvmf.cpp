@@ -29,11 +29,12 @@ static std::thread engineGuardThread;
 
 void* engineGuardFunction() {
 	while (CNvmfhost::hostCount > 0) {
-		std::this_thread::sleep_for(std::chrono::seconds(1));
+		// std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 	return nullptr;
 }
 
+const char* eng_name = "DPFS-NVMF-Engine";
 
 int initSpdk() {
 	/*
@@ -49,7 +50,7 @@ int initSpdk() {
 	opts.opts_size = sizeof(opts);
 	spdk_env_opts_init(&opts);
 
-	opts.name = "DPFS";
+	opts.name = eng_name;
 	rc = spdk_env_init(&opts);
 	if (rc < 0) {
 		fprintf(stderr, "Unable to initialize SPDK env\n");
@@ -69,21 +70,25 @@ int initSpdk() {
 
 struct io_sequence {
 	nvmfnsDesc* 	ns;
-	bool	is_completed;
+	volatile bool   is_completed;
+	CSpin sequenceMutex;
 };
 
 static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
-	io_sequence* sequence = (io_sequence *)arg;
-	sequence->is_completed = true;
+	nvmfnsDesc* ns = (nvmfnsDesc *)arg;
+
+	if(!ns->dev.nfhost.async_mode) {
+		ns->sequence->is_completed = true;
+	}
 
 	/* See if an error occurred. If so, display information
 	 * about it, and set completion value so that I/O
 	 * caller is aware that an error occurred.
 	 */
 	if (spdk_nvme_cpl_is_error(completion)) {
-		spdk_nvme_qpair_print_completion(sequence->ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
-		sequence->ns->dev.nfhost.log.log_error("I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
-		sequence->ns->dev.nfhost.log.log_error("Read I/O failed, aborting run\n");
+		ns->dev.nfhost.log.log_error("I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
+		ns->dev.nfhost.log.log_error("Read I/O failed, aborting run\n");
+		spdk_nvme_qpair_print_completion(ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
 		exit(1);
 	}
 	
@@ -91,16 +96,19 @@ static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 }
 
 static void write_complete(void *arg, const struct spdk_nvme_cpl *completion) {
-	io_sequence* sequence = (io_sequence *)arg;
-	sequence->is_completed = true;
+	nvmfnsDesc* ns = (nvmfnsDesc *)arg;
+
+	if(!ns->dev.nfhost.async_mode) {
+		ns->sequence->is_completed = true;
+	}
 	/* See if an error occurred. If so, display information
 	 * about it, and set completion value so that I/O
 	 * caller is aware that an error occurred.
 	 */
 	if (spdk_nvme_cpl_is_error(completion)) {
-		spdk_nvme_qpair_print_completion(sequence->ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
-		sequence->ns->dev.nfhost.log.log_error("I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
-		sequence->ns->dev.nfhost.log.log_error("Read I/O failed, aborting run\n");
+		ns->dev.nfhost.log.log_error("I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
+		ns->dev.nfhost.log.log_error("Read I/O failed, aborting run\n");
+		spdk_nvme_qpair_print_completion(ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
 		exit(1);
 	}
 	/*
@@ -125,49 +133,41 @@ nvmfnsDesc::nvmfnsDesc(nvmfDevice& dev, struct spdk_nvme_ns* ns) : dev(dev), ns(
 	lba_bundle = dpfs_lba_size / sector_size;
 
 	// inner lba range [0, blockCount - 1]
-	blockCount = size / sector_size; 
+	lba_count = size / sector_size / lba_bundle; 
 	lba_start = dev.lba_count;
+	sequence = new io_sequence;
+	sequence->ns = this;
+	sequence->is_completed = false;
 
 }
 
-int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t pBufLen, io_sequence* sequence) {
+nvmfnsDesc::~nvmfnsDesc() {
+	if(sequence) {
+		delete sequence;
+	}
+}
+
+int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc) {
 	/*
 	* map device lba to namespace lba
 	*/
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
-	size_t lba_count = lba_bundle * pBufLen / dpfs_lba_size;
-	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, buffer size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, pBufLen, lba_count);
-	return spdk_nvme_ns_cmd_read(ns, dev.qpair, pBuf, lba_ns, lba_count, read_complete, sequence, 0);
+	size_t lba_ns_count = lba_bundle * lbc;
+	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Reading from LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
+	return spdk_nvme_ns_cmd_read(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, read_complete, this, 0);
 
 }
 
-int nvmfnsDesc::write(size_t lba_device, void* pBuf, size_t pBufLen, io_sequence* sequence) {
+int nvmfnsDesc::write(size_t lba_device, void* pBuf, size_t lbc) {
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
-	size_t lba_count = lba_bundle * pBufLen / dpfs_lba_size;
-	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, buffer size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, pBufLen, lba_count);
-	return spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_count, write_complete, sequence, 0);
+	size_t lba_ns_count = lba_bundle * lbc;
+	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
+	return spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, write_complete, this, 0);
 }
 
 nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 	attached = false;
 	trid = new spdk_nvme_transport_id;
-}
-
-nvmfDevice::nvmfDevice(nvmfDevice&& tgt) : nfhost(tgt.nfhost) {
-	trid = tgt.trid;
-	attached = tgt.attached;
-	lba_count = tgt.lba_count;
-	nsfield.swap(tgt.nsfield);
-	ctrlr = tgt.ctrlr;
-	qpair = tgt.qpair;
-	devdesc_str.swap(tgt.devdesc_str);
-	lba_start = tgt.lba_start;
-	position = tgt.position;
-
-	tgt.trid = nullptr;
-	tgt.ctrlr = nullptr;
-	tgt.qpair = nullptr;
-
 }
 
 nvmfDevice::~nvmfDevice() {
@@ -190,57 +190,128 @@ int nvmfDevice::lba_judge(size_t lba) {
 	return rc - 1; // not found
 }
 
-int nvmfDevice::read(size_t lba_host, void* pBuf, size_t pBufLen) {
+int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 	/*
 	* map host lba to device lba
 	*/
-
-
+	int rc = 0;
+	int req_count = 0;
 	size_t lba_device = lba_host - lba_start;
-	size_t nsPos = lba_judge(lba_device);
-	io_sequence sequence;
-	sequence.ns = nsfield[nsPos];
-	sequence.is_completed = false;
-	
-	// cross ns read and write
-	if(lba_device +  >= sequence.ns->blockCount) {
+	size_t nsPos = nfhost.device_judge(lba_device);
 
+	if(nsPos >= nsfield.size()) {
+		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
+		return -1;
 	}
+	nvmfnsDesc* ns = nsfield[nsPos];
+	ns->sequence->is_completed = false;
+	nfhost.log.log_debug("dev: Reading from LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, lbc, lbc * dpfs_lba_size);
 
-	nfhost.log.log_debug("dev: Reading from LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, pBufLen / dpfs_lba_size, pBufLen);
-	int rc = sequence.ns->read(lba_device, pBuf, pBufLen, &sequence);
-	if(nfhost.async_mode) {
-		// if async mode, return immediately
+	if(lba_device + lbc > ns->lba_count) {
+		// cross ns write
+		// next ns start lba
+		size_t pBuf_next_lbc = lba_device + lbc - ns->lba_count;
+		size_t lba_next_ns = ns->lba_start + ns->lba_count;
+		void* next_start_pbuf = (char*)pBuf + ((lbc - pBuf_next_lbc) * dpfs_lba_size);
+		lbc -= pBuf_next_lbc;
+		if(nsPos + 1 >= nsfield.size()) {
+			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
+			return -1;
+		}
+		
+		nvmfnsDesc* subns;
+		subns = nsfield[nsPos + 1];
+		subns->sequence->is_completed = false;
+		rc = subns->write(lba_next_ns, next_start_pbuf, pBuf_next_lbc);
+		if(rc != 0) {
+			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos + 1, rc);
+			return rc;
+		}
+		++req_count;
+		if(!nfhost.async_mode) {
+			// wait for completion
+			do {
+				spdk_nvme_qpair_process_completions(qpair, 0);
+			} while(!subns->sequence->is_completed);
+		}
+	}
+	rc = ns->read(lba_device, pBuf, lbc);
+	if(rc != 0) {
+		nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 		return rc;
 	}
+	++req_count;
 
-	while(!sequence.is_completed) {
+	if(!nfhost.async_mode) {
 		// wait for completion
-		spdk_nvme_qpair_process_completions(qpair, 0);
+		do {
+			spdk_nvme_qpair_process_completions(qpair, 0);
+		} while(!ns->sequence->is_completed);
 	}
 
-	return rc;
+
+	return req_count;
 }
 
-int nvmfDevice::write(size_t lba_host, void* pBuf, size_t pBufLen) {
-
+int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
+	int rc = 0;
+	int req_count = 0;
 	size_t lba_device = lba_host - lba_start;
-	io_sequence sequence;
-	sequence.ns = nsfield[lba_judge(lba_device)];
-	sequence.is_completed = false;
-	nfhost.log.log_debug("dev: Writing to LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, pBufLen / dpfs_lba_size, pBufLen);
+	size_t nsPos = nfhost.device_judge(lba_device);
 	
-	int rc = sequence.ns->write(lba_device, pBuf, pBufLen, &sequence);
+	if(nsPos >= nsfield.size()) {
+		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
+		return -1;
+	}
+	nvmfnsDesc* ns = nsfield[nsPos];
+	ns->sequence->is_completed = false;
+	nfhost.log.log_debug("dev: Writing to LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, lbc, lbc * dpfs_lba_size);
 
-	if(nfhost.async_mode) {
-		// if async mode, return immediately
+	if(lba_device + lbc > ns->lba_count) {
+		// cross ns write
+		// next ns start lba
+		size_t pBuf_next_lbc = lba_device + lbc - ns->lba_count;
+		size_t lba_next_ns =  ns->lba_start + ns->lba_count;
+		void* next_start_pbuf = (char*)pBuf + ((lbc - pBuf_next_lbc) * dpfs_lba_size);
+		lbc -= pBuf_next_lbc;
+
+		if(nsPos + 1 >= nsfield.size()) {
+			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
+			return -1;
+		}
+
+		nvmfnsDesc* subns;
+		subns = nsfield[nsPos + 1];
+		subns->sequence->is_completed = false;
+		rc = subns->write(lba_next_ns, next_start_pbuf, pBuf_next_lbc);
+		if(rc != 0) {
+			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
+			return rc;
+		}
+		++req_count;
+		if(!nfhost.async_mode) {
+			// wait for completion
+			do {
+				spdk_nvme_qpair_process_completions(qpair, 0);
+			} while(!subns->sequence->is_completed);
+			// spdk_nvme_ns_cmd_flush(subns->ns, qpair, nullptr, 0);
+		}
+	}
+	rc = ns->write(lba_device, pBuf, lbc);
+	if(rc != 0) {
+		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 		return rc;
 	}
-	while(!sequence.is_completed) {
-		// wait for completion
-		spdk_nvme_qpair_process_completions(qpair, 0);
-	}
-	return rc;
+	++req_count;
+		if(!nfhost.async_mode) {
+			// wait for completion
+			do {
+				spdk_nvme_qpair_process_completions(qpair, 0);
+			} while(!ns->sequence->is_completed);
+			// spdk_nvme_ns_cmd_flush(ns->ns, qpair, nullptr, 0);
+		}
+
+	return req_count;
 }
 
 static bool probe_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, struct spdk_nvme_ctrlr_opts *opts) {
@@ -342,10 +413,11 @@ CNvmfhost::CNvmfhost() : async_mode(false) {
 			// throw std::runtime_error("Failed to initialize SPDK environment");
 			exit(1);
 		}
-		engineGuardThread = std::thread(engineGuardFunction);
+		// engineGuardThread = std::thread(engineGuardFunction);
 	}
 	init_mutex.unlock();
 	block_count = 0;
+	devices.clear();
 }
 
 CNvmfhost::~CNvmfhost() {
@@ -354,7 +426,7 @@ CNvmfhost::~CNvmfhost() {
 	if (hostCount == 0) {
 		spdk_vmd_fini();
 		spdk_env_fini();
-		engineGuardThread.join();
+		// engineGuardThread.join();
 		initialized = false;
 	}
 	init_mutex.unlock();
@@ -429,25 +501,26 @@ void CNvmfhost::cleanup() {
 
 void CNvmfhost::register_ns(nvmfDevice* dev, struct spdk_nvme_ns* ns) {
 	
-	log.log_inf("  Namespace ID: %d size: %juGB = %lluB\n", spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_size(ns) / 1024/1024/1024, spdk_nvme_ns_get_size(ns));
-	log.log_inf("nsid : %u  sector_size : %u  size: %llu\n", spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_sector_size(ns), spdk_nvme_ns_get_size(ns));
+	log.log_debug("  Namespace ID: %d size: %juGB = %lluB\n", spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_size(ns) / 1024/1024/1024, spdk_nvme_ns_get_size(ns));
+	log.log_debug("nsid : %u  sector_size : %u  size: %llu\n", spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_sector_size(ns), spdk_nvme_ns_get_size(ns));
 
 }
 
-static const std::vector<std::string> spdk_trans_type {"pcie", "rdma", "tcp", "unknow"};
-static const std::string& trtypeCvt(spdk_nvme_transport_type type) {
-	if(type == SPDK_NVME_TRANSPORT_PCIE) {
-		return spdk_trans_type[0];
-	} else if (type == SPDK_NVME_TRANSPORT_RDMA) {
-		return spdk_trans_type[1];
-	} else if (type == SPDK_NVME_TRANSPORT_TCP) {
-		return spdk_trans_type[2];
-	}
-	return spdk_trans_type.back();
-};
+// static const std::vector<std::string> spdk_trans_type {"pcie", "rdma", "tcp", "unknow"};
+// static const std::string& trtypeCvt(spdk_nvme_transport_type type) {
+// 	if(type == SPDK_NVME_TRANSPORT_PCIE) {
+// 		return spdk_trans_type[0];
+// 	} else if (type == SPDK_NVME_TRANSPORT_RDMA) {
+// 		return spdk_trans_type[1];
+// 	} else if (type == SPDK_NVME_TRANSPORT_TCP) {
+// 		return spdk_trans_type[2];
+// 	}
+// 	return spdk_trans_type.back();
+// };
 
 void CNvmfhost::set_logdir(const std::string& log_path) {
-	log.set_log_path(log_path + "nvmfhost_" + trtypeCvt(devices[0]->trid->trtype) + "_" + devices[0]->trid->traddr + ".log");
+	log.set_log_path(log_path);
+	// log.set_log_path(log_path + "nvmfhost_" + trtypeCvt(devices[0]->trid->trtype) + "_" + devices[0]->trid->traddr + ".log");
 }
 
 void CNvmfhost::set_async_mode(bool async) {
@@ -482,14 +555,18 @@ int CNvmfhost::attach_device(const std::string& devdesc_str) {
 	}
 	spdk_nvme_io_qpair_opts qpopts;
 	spdk_nvme_ctrlr_get_default_io_qpair_opts(ndev->ctrlr, &qpopts, sizeof(qpopts));
+	qpopts.io_queue_size = 128;
+	log.log_debug("qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 
+	
+	
 	ndev->qpair = spdk_nvme_ctrlr_alloc_io_qpair(ndev->ctrlr, &qpopts, sizeof(qpopts));
 	if (ndev->qpair == nullptr) {
 		log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
 		delete ndev;
 		return rc;
 	}
-	
+
 	log.log_debug("Controller %s attached with qpair %p\n", ndev->trid->traddr, ndev->qpair);
 	log.log_debug("qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 
@@ -506,7 +583,7 @@ int CNvmfhost::detach_device(const std::string& devdesc_str) {
 				if((*dev)->qpair) {
 					while(spdk_nvme_qpair_get_num_outstanding_reqs((*dev)->qpair)) {
 						spdk_nvme_qpair_process_completions((*dev)->qpair, 0);
-						std::this_thread::sleep_for(std::chrono::milliseconds(10));
+						// std::this_thread::sleep_for(std::chrono::milliseconds(10));
 					}
 					spdk_nvme_ctrlr_free_io_qpair((*dev)->qpair);
 					(*dev)->qpair = nullptr;
@@ -553,30 +630,11 @@ int CNvmfhost::device_judge(size_t lba) const {
 	return rc - 1;
 }
 
-
-/*
-
-					   buf   
-					    |     | 
-						1234  56789		
-						AAAB  BBBBB			
-			[dev1	12345678][1234 			]
-						|
-					   lba
-					   dev_lba_count = 8
-					   lba_start = 0
-			pubf  len = 9
-
-*/
-
-int CNvmfhost::read(size_t lba, void* pBuf, size_t pBufLen) { 
+int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) { 
 
 	int rc = 0;
 #ifdef DPFS_IO_CHECK
-	if(pBufLen % dpfs_lba_size != 0) {
-		log.log_error("Buffer length %zu is not a multiple of dpfs_lba_size %zu\n", pBufLen, dpfs_lba_size);
-		return -1;
-	}
+	log.log_debug("host: Reading from LBA %zu\n", lba);
 	if(lba >= block_count) {
 		log.log_error("LBA %zu is out of range, total blocks: %zu\n", lba, block_count);
 		return -1;
@@ -585,45 +643,43 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t pBufLen) {
 		log.log_error("Buffer pointer is null\n");
 		return -1;
 	}
-	if(pBufLen == 0) {
-		log.log_error("Buffer length is zero\n");
+	if(lbc == 0) {
+		log.log_error("logic block is zero\n");
 		return -1;
 	}
-	log.log_debug("host: Reading from LBA %zu, buffer size %zu\n", lba, pBufLen);
+	
 #endif
 
 	size_t devPos = device_judge(lba);
+	nvmfDevice* dev = devices[devPos];
 
 	// cross device read
-	size_t op_lba_count = pBufLen / dpfs_lba_size;
-	size_t lba_device = lba - devices[devPos]->lba_start;
-	if(lba_device + op_lba_count > devices[devPos]->lba_count) {
+	size_t op_lba_count = lbc;
+	size_t lba_device = lba - dev->lba_start;
+	if(lba_device + op_lba_count > dev->lba_count) {
 		// next device read lb count
-		size_t lba_next_dev_count = lba_device + op_lba_count - devices[devPos]->lba_count;
+		size_t lba_next_dev_count = lba_device + op_lba_count - dev->lba_count;
 		// next device read start lba
 		size_t lba_next_dev = lba + op_lba_count - lba_next_dev_count;
-		void* next_start_pbuf = (char*)pBuf + ((devices[devPos]->lba_count - lba_device) * dpfs_lba_size);
-		size_t pBuf_next_len = pBufLen - ((devices[devPos]->lba_count - lba_device) * dpfs_lba_size);
-		pBufLen -= pBuf_next_len;
+		void* next_start_pbuf = (char*)pBuf + ((dev->lba_count - lba_device) * dpfs_lba_size);
+		size_t pBuf_next_lbc = lbc - ((dev->lba_count - lba_device));
+		lbc -= pBuf_next_lbc;
 
-		rc = devices[devPos + 1]->read(lba_next_dev, next_start_pbuf, pBuf_next_len);
-
-		if(rc) {
+		rc = devices[devPos + 1]->read(lba_next_dev, next_start_pbuf, pBuf_next_lbc);
+		if(rc < 0) {
 			log.log_error("Failed to read from next device %zu, rc: %d\n", devPos + 1, rc);
 			return rc;
 		}
 
 	}
-	return devices[devPos]->read(lba, pBuf, pBufLen);
+	return dev->read(lba, pBuf, lbc) + rc;
 }
-int CNvmfhost::write(size_t lba, void* pBuf, size_t pBufLen) {
-	log.log_debug("host: Writing to LBA %zu, buffer size %zu\n", lba, pBufLen);
+
+int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc) {
 	int rc = 0;
 #ifdef DPFS_IO_CHECK
-	if(pBufLen % dpfs_lba_size != 0) {
-		log.log_error("Buffer length %zu is not a multiple of dpfs_lba_size %zu\n", pBufLen, dpfs_lba_size);
-		return -1;
-	}
+	log.log_debug("host: Writing to LBA %zu, buffer size %zu\n", lba, lbc * dpfs_lba_size);
+
 	if(lba >= block_count) {
 		log.log_error("LBA %zu is out of range, total blocks: %zu\n", lba, block_count);
 		return -1;
@@ -632,33 +688,33 @@ int CNvmfhost::write(size_t lba, void* pBuf, size_t pBufLen) {
 		log.log_error("Buffer pointer is null\n");
 		return -1;
 	}
-	if(pBufLen == 0) {
-		log.log_error("Buffer length is zero\n");
+	if(lbc == 0) {
+		log.log_error("logic block is zero\n");
 		return -1;
 	}
 #endif
 
-	size_t op_lba_count = pBufLen / dpfs_lba_size;
-	// cross device write
 	size_t devPos = device_judge(lba);
-	size_t lba_device = lba - devices[devPos]->lba_start;
-	if(lba_device + op_lba_count > devices[devPos]->lba_count) {
+	nvmfDevice* dev = devices[devPos];
+	size_t op_lba_count = lbc;
+	size_t lba_device = lba - dev->lba_start;
+	// cross device write
+	if(lba_device + op_lba_count > dev->lba_count) {
 		// next device read lb count
-		size_t lba_next_dev_count = lba_device + op_lba_count - devices[devPos]->lba_count;
+		size_t lba_next_dev_count = lba_device + op_lba_count - dev->lba_count;
 		// next device read start lba
 		size_t lba_next_dev = lba + op_lba_count - lba_next_dev_count;
-		void* next_start_pbuf = (char*)pBuf + ((devices[devPos]->lba_count - lba_device) * dpfs_lba_size);
-		size_t pBuf_next_len = pBufLen - ((devices[devPos]->lba_count - lba_device) * dpfs_lba_size);
-		pBufLen -= pBuf_next_len;
-		rc = devices[devPos + 1]->write(lba_next_dev, next_start_pbuf, pBuf_next_len);
+		void* next_start_pbuf = (char*)pBuf + ((dev->lba_count - lba_device) * dpfs_lba_size);
+		size_t pBuf_next_lbc = lbc - ((dev->lba_count - lba_device));
+		lbc -= pBuf_next_lbc;
 
-		if(rc) {
+		rc = devices[devPos + 1]->write(lba_next_dev, next_start_pbuf, pBuf_next_lbc);
+		if(rc < 0) {
 			log.log_error("Failed to read from next device %zu, rc: %d\n", devPos + 1, rc);
 			return rc;
 		}
-
 	}
-	return devices[devPos]->write(lba, pBuf, pBufLen);
+	return dev->write(lba, pBuf, lbc) + rc;
 }
 
 int CNvmfhost::flush() { 
@@ -667,25 +723,29 @@ int CNvmfhost::flush() {
 }
  
 int CNvmfhost::sync(size_t n) {
+	if(!async_mode) {
+		log.log_debug("Synchronous mode, no need to wait for completions.\n");
+		return 0;
+	}
 	if(n != 0) {
-		for(auto dev : devices) {
+		for(const auto& dev : devices) {
 			if(dev->attached) {
-				log.log_inf("Waiting for %lu outstanding requests on device %s\n", n, dev->devdesc_str.c_str());
+				log.log_debug("Waiting for %lu outstanding requests on device %s\n", n, dev->devdesc_str.c_str());
 				while(n) { 
 					n -= spdk_nvme_qpair_process_completions(dev->qpair, n);
 					// int32_t comp_num = spdk_nvme_qpair_process_completions(dev->qpair, 0);
 					// n -= comp_num;
-					// std::this_thread::sleep_for(std::chrono::milliseconds(10));
 					// log.log_debug("%s:%d compelete %d reqs, Waiting for %d outstanding requests to complete on device %s\n", __FILE__, __LINE__, comp_num, num - comp_num, dev->devdesc_str.c_str());
 				}
 			}
 		}
 	} else {
-		for(auto dev : devices) {
+		for(const auto& dev : devices) {
 			if(dev->attached) {
-				log.log_inf("Waiting for outstanding requests on device %s\n", dev->devdesc_str.c_str());
+				log.log_debug("Waiting for outstanding requests on device %s\n", dev->devdesc_str.c_str());
 				while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
 					spdk_nvme_qpair_process_completions(dev->qpair, 0);
+
 					// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
 				}
 			}
@@ -722,8 +782,6 @@ int CNvmfhost::copy(const dpfsEngine& tgt) {
 
 	return 0;
 }
-
-// int CNvmfhost::replace_device(const std::string& trid_str, const std::string& new_trid_str) {return 0;}
 
 void* CNvmfhost::zmalloc(size_t size) const {
 	return (void*)spdk_zmalloc(size, dpfs_lba_size, NULL, SPDK_ENV_NUMA_ID_ANY, SPDK_MALLOC_DMA);
