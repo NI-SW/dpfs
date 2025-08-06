@@ -97,6 +97,7 @@ public:
 class CNvmfhost : public dpfsEngine {
 public:
     CNvmfhost();
+	virtual ~CNvmfhost() override;
     // CNvmfhost(const std::vector<std::string>& trid_strs);
 
  	virtual int attach_device(const std::string& devdesc_str) override;
@@ -109,9 +110,8 @@ public:
     virtual int sync(size_t n = 0) override;
 	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) override = delete;
 	virtual void set_async_mode(bool async) override;
-	virtual int copy(const dpfsEngine& tgt);
+	virtual int copy(const dpfsEngine& tgt) override;
 
-    ~CNvmfhost();
 	void hello_world();
 	int device_judge(size_t lba) const;
 	void* zmalloc(size_t size) const;
@@ -130,7 +130,11 @@ public:
 // private:
 	logrecord log;
     std::vector<nvmfDevice*> devices;
-	bool async_mode;
+	std::thread nf_guard;
+
+	bool async_mode : 1;
+	bool m_exit : 1;
+	bool : sizeof(bool); 
 
 	// device's block count for all nvmf target on nvmf host
 	size_t block_count;

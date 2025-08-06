@@ -8,7 +8,6 @@
 #include <vector>
 #include <thread>
 #include <queue>
-#include <list>
 #include <threadlock.hpp>
 struct log_sequence;
 class logrecord {
@@ -23,6 +22,7 @@ class logrecord {
 public:
 
 	enum loglevel {
+		LOG_BINARY,
 		LOG_FATAL,
 		LOG_ERROR,
 		LOG_NOTIC,
@@ -42,6 +42,7 @@ public:
 	void log_error(const char* str, ...);
 	void log_fatal(const char* str, ...);
 	void log_debug(const char* str, ...);
+	void log_binary(const void* pBuf, size_t len);
 
 	// out put binary log into file
 	void log_into_file();
@@ -72,8 +73,10 @@ private:
 	std::queue<log_sequence*> log_queue;
 	CSpin logQueMutex;
 
-	std::list<log_sequence*> log_seqs;
+	// std::list<log_sequence*> log_seqs;
+	std::queue<log_sequence*> log_seqs;
 	CSpin logSequenceMutex;
+
 
 	std::vector<std::string> log_files;
 	bool m_exit;

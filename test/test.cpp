@@ -3,20 +3,22 @@
 using namespace std;
 
 int main() {
+	dpfsEngine* engine = new CNvmfhost();
+    // CNvmfhost nfhost;
+	CNvmfhost& nfhost = dynamic_cast<CNvmfhost&>(*engine);
 
-    CNvmfhost nfhost;
+
 	nfhost.log.set_log_path("./output.log");
-	// nfhost.log.set_loglevel(logrecord::LOG_DEBUG);
-	nfhost.log.set_async_mode(true);
+	nfhost.log.set_loglevel(logrecord::LOG_DEBUG);
+	// nfhost.log.set_async_mode(true);
 
 	nfhost.log.log_inf("Starting NVMF host...\n");
 
 	nfhost.set_async_mode(true);
-	
-	// nfhost.log.set_loglevel(logrecord::LOG_FATAL);
-	nfhost.attach_device("trtype:pcie traddr:0000.1b.00.0");
-	nfhost.attach_device("trtype:pcie traddr:0000.13.00.0");
-	// nfhost.attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
+
+
+	// nfhost.attach_device("trtype:pcie traddr:0000.1b.00.0");  nfhost.attach_device("trtype:pcie traddr:0000.13.00.0");
+	nfhost.attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
 	// nfhost.attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	
 	auto hclock = std::chrono::high_resolution_clock::now();
@@ -27,11 +29,18 @@ int main() {
 	
 	nfhost.log.set_log_path("./output.log");
 
-	char* test = (char*)nfhost.zmalloc(4096 * 100); // 400kB
-	if(!test) {
-		printf("Failed to allocate memory for test buffer\n");
-		return -1;
+	char* test[100];
+	for(int i = 0;i < 100; ++i) {
+		test[i] = (char*)nfhost.zmalloc(dpfs_lba_size * 10); // 40kB
+		if(!test[i]) {
+			printf("Failed to allocate memory for test buffer\n");
+			return -1;
+		}
 	}
+	// test[0] = (char*)nfhost.zmalloc(dpfs_lba_size * 10); // 40kB
+
+
+
     int rc = 0;
 	int reqs = 0;
     if (nfhost.devices.empty()) {
@@ -43,48 +52,59 @@ int main() {
 
 	// nfhost.hello_world();
 
-	memcpy(test, "Hello World from NVMF host!", 28);
-	memcpy(test + 4096, "Hello World from NVMF host2!", 29);
-	memcpy(test + 4096 * 2, "Hello World from NVMF host3!", 29);
-	memcpy(test + 4096 * 3, "Hello World from NVMF host4!", 29);
+	memcpy(test[0], "Hello World from NVMF host11!", 30);
+	memcpy(test[1], "Hello World from NVMF host22!", 30);
+	memcpy(test[2], "Hello World from NVMF host33!", 30);
+	memcpy(test[3], "Hello World from NVMF host44!", 30);
 
-	printf("Write data: %s\n", test);
-
+	printf("Write data: %s\n", test[0]);
+	
 	now = std::chrono::duration_cast<std::chrono::milliseconds>(hclock.time_since_epoch()).count();
 
-	for(int i = 1; i < 15000; ++i) {
+	for(int i = 0; i < 2; ++i) {
+		int waitCount = 0;
+
 		do{
+			if(waitCount > 2) {
+				nfhost.log.log_error("Write data failed after 10 retries, exiting...\n");
+				break;
+			}
 			printf("count: %d\n", i);
-			rc = nfhost.write(i, test, i); //10 * i + k * 100); //5242879
+			rc = nfhost.write(5242879 + i * 10, test[i % 100], 10); //10 * i + k * 100); //5242879
 			if(rc < 0) {
+				++waitCount;
 				if(rc == -ENOMEM) {
-					printf("Out of memory, try to sync %d reqs\n", reqs);
-					exit(0);
+					nfhost.log.log_error("Out of memory, try to wait\n", reqs);
+					continue;
+				} else if(rc == -ENXIO) {
+					nfhost.log.log_error("Device not ready, try to wait\n", reqs);
+					break;
 				}
-				printf("Write data err: %d\n", rc);
+				nfhost.log.log_error("Write data err: %d\n", rc);
 			}
 			break;
 		} while(1);
 
-		if(rc > 0) {
-			reqs += rc;
-		} else {
-			printf("Write data err: %d\n", rc);
+		if(rc < 0) {
+			nfhost.log.log_error("Write data err: %d\n", rc);
 			break;
 		}
-		while(reqs >= 100) {
+		
+		reqs += rc;
+		if(reqs >= 250) {
 			nfhost.sync(reqs);
 			reqs = 0;
 		}
 		// std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
 
-	// printf("sync reqs = %d\n", reqs);
-	reqs = nfhost.sync(reqs);
+	printf("sync reqs = %d\n", reqs);
+	nfhost.sync(reqs);
 	printf("duration: %ld ms, reqs = %d\n", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count() - now, reqs);
 
+	reqs = 0;
 
-	rc = nfhost.read(5242879, test + 4096, 2);
+	rc = nfhost.read(10, test[5], 1);
 	if(rc) {
 		reqs += rc;
 	} else {
@@ -92,11 +112,12 @@ int main() {
 	}
 	printf("rc = %d\n", rc);
 	rc = nfhost.sync(reqs);
-	printf("Read data: %s\n", test + 4096);
+	printf("Read data: %s\n", test[5]);
 
 
-
-	nfhost.zfree(test);
+	for(int i = 0; i < 100; ++i) {
+		nfhost.zfree(test[i]);
+	}
 
 	// while(1) {
 	// 	std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -119,5 +140,7 @@ exit:
 
 	fflush(stdout);
 	nfhost.cleanup();
+	delete dynamic_cast<CNvmfhost*>(engine);
 	return rc;
 }
+

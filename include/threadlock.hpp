@@ -26,6 +26,33 @@ public:
     std::atomic<uint8_t> m_lock;
 };
 
+
+class CSpinB {
+public:
+    CSpinB() {
+        m_lock.clear();
+    }
+
+    void lock() {
+        while (m_lock.test_and_set()) {
+		};
+    }
+
+    void unlock() {
+        m_lock.clear();
+    }
+
+    bool try_lock() {
+        if (m_lock.test_and_set()) {
+			return false;
+		}
+		return true;
+	}
+private:
+    std::atomic_flag m_lock;
+};
+
+
 class CMutexGuard {
 public:
     CMutexGuard(std::mutex& lock) : m_lock(lock) {

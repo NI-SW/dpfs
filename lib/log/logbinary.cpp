@@ -7,7 +7,6 @@
 #include <iostream>
 #include <cstdarg>
 #include <sys/stat.h>
-// #include <chrono>
 #include <ctime>
 #include <thread>
 #define IS_ASCII 0
@@ -20,11 +19,12 @@ uint8_t cvthex[16] = {0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
 		0x38, 0x39, 'a', 'b', 'c', 'd', 'e', 'f'};
 	
 std::vector<const char*> logrecord::logl_str = {
+		"BIN  ",
 		"FATAL",
 		"ERROR",
 		"NOTIC",
 		"INFO ",
-		"DEBUG"
+		"DEBUG",
 };
 
 char nowtmStr[32]{ 0 };
@@ -62,8 +62,8 @@ struct log_sequence {
 	~log_sequence() {
 	}
 	std::string log_str;
-	logrecord::loglevel logl;
 	size_t len;
+	logrecord::loglevel logl;
 	size_t logfile_pos;
 };
  
@@ -80,7 +80,7 @@ logrecord::logrecord() {
 	print_info = new char[16];
 	memset(print_info, '\0', 16);
 	print_screen = 0;
-	log_seqs.clear();
+	// log_seqs.clear();
 	m_exit = false;
 	async_mode = false;
 
@@ -93,10 +93,12 @@ logrecord::~logrecord() {
 
 	set_async_mode(false);
 
-	for(auto& seq : log_seqs) {
+	while(!log_seqs.empty()) {
+		log_sequence* seq = log_seqs.front();
+		log_seqs.pop();
 		delete seq;
 	}
-	log_seqs.clear();
+	// log_seqs.clear();
 	
 	timeMutex.lock();
 	--logCount;
@@ -157,7 +159,7 @@ void logrecord::set_async_mode(bool async) {
 		while(!log_queue.empty() || async_mode) {
 			
 			if(log_queue.empty()) {
-				std::this_thread::sleep_for(std::chrono::milliseconds(200));
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 				continue;
 			} 
 
@@ -169,6 +171,20 @@ void logrecord::set_async_mode(bool async) {
 
 				log_sequence* seq = logQue.front();
 				logQue.pop();
+
+				if(seq->logl == LOG_BINARY) {
+					if(logf_pos != seq->logfile_pos) {
+						logf_pos = seq->logfile_pos;
+						fclose(fp);
+						fp = fopen(log_files[logf_pos].c_str(), "a");
+					}
+					fwrite(seq->log_str.c_str(), sizeof(char), seq->len, fp);
+					fflush(fp);
+					logSequenceMutex.lock();
+					log_seqs.push(seq);
+					logSequenceMutex.unlock();
+					continue;
+				}
 
 				memcpy(loghead + 1, nowtmStr, 19);
 				memcpy(loghead + 23, logl_str[seq->logl], loglStrLen);
@@ -189,10 +205,9 @@ void logrecord::set_async_mode(bool async) {
 				fflush(fp);
 
 				logSequenceMutex.lock();
-				log_seqs.push_back(seq);
+				log_seqs.push(seq);
 				logSequenceMutex.unlock();
 			}
-
 
 		}
 
@@ -378,7 +393,7 @@ void logrecord::log_inf(const char* str, ...) {
 			logSequenceMutex.lock();
 			if(log_seqs.size()) {
 				log_seq = log_seqs.front();
-				log_seqs.pop_front();
+				log_seqs.pop();
 				logSequenceMutex.unlock();
 			} else {
 				logSequenceMutex.unlock();
@@ -441,7 +456,7 @@ void logrecord::log_notic(const char* str, ...) {
 			logSequenceMutex.lock();
 			if(log_seqs.size()) {
 				log_seq = log_seqs.front();
-				log_seqs.pop_front();
+				log_seqs.pop();
 				logSequenceMutex.unlock();
 			} else {
 				logSequenceMutex.unlock();
@@ -496,7 +511,7 @@ void logrecord::log_error(const char* str, ...) {
 			logSequenceMutex.lock();
 			if(log_seqs.size()) {
 				log_seq = log_seqs.front();
-				log_seqs.pop_front();
+				log_seqs.pop();
 				logSequenceMutex.unlock();
 			} else {
 				logSequenceMutex.unlock();
@@ -557,7 +572,7 @@ void logrecord::log_fatal(const char* str, ...) {
 			logSequenceMutex.lock();
 			if(log_seqs.size()) {
 				log_seq = log_seqs.front();
-				log_seqs.pop_front();
+				log_seqs.pop();
 				logSequenceMutex.unlock();
 			} else {
 				logSequenceMutex.unlock();
@@ -619,7 +634,7 @@ void logrecord::log_debug(const char* str, ...) {
 			logSequenceMutex.lock();
 			if(log_seqs.size()) {
 				log_seq = log_seqs.front();
-				log_seqs.pop_front();
+				log_seqs.pop();
 				logSequenceMutex.unlock();
 			} else {
 				logSequenceMutex.unlock();
@@ -663,6 +678,52 @@ void logrecord::log_debug(const char* str, ...) {
 	fprintf(fp, "[%s] [DEBUG]: ", nowtmStr);
 	vfprintf(fp, str, ap);
 	va_end(ap);
+	fclose(fp);
+}
+
+void logrecord::log_binary(const void* pBuf, size_t len) {
+	if(logl < LOG_BINARY) {
+		return;
+	}
+
+	if(async_mode) {
+		log_sequence* log_seq;
+		if(log_seqs.size()) {
+			logSequenceMutex.lock();
+			if(log_seqs.size()) {
+				log_seq = log_seqs.front();
+				log_seqs.pop();
+				logSequenceMutex.unlock();
+			} else {
+				logSequenceMutex.unlock();
+				log_seq = new log_sequence;
+			}
+		} else {
+			log_seq = new log_sequence;
+		}
+
+		log_seq->logl = LOG_BINARY;
+		log_seq->len = len;
+		log_seq->logfile_pos = log_files.size() - 1;
+		if(log_seq->log_str.size() < len) {
+			log_seq->log_str.resize(len * 2);
+		}
+		memcpy(&log_seq->log_str[0], pBuf, len);
+
+		logQueMutex.lock();
+		log_queue.push(log_seq);
+		logQueMutex.unlock();
+		
+		return;
+	}
+
+	FILE* fp;
+	if(!log_files.empty()) {
+		fp = fopen(log_files.back().c_str(), "a");
+	} else {
+		fp = fopen("./logbinary.log", "a");
+	}
+	fwrite(pBuf, sizeof(char), len, fp);
 	fclose(fp);
 }
 

@@ -5,12 +5,12 @@
 
 #include <string>
 
-const size_t dpfs_lba_size = 4096; // 4KB block size
+const size_t dpfs_lba_size = 4096; 
 
 class dpfsEngine {
 public:
  	dpfsEngine() = default;
- 	~dpfsEngine() = default;
+ 	virtual ~dpfsEngine() = default;
     
     /*
         @param devdesc_str: device description string, format is user defined
@@ -36,18 +36,18 @@ public:
     /*
         @param lbaPos: logical block address position
         @param pBuf: pointer to the buffer to read data into
-        @param len: length of the buffer in bytes
+        @param lbc: logic block count, number of blocks to read
         @return number of submitted requests on success, else on failure
     */
-    virtual int read(size_t lbaPos, void* pBuf, size_t pBufLen) = 0;
+    virtual int read(size_t lbaPos, void* pBuf, size_t lbc) = 0;
     
     /*
         @param lbaPos: logical block address position
         @param pBuf: pointer to the buffer to read data into
-        @param len: length of the buffer in bytes
+        @param lbc: logic block count, number of blocks to write
         @return number of submitted requests on success, else on failure
     */
-    virtual int write(size_t lbaPos, void* pBuf, size_t pBufLen) = 0;
+    virtual int write(size_t lbaPos, void* pBuf, size_t lbc) = 0;
     
     // flush all data to the device, ensure all data is written to the device
     virtual int flush() = 0;

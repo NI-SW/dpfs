@@ -20,7 +20,6 @@
 #include <thread>
 
 #define DPFS_IO_CHECK
-
 static std::mutex init_mutex;
 static bool initialized = false;
 static bool g_vmd = false;
@@ -45,7 +44,6 @@ int initSpdk() {
 	*/
 	int rc = 0;
 	struct spdk_env_opts opts;
-	// CNvmfhost nfhost("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	
 	opts.opts_size = sizeof(opts);
 	spdk_env_opts_init(&opts);
@@ -53,14 +51,14 @@ int initSpdk() {
 	opts.name = eng_name;
 	rc = spdk_env_init(&opts);
 	if (rc < 0) {
-		fprintf(stderr, "Unable to initialize SPDK env\n");
+		printf("Unable to initialize SPDK env\n");
 		return rc;
 	}
 
 	printf("Initializing NVMe Controllers\n");
 	rc = spdk_vmd_init();
 	if (g_vmd && rc) {
-		fprintf(stderr, "Failed to initialize VMD."
+		printf("Failed to initialize VMD."
 			" Some NVMe devices can be unavailable.\n");
 			return rc;
 	}
@@ -89,7 +87,7 @@ static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 		ns->dev.nfhost.log.log_error("I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
 		ns->dev.nfhost.log.log_error("Read I/O failed, aborting run\n");
 		spdk_nvme_qpair_print_completion(ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
-		exit(1);
+		// exit(1);
 	}
 	
 
@@ -97,7 +95,7 @@ static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 
 static void write_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	nvmfnsDesc* ns = (nvmfnsDesc *)arg;
-
+	ns->dev.nfhost.log.log_debug("write I/O completed\n");
 	if(!ns->dev.nfhost.async_mode) {
 		ns->sequence->is_completed = true;
 	}
@@ -107,9 +105,10 @@ static void write_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	 */
 	if (spdk_nvme_cpl_is_error(completion)) {
 		ns->dev.nfhost.log.log_error("I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
-		ns->dev.nfhost.log.log_error("Read I/O failed, aborting run\n");
+		ns->dev.nfhost.log.log_error("Write I/O failed, aborting run\n");
+		abort();
 		spdk_nvme_qpair_print_completion(ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
-		exit(1);
+		// exit(1);
 	}
 	/*
 	 * The write I/O has completed.  Free the buffer associated with
@@ -197,7 +196,7 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 	int rc = 0;
 	int req_count = 0;
 	size_t lba_device = lba_host - lba_start;
-	size_t nsPos = nfhost.device_judge(lba_device);
+	size_t nsPos = lba_judge(lba_device);
 
 	if(nsPos >= nsfield.size()) {
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
@@ -207,7 +206,7 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 	ns->sequence->is_completed = false;
 	nfhost.log.log_debug("dev: Reading from LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, lbc, lbc * dpfs_lba_size);
 
-	if(lba_device + lbc > ns->lba_count) {
+	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
 		// next ns start lba
 		size_t pBuf_next_lbc = lba_device + lbc - ns->lba_count;
@@ -257,7 +256,7 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 	int rc = 0;
 	int req_count = 0;
 	size_t lba_device = lba_host - lba_start;
-	size_t nsPos = nfhost.device_judge(lba_device);
+	size_t nsPos = lba_judge(lba_device);
 	
 	if(nsPos >= nsfield.size()) {
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
@@ -267,7 +266,7 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 	ns->sequence->is_completed = false;
 	nfhost.log.log_debug("dev: Writing to LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, lbc, lbc * dpfs_lba_size);
 
-	if(lba_device + lbc > ns->lba_count) {
+	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
 		// next ns start lba
 		size_t pBuf_next_lbc = lba_device + lbc - ns->lba_count;
@@ -416,11 +415,30 @@ CNvmfhost::CNvmfhost() : async_mode(false) {
 		// engineGuardThread = std::thread(engineGuardFunction);
 	}
 	init_mutex.unlock();
+
 	block_count = 0;
+	m_exit = false;
 	devices.clear();
+	nf_guard = std::thread([this]() {
+		// keep alive for ctrlr
+		while(!m_exit) {
+			for(auto device : devices) {
+				if(device->attached) {
+					spdk_nvme_ctrlr_process_admin_completions(device->ctrlr);
+				}
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(300));
+		}
+	});
 }
 
 CNvmfhost::~CNvmfhost() {
+	m_exit = true;
+    // Cleanup all controllers and namespaces
+	cleanup();
+	nf_guard.join();
+    log.log_notic("CNvmfhost destroyed\n");
+
 	init_mutex.lock();
 	--hostCount;
 	if (hostCount == 0) {
@@ -430,10 +448,6 @@ CNvmfhost::~CNvmfhost() {
 		initialized = false;
 	}
 	init_mutex.unlock();
-	
-    // Cleanup all controllers and namespaces
-	cleanup();
-    log.log_notic("CNvmfhost destroyed\n");
 }
 
 int CNvmfhost::nvmf_attach(nvmfDevice* device) {
@@ -469,6 +483,7 @@ void CNvmfhost::cleanup() {
 	// remove all namespaces and controllers
 	for(auto& dev : devices) {
 		if (dev->attached) {
+			dev->attached = false;
 			if(dev->qpair) {
 				spdk_nvme_ctrlr_free_io_qpair(dev->qpair);
 				dev->qpair = nullptr;
@@ -483,7 +498,6 @@ void CNvmfhost::cleanup() {
 				delete nsdesc;
 			}
 			dev->nsfield.clear();
-			dev->attached = false;
 			log.log_inf("Controller %s detached\n", dev->trid->traddr);
 		} else {
 			log.log_notic("Controller %s already detached\n", dev->trid->traddr);
@@ -555,8 +569,8 @@ int CNvmfhost::attach_device(const std::string& devdesc_str) {
 	}
 	spdk_nvme_io_qpair_opts qpopts;
 	spdk_nvme_ctrlr_get_default_io_qpair_opts(ndev->ctrlr, &qpopts, sizeof(qpopts));
-	qpopts.io_queue_size = 128;
-	log.log_debug("qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
+	// qpopts.io_queue_size = 4096;
+	log.log_inf("get qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 
 	
 	
@@ -567,8 +581,8 @@ int CNvmfhost::attach_device(const std::string& devdesc_str) {
 		return rc;
 	}
 
-	log.log_debug("Controller %s attached with qpair %p\n", ndev->trid->traddr, ndev->qpair);
-	log.log_debug("qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
+	log.log_inf("Controller %s attached with qpair %p\n", ndev->trid->traddr, ndev->qpair);
+	log.log_inf("qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 
 	devices.emplace_back(ndev);
 	return rc;
@@ -633,9 +647,10 @@ int CNvmfhost::device_judge(size_t lba) const {
 int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) { 
 
 	int rc = 0;
+	int req_count = 0;
 #ifdef DPFS_IO_CHECK
 	log.log_debug("host: Reading from LBA %zu\n", lba);
-	if(lba >= block_count) {
+	if(lba + lbc > block_count) {
 		log.log_error("LBA %zu is out of range, total blocks: %zu\n", lba, block_count);
 		return -1;
 	}
@@ -647,7 +662,6 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) {
 		log.log_error("logic block is zero\n");
 		return -1;
 	}
-	
 #endif
 
 	size_t devPos = device_judge(lba);
@@ -656,7 +670,7 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) {
 	// cross device read
 	size_t op_lba_count = lbc;
 	size_t lba_device = lba - dev->lba_start;
-	if(lba_device + op_lba_count > dev->lba_count) {
+	if(lba_device + op_lba_count > dev->lba_count + dev->lba_start) {
 		// next device read lb count
 		size_t lba_next_dev_count = lba_device + op_lba_count - dev->lba_count;
 		// next device read start lba
@@ -670,17 +684,26 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) {
 			log.log_error("Failed to read from next device %zu, rc: %d\n", devPos + 1, rc);
 			return rc;
 		}
-
+		++req_count;
 	}
-	return dev->read(lba, pBuf, lbc) + rc;
+
+	rc = dev->read(lba, pBuf, lbc);
+	if(rc < 0) {
+		log.log_error("Failed to read from device %zu, rc: %d\n", devPos, rc);
+		return rc;
+	}
+	
+
+	return ++req_count;
 }
 
 int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc) {
 	int rc = 0;
+	int req_count = 0;
 #ifdef DPFS_IO_CHECK
 	log.log_debug("host: Writing to LBA %zu, buffer size %zu\n", lba, lbc * dpfs_lba_size);
 
-	if(lba >= block_count) {
+	if(lba + lbc > block_count) {
 		log.log_error("LBA %zu is out of range, total blocks: %zu\n", lba, block_count);
 		return -1;
 	}
@@ -699,7 +722,7 @@ int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc) {
 	size_t op_lba_count = lbc;
 	size_t lba_device = lba - dev->lba_start;
 	// cross device write
-	if(lba_device + op_lba_count > dev->lba_count) {
+	if(lba_device + op_lba_count > dev->lba_count + dev->lba_start) {
 		// next device read lb count
 		size_t lba_next_dev_count = lba_device + op_lba_count - dev->lba_count;
 		// next device read start lba
@@ -710,11 +733,19 @@ int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc) {
 
 		rc = devices[devPos + 1]->write(lba_next_dev, next_start_pbuf, pBuf_next_lbc);
 		if(rc < 0) {
-			log.log_error("Failed to read from next device %zu, rc: %d\n", devPos + 1, rc);
+			log.log_error("Failed to write to next device %zu, rc: %d\n", devPos + 1, rc);
 			return rc;
 		}
+		++req_count;
 	}
-	return dev->write(lba, pBuf, lbc) + rc;
+
+	rc = dev->write(lba, pBuf, lbc);
+	if(rc < 0) {
+		log.log_error("Failed to write to device %zu, rc: %d\n", devPos, rc);
+		return rc;
+	}
+	
+	return ++req_count;
 }
 
 int CNvmfhost::flush() { 
@@ -731,11 +762,9 @@ int CNvmfhost::sync(size_t n) {
 		for(const auto& dev : devices) {
 			if(dev->attached) {
 				log.log_debug("Waiting for %lu outstanding requests on device %s\n", n, dev->devdesc_str.c_str());
-				while(n) { 
-					n -= spdk_nvme_qpair_process_completions(dev->qpair, n);
-					// int32_t comp_num = spdk_nvme_qpair_process_completions(dev->qpair, 0);
-					// n -= comp_num;
-					// log.log_debug("%s:%d compelete %d reqs, Waiting for %d outstanding requests to complete on device %s\n", __FILE__, __LINE__, comp_num, num - comp_num, dev->devdesc_str.c_str());
+				while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair) && n) {
+					n -= spdk_nvme_qpair_process_completions(dev->qpair, 0);
+					// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
 				}
 			}
 		}
