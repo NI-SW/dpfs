@@ -1,26 +1,49 @@
 #include <storage/nvmf/nvmf.hpp>
 #include <thread>
 using namespace std;
+std::thread test;
+int testnfhost(void* arg = nullptr) {
 
-int main() {
-	dpfsEngine* engine = new CNvmfhost();
+	dpfsEngine* engine = nullptr;
+	if(arg) {
+		engine = (dpfsEngine*)arg;
+	} else {
+		engine = new CNvmfhost();
+	}
+
+
     // CNvmfhost nfhost;
 	CNvmfhost& nfhost = dynamic_cast<CNvmfhost&>(*engine);
 
 
+	if(!arg) {
+		CNvmfhost* nfhost2 = new CNvmfhost();
+		nfhost2->copy(nfhost);
+		printf("starting nfhost2\n");
+		test = thread([&nfhost2](){testnfhost(nfhost2);});
+
+		printf("nvmfhost2 started\n");
+	}
+
+
+
+
 	nfhost.log.set_log_path("./output.log");
-	nfhost.log.set_loglevel(logrecord::LOG_DEBUG);
-	// nfhost.log.set_async_mode(true);
+	// nfhost.log.set_loglevel(logrecord::LOG_DEBUG);
+	nfhost.log.set_async_mode(true);
 
 	nfhost.log.log_inf("Starting NVMF host...\n");
 
 	nfhost.set_async_mode(true);
 
 
+
 	// nfhost.attach_device("trtype:pcie traddr:0000.1b.00.0");  nfhost.attach_device("trtype:pcie traddr:0000.13.00.0");
-	nfhost.attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
-	// nfhost.attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
-	
+	// nfhost.attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
+	nfhost.attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
+	printf("using tcp transport\n");
+
+	std::this_thread::sleep_for(std::chrono::seconds(1));
 	auto hclock = std::chrono::high_resolution_clock::now();
 	auto now = std::chrono::duration_cast<std::chrono::milliseconds>(hclock.time_since_epoch()).count();
 
@@ -43,6 +66,8 @@ int main() {
 
     int rc = 0;
 	int reqs = 0;
+	int start = 0;
+	int end = 10000;
     if (nfhost.devices.empty()) {
 		fprintf(stderr, "no NVMe controllers found\n");
 		rc = 1;
@@ -58,10 +83,16 @@ int main() {
 	memcpy(test[3], "Hello World from NVMF host44!", 30);
 
 	printf("Write data: %s\n", test[0]);
+	if(arg) {
+		start = 10000;
+		end = 20000;
+	}
 	
 	now = std::chrono::duration_cast<std::chrono::milliseconds>(hclock.time_since_epoch()).count();
 
-	for(int i = 0; i < 2; ++i) {
+
+
+	for(int i = start; i < end; ++i) {
 		int waitCount = 0;
 
 		do{
@@ -69,7 +100,9 @@ int main() {
 				nfhost.log.log_error("Write data failed after 10 retries, exiting...\n");
 				break;
 			}
-			printf("count: %d\n", i);
+			if(i % 1000 == 0) {
+				printf("count: %d\n", i);
+			}
 			rc = nfhost.write(5242879 + i * 10, test[i % 100], 10); //10 * i + k * 100); //5242879
 			if(rc < 0) {
 				++waitCount;
@@ -142,5 +175,16 @@ exit:
 	nfhost.cleanup();
 	delete dynamic_cast<CNvmfhost*>(engine);
 	return rc;
+}
+
+int main() {
+	dpfsEngine* engine = nullptr; // new CNvmfhost();
+	testnfhost(engine);
+	std::this_thread::sleep_for(std::chrono::seconds(1));
+	if(test.joinable())
+		test.join();
+
+	// testnfhost();
+	return 0;
 }
 

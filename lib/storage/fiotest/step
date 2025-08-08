@@ -114,6 +114,7 @@ rdma link add rxe_0 type rxe netdev ens160
 ./rpc.py nvmf_create_transport -t RDMA -u 8192 -i 131072 -c 8192
 ./rpc.py nvmf_subsystem_add_listener -t RDMA -a 192.168.34.12 -f ipv4 -s 50658  nqn.2016-06.io.spdk:cnode1
 
+# 使用rdma进行通信时，需要客户端与服务端的防火墙同时配置或同时关闭
 
 # spdk nvme over tcp
 ./rpc.py nvmf_create_transport -t TCP -u 8192 -i 131072 -c 8192

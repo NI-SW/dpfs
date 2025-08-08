@@ -3,8 +3,8 @@
 #  All rights reserved.
 #
 
-DPFS_ROOT_DIR := $(abspath $(CURDIR)/..)
-SPDK_ROOT_DIR := $(abspath $(CURDIR)/../thirdparty/spdk)
+DPFS_ROOT_DIR := $(abspath $(CURDIR)/../..)
+SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../thirdparty/spdk)
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 

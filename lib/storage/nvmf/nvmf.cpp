@@ -26,6 +26,8 @@ static bool g_vmd = false;
 volatile size_t CNvmfhost::hostCount = 0;
 static std::thread engineGuardThread;
 
+static bool g_spdk_first_init = true;
+
 void* engineGuardFunction() {
 	while (CNvmfhost::hostCount > 0) {
 		// std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -43,13 +45,18 @@ int initSpdk() {
 	*
 	*/
 	int rc = 0;
-	struct spdk_env_opts opts;
-	
-	opts.opts_size = sizeof(opts);
-	spdk_env_opts_init(&opts);
+	if(g_spdk_first_init) {
+		struct spdk_env_opts opts;
+		
+		opts.opts_size = sizeof(opts);
+		spdk_env_opts_init(&opts);
 
-	opts.name = eng_name;
-	rc = spdk_env_init(&opts);
+		opts.name = eng_name;
+		rc = spdk_env_init(&opts);
+		g_spdk_first_init = false;
+	} else {
+		rc = spdk_env_init(nullptr);
+	}
 	if (rc < 0) {
 		printf("Unable to initialize SPDK env\n");
 		return rc;
@@ -442,10 +449,12 @@ CNvmfhost::~CNvmfhost() {
 	init_mutex.lock();
 	--hostCount;
 	if (hostCount == 0) {
-		spdk_vmd_fini();
-		spdk_env_fini();
+		// do not release spdk resource, for other nvmf host may use it, reinit spdk env may cause crash (dpdk mem map error)
+
+		// spdk_vmd_fini();
+		// spdk_env_fini();
+		// initialized = false;
 		// engineGuardThread.join();
-		initialized = false;
 	}
 	init_mutex.unlock();
 }

@@ -153,7 +153,7 @@ void logrecord::set_async_mode(bool async) {
 		}
 		complete = true;
 		char loghead[64];
-		memcpy(loghead, "[YYYY-mm-dd hh:mm:ss] [INFO ]: ", 32);
+		memcpy(loghead, "[YYYY-mm-dd hh:mm:ss] [INFO ]:  ", 33);
 
 		
 		while(!log_queue.empty() || async_mode) {
@@ -191,9 +191,10 @@ void logrecord::set_async_mode(bool async) {
 
 				if(logf_pos != seq->logfile_pos) {
 					logf_pos = seq->logfile_pos;
-					char cghead[512];
-					sprintf(cghead, "[%s] [CHANGELOGPATH]: new log path: %s\n", nowtmStr, log_files[logf_pos].c_str());
-					fwrite(cghead, sizeof(char), sizeof(cghead), fp);
+					char cghead[256];
+					int len = 0;
+					len = sprintf(cghead, "[%s] [CHANGELOGPATH]: new log path: %s\n", nowtmStr, log_files[logf_pos].c_str());
+					fwrite(cghead, sizeof(char), len, fp);
 					fclose(fp);
 					fp = fopen(log_files[logf_pos].c_str(), "a");
 				}
@@ -413,7 +414,7 @@ void logrecord::log_inf(const char* str, ...) {
 		va_end(ap);
 
 		log_seq->logl = LOG_INFO;
-		log_seq->len = len + 1;
+		log_seq->len = len;
 		log_seq->logfile_pos = log_files.size() - 1; // current log file position
 
 		// printf("str is : %s len: %lu\n", log_seq->log_str.c_str(), len);
@@ -473,7 +474,7 @@ void logrecord::log_notic(const char* str, ...) {
 		}
 		va_end(ap);
 		log_seq->logl = LOG_NOTIC;
-		log_seq->len = len + 1;
+		log_seq->len = len;
 		log_seq->logfile_pos = log_files.size() - 1;
 
 		logQueMutex.lock();
@@ -531,7 +532,7 @@ void logrecord::log_error(const char* str, ...) {
 		va_end(ap);
 
 		log_seq->logl = LOG_ERROR;
-		log_seq->len = len + 1;
+		log_seq->len = len;
 		log_seq->logfile_pos = log_files.size() - 1; // current log file position
 
 		// printf("str is : %s len: %lu\n", log_seq->log_str.c_str(), len);
@@ -593,7 +594,7 @@ void logrecord::log_fatal(const char* str, ...) {
 		va_end(ap);
 
 		log_seq->logl = LOG_FATAL;
-		log_seq->len = len + 1;
+		log_seq->len = len;
 		log_seq->logfile_pos = log_files.size() - 1; // current log file position
 
 		// printf("str is : %s len: %lu\n", log_seq->log_str.c_str(), len);
@@ -655,7 +656,7 @@ void logrecord::log_debug(const char* str, ...) {
 		va_end(ap);
 
 		log_seq->logl = LOG_DEBUG;
-		log_seq->len = len + 1;
+		log_seq->len = len;
 		log_seq->logfile_pos = log_files.size() - 1; // current log file position
 
 		// printf("str is : %s len: %lu\n", log_seq->log_str.c_str(), len);
