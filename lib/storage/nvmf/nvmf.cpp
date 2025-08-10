@@ -1,6 +1,6 @@
-/*   SPDX-License-Identifier: BSD-3-Clause
- *   Copyright (C) 2016 Intel Corporation.
- *   All rights reserved.
+/*  DPFS-License-Identifier: Apache-2.0 license
+ *  Copyright (C) 2025 LBR.
+ *  All rights reserved.
  */
 
 #include <storage/nvmf/nvmf.hpp>

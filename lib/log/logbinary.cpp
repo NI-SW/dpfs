@@ -761,23 +761,25 @@ void logrecord::fill_utf8(std::string::iterator iter) {
 }
 
 //return a string which is print by system call with n byte space.
-char* getCmdoutput(size_t& n) {
+std::string getCmdoutput(size_t& n) {
 	struct stat statbuf;
 	stat("/tmp/templgbin", &statbuf);
 	n = statbuf.st_size + 1;
 	FILE* fp;
-	char* ss = new char[n];
+	// char* ss = new char[n];
+	std::string ret;
+	ret.resize(n);
 
-	memset(ss, '\0', n);
+	// memset(ss, '\0', n);
 	fp = fopen("/tmp/templgbin", "r");
-	int rs = fread(ss, 1, n, fp);
+	int rs = fread(&ret[0], 1, n, fp);
 	if(rs == 0) {
-		delete ss;
+		// delete ss;
 		fclose(fp);
-		return nullptr;
+		return "";
 	}
 	fclose(fp);
-	return ss;
+	return ret;
 }
 
 

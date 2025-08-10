@@ -88,6 +88,6 @@ private:
 };
 
 
-char* getCmdoutput(size_t& n);
+std::string getCmdoutput(size_t& n);
 
 void Cmdoutput(const char* s);
