@@ -82,7 +82,7 @@ struct io_sequence {
 static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	nvmfnsDesc* ns = (nvmfnsDesc *)arg;
 
-	if(!ns->dev.nfhost.async_mode) {
+	if(!ns->dev.nfhost.async()) {
 		ns->sequence->is_completed = true;
 	}
 
@@ -103,7 +103,7 @@ static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 static void write_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	nvmfnsDesc* ns = (nvmfnsDesc *)arg;
 	ns->dev.nfhost.log.log_debug("write I/O completed\n");
-	if(!ns->dev.nfhost.async_mode) {
+	if(!ns->dev.nfhost.async()) {
 		ns->sequence->is_completed = true;
 	}
 	/* See if an error occurred. If so, display information
@@ -550,6 +550,10 @@ void CNvmfhost::set_async_mode(bool async) {
 	async_mode = async;
 }
 
+bool CNvmfhost::async() const {
+	return async_mode;
+}
+
 int CNvmfhost::attach_device(const std::string& devdesc_str) {
 	int rc = 0;
 	nvmfDevice* ndev = new nvmfDevice(*this);
@@ -819,6 +823,10 @@ int CNvmfhost::copy(const dpfsEngine& tgt) {
 	}
 
 	return 0;
+}
+
+size_t CNvmfhost::size() const {
+	return block_count;
 }
 
 void* CNvmfhost::zmalloc(size_t size) const {

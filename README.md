@@ -1,5 +1,5 @@
 DPFS
-Distribute Partitioned Foodtrace System
+Data Partitioned Foodtrace System
 
 分布式食品溯源系统
 

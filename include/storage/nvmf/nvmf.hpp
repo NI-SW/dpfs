@@ -110,34 +110,33 @@ public:
     virtual int sync(size_t n = 0) override;
 	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) override = delete;
 	virtual void set_async_mode(bool async) override;
+	virtual bool async() const override;
 	virtual int copy(const dpfsEngine& tgt) override;
+	virtual size_t size() const override;
+	virtual void* zmalloc(size_t size) const override;
+	virtual void zfree(void*) const override;
 
 	void hello_world();
 	int device_judge(size_t lba) const;
-	void* zmalloc(size_t size) const;
-	void zfree(void*) const;
 
 
 	void register_ns(nvmfDevice *dev, struct spdk_nvme_ns *ns);
 
-	// @return return all devices block count on this nvmf host
-	size_t total_blocks() const {
-		return devices.size();
-	}
-
 	
 
-// private:
 	logrecord log;
+	static volatile size_t hostCount;
+	// device's block count for all nvmf target on nvmf host
+	size_t block_count;
+
+private:
     std::vector<nvmfDevice*> devices;
 	std::thread nf_guard;
 
 	bool async_mode : 1;
 	bool m_exit : 1;
-	bool : sizeof(bool); 
+	bool : sizeof(bool);
 
-	// device's block count for all nvmf target on nvmf host
-	size_t block_count;
 
 	// attach all devices to the nvmf host
     int nvmf_attach(nvmfDevice* device);
@@ -149,9 +148,8 @@ public:
 	// this function will read the device info from NVMe controller and fill the device's describe field.
 	int read_device_info();
 
-
-	static volatile size_t hostCount;
-
+	friend class nvmfnsDesc;
+	friend class nvmfDevice;
 };
 
 

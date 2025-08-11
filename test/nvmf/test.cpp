@@ -7,6 +7,13 @@
 using namespace std;
 std::thread test;
 int testnfhost(void* arg = nullptr) {
+	int rc = 0;
+	
+	auto hclock = std::chrono::high_resolution_clock::now();
+	auto now = std::chrono::duration_cast<std::chrono::milliseconds>(hclock.time_since_epoch()).count();
+	int reqs = 0;
+	int start = 0;
+	int end = 10000;
 
 	dpfsEngine* engine = nullptr;
 	if(arg) {
@@ -42,14 +49,17 @@ int testnfhost(void* arg = nullptr) {
 
 
 
-	// nfhost.attach_device("trtype:pcie traddr:0000.1b.00.0");  nfhost.attach_device("trtype:pcie traddr:0000.13.00.0");
-	// nfhost.attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
-	nfhost.attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
-	printf("using tcp transport\n");
+	rc = nfhost.attach_device("trtype:pcie traddr:0000.1b.00.0");  nfhost.attach_device("trtype:pcie traddr:0000.13.00.0");
+	// rc = nfhost.attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
+	// rc = nfhost.attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
+	if(rc) {
+		nfhost.log.log_error("Failed to attach device\n");
+		goto exit;
+	}
+	printf("using pcie transport\n");
 
 	std::this_thread::sleep_for(std::chrono::seconds(1));
-	auto hclock = std::chrono::high_resolution_clock::now();
-	auto now = std::chrono::duration_cast<std::chrono::milliseconds>(hclock.time_since_epoch()).count();
+
 
 	
 
@@ -68,15 +78,9 @@ int testnfhost(void* arg = nullptr) {
 
 
 
-    int rc = 0;
-	int reqs = 0;
-	int start = 0;
-	int end = 10000;
-    if (nfhost.devices.empty()) {
-		fprintf(stderr, "no NVMe controllers found\n");
-		rc = 1;
-		goto exit;
-	}
+
+
+
 
 
 	// nfhost.hello_world();

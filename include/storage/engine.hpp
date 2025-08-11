@@ -32,6 +32,9 @@ public:
 
     // @param async: set asynchronous mode, if true, will use asynchronous I/O, else will use synchronous I/O
     virtual void set_async_mode(bool async) = 0;
+
+    // @return true if asynchronous mode is set, else false
+    virtual bool async() const = 0;
     
     /*
         @param lbaPos: logical block address position
@@ -75,5 +78,23 @@ public:
         @note copy the target device to this engine, the target engine must be of the same type as this engine. will create new device handlers to same device
     */
     virtual int copy(const dpfsEngine& tgt) = 0;
+
+    /*
+        @return total number of blocks in all devices attached to this engine
+        @note this function is used to get the total number of blocks in all devices attached to this engine, 
+        it will return the sum of all devices block count, if no device is attached, return 0.
+    */
+    virtual size_t size() const = 0;
+
+    /*
+        @param size: size of memory to allocate
+        @return pointer to the allocated memory, nullptr on failure
+    */
+    virtual void* zmalloc(size_t size) const = 0;
+
+    /*
+        @param ptr: pointer to the memory to free
+    */
+    virtual void zfree(void* ptr) const = 0;
 
 };
