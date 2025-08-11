@@ -1,4 +1,12 @@
+dprofilePath=$(history -w /dev/stdout | awk 'END {print $2}')
+dpfsPath=$(dirname $(readlink -f $dprofilePath))
+
+echo dprofilePath=$dprofilePath
+echo dpfsPath=$dpfsPath
+
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:\
-/code/github/dpfs/thirdparty/spdk/build/lib:\
-/code/github/dpfs/thirdparty/spdk/dpdk/build/lib:\
-/code/github/dpfs/lib
+$dpfsPath/thirdparty/spdk/build/lib:\
+$dpfsPath/thirdparty/spdk/dpdk/build/lib:\
+$dpfsPath/lib
+
+# unset LD_LIBRARY_PATH
