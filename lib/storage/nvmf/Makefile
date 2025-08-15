@@ -4,7 +4,7 @@
 #
 
 DPFS_ROOT_DIR := $(abspath $(CURDIR)/../../..)
-SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../../thirdparty/spdk)
+SPDK_ROOT_DIR := $(DPFS_ROOT_DIR)/thirdparty/spdk
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 

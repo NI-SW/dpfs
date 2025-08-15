@@ -4,18 +4,13 @@
 #
 
 
-
-
-
-
-
 all : $(APP)
 
 $(APP) : $(OBJS)
 	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -o $@ $(OBJS)
 
-$(OBJS) : $(CXXSOURCE)
-	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -c $^
+%.o: %.cpp
+	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -c $< -o $@
 
 clean : 
 	rm -f $(APP) $(OBJS)

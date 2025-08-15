@@ -4,6 +4,11 @@
 #
 CXXHEADER := -I$(DPFS_ROOT_DIR)/include
 CXXLIB := -L$(DPFS_ROOT_DIR)/lib
-CXXFLAG := -O2 -Wall
-OBJS := $(patsubst %.cpp,%.o,$(wildcard *.cpp))
+CXXFLAG := -O2 -Wall -Werror=return-type -finline-functions
+
+# SRCS := $(wildcard *.cpp)
+# OBJS := $(patsubst %.cpp, %.o, $(SRCS))
+
 CXXSOURCE := $(wildcard *.cpp)
+OBJS := $(patsubst %.cpp,%.o,$(CXXSOURCE))
+

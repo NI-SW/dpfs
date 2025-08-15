@@ -6,7 +6,7 @@ class getEndian {
 public:
     getEndian() {
         int a = 1;
-        if (*(char*)&a == 1) { // 小端存储
+        if (*(char*)&a == 0x01) { // 小端存储
             B_END = false;
         } else {               // 大端存储
             B_END = true;

@@ -354,11 +354,6 @@ static void attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, s
 	 */
 	device->cdata = spdk_nvme_ctrlr_get_data(ctrlr);
 
-	// snprintf(entry->name, sizeof(entry->name), "%-20.20s (%-20.20s)", cdata->mn, cdata->sn);
-
-	// entry->ctrlr = ctrlr;
-	// TAILQ_INSERT_TAIL(&g_controllers, entry, link);
-    // fh->controllers.push_back(entry);
 
 	/*
 	 * Each controller has one or more namespaces.  An NVMe namespace is basically

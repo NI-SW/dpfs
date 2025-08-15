@@ -4,18 +4,16 @@
 #
 
 CXXFLAG += -fpie -fPIC -shared
-# CXXFLAG += 
+
 
 all : $(LIB)
 
 $(LIB) : $(OBJS)
 	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -o $@ $(OBJS)
 
-$(OBJS) : $(CXXSOURCE)
-	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -c $^
+%.o: %.cpp
+	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -c $< -o $@
 
-# $(LIB) : $(CXXSOURCE)
-# 	$(CXX) -o $@ $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -c $^
 
 clean : 
 	rm -f $(LIB) $(OBJS)
