@@ -10,7 +10,7 @@ include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 
 CXXFLAG += -g
 
-LIB := $(DPFS_ROOT_DIR)/lib/libdpfs_sysdpfs.so
+LIB := $(DPFS_ROOT_DIR)/lib/libdpfs_dpfssys.so
 
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.lib.mk
