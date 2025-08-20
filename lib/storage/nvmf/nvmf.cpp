@@ -4,7 +4,6 @@
  */
 
 #include <storage/nvmf/nvmf.hpp>
-
 #include <spdk/vmd.h>
 #include <spdk/nvme.h>
 #include <spdk/nvme_zns.h>
@@ -437,8 +436,10 @@ CNvmfhost::CNvmfhost() : async_mode(false) {
 CNvmfhost::~CNvmfhost() {
 	m_exit = true;
     // Cleanup all controllers and namespaces
+	if(nf_guard.joinable())
+		nf_guard.join();
+		
 	cleanup();
-	nf_guard.join();
     log.log_notic("CNvmfhost destroyed\n");
 
 	init_mutex.lock();
@@ -586,7 +587,7 @@ int CNvmfhost::attach_device(const std::string& devdesc_str) {
 	if (ndev->qpair == nullptr) {
 		log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
 		delete ndev;
-		return rc;
+		return -ENOMEM;
 	}
 
 	log.log_inf("Controller %s attached with qpair %p\n", ndev->trid->traddr, ndev->qpair);
@@ -660,15 +661,15 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) {
 	log.log_debug("host: Reading from LBA %zu\n", lba);
 	if(lba + lbc > block_count) {
 		log.log_error("LBA %zu is out of range, total blocks: %zu\n", lba, block_count);
-		return -1;
+		return -EINVAL;
 	}
 	if(pBuf == nullptr) {
 		log.log_error("Buffer pointer is null\n");
-		return -1;
+		return -EINVAL;
 	}
 	if(lbc == 0) {
 		log.log_error("logic block is zero\n");
-		return -1;
+		return -EINVAL;
 	}
 #endif
 
@@ -713,15 +714,15 @@ int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc) {
 
 	if(lba + lbc > block_count) {
 		log.log_error("LBA %zu is out of range, total blocks: %zu\n", lba, block_count);
-		return -1;
+		return -EINVAL;
 	}
 	if(pBuf == nullptr) {
 		log.log_error("Buffer pointer is null\n");
-		return -1;
+		return -EINVAL;
 	}
 	if(lbc == 0) {
 		log.log_error("logic block is zero\n");
-		return -1;
+		return -EINVAL;
 	}
 #endif
 
@@ -833,6 +834,8 @@ void CNvmfhost::zfree(void* p) const {
 
 
 
-
+void* newNvmf() {
+    return new CNvmfhost();
+}
 
 

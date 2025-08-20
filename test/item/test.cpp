@@ -5,13 +5,22 @@
 #include <collect/collect.hpp>
 #include <thread>
 #include <iostream>
+#include <storage/nvmf/nvmf.hpp>
 using namespace std;
 std::thread test;
 
 
 int main() {
-	// CCollection c;
+	CNvmfhost* engine = new CNvmfhost();
+	engine->log.set_log_path("./logbinary.log");
+
+	CCollection c(*engine);
+
+
 	cout << "Endian: " << B_END << endl;
+	delete engine;
 	return 0;
 }
+
+
 

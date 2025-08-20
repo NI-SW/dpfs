@@ -1,9 +1,7 @@
-/*
- * Auth: Libr9926@gmail.com
- * update: 2024-9-9
- * 
- * describe: header of dfs network struct and APIs
-*/
+/*  DPFS-License-Identifier: Apache-2.0 license
+ *  Copyright (C) 2025 LBR.
+ *  All rights reserved.
+ */
 
 
 /*

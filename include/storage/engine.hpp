@@ -2,7 +2,7 @@
  *  Copyright (C) 2025 LBR.
  *  All rights reserved.
  */
-
+#pragma once
 #include <string>
 
 const size_t dpfs_lba_size = 4096; 
@@ -98,3 +98,5 @@ public:
     virtual void zfree(void* ptr) const = 0;
 
 };
+
+dpfsEngine* newEngine(std::string engine_type);

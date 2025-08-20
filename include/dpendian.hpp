@@ -1,3 +1,7 @@
+/*  DPFS-License-Identifier: Apache-2.0 license
+ *  Copyright (C) 2025 LBR.
+ *  All rights reserved.
+ */
 #pragma once
 
 static bool B_END = true;

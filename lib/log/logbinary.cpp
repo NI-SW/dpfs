@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <ctime>
 #include <thread>
+#include <cstring>
 #define IS_ASCII 0
 #define IS_UTF8 1
 #define IS_GBK 2

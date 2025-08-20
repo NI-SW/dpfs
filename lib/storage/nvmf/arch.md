@@ -13,6 +13,9 @@ class CNvmfhost;
 
 // for each disk
 class CNvmeDisk;
+
+// for each ns
+class nvmfnsDesc;
                                                       
 
 

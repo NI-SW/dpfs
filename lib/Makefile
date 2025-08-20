@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := nvmf engine
+SUBDIRS := log storage sysdpfs
 
 all clean::
 	@for subdir in $(SUBDIRS); \

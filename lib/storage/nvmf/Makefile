@@ -15,7 +15,7 @@ CXXHEADER += -I$(SPDK_ROOT_DIR)/build/include # -I$(SPDK_ROOT_DIR)/include
 CXXFLAG += -g
 CXXLIB += $(SPDK_LIB)
 
-LIB := ../../libdpfs_nvmf.so
+LIB := $(DPFS_ROOT_DIR)/lib/libdpfs_nvmf.so
 
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.lib.mk

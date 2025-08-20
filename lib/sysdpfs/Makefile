@@ -7,9 +7,10 @@ DPFS_ROOT_DIR := $(abspath $(CURDIR)/../..)
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 
+
 CXXFLAG += -g
-CXXLIB += -ldpfs_nvmf -ldpfs_log
 
-APP := app
+LIB := $(DPFS_ROOT_DIR)/lib/libdpfs_sysdpfs.so
 
-include $(DPFS_ROOT_DIR)/mk/dpfs.app.mk
+
+include $(DPFS_ROOT_DIR)/mk/dpfs.lib.mk

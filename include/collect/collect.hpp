@@ -124,6 +124,30 @@ public:
     
     // need to process big or little endian
     size_t* len = 0;
+
+    // one row data
+    //
+    // row in lba1
+    //                   <lba1>
+    //                   rowlock        col1    col2    col3
+    //  CItem[0].data = |locked|reserve|CValue*|CValue*|CValue*|
+    //                                  |
+    //                             CValue->data
+    //
+    // if use mix storage, the new col storage method like this:
+    // row in lba2
+    //                   <lba2>
+    //                   rowlock        new col--------------------
+    //  CItem[1].data = |locked|reserve|CValue*|                  |
+    //                                  |                         |
+    //                             CValue->data                   |
+    //                                                            |
+    // can use REORG to rebuild the table ::                      |
+    //                   <lba>                                    ↓
+    //                   rowlock        col1    col2    col3    col4
+    //  CItem[0].data = |locked|reserve|CValue*|CValue*|CValue*|CVAlue|
+    //                                  |
+    //                             CValue->data
     char data[];
     
 };
@@ -193,8 +217,13 @@ public:
     virtual int commit() = 0;
 
     const std::vector<dpfs_data_group>& keys;
+    // row lock, if row is update but not committed, the row is locked
+    bool* locked;
+    // from flexible array member, to store values
     std::vector<CValue*> values;
 
+    // storage row data
+    char date[];
 };
 
 /*
@@ -207,8 +236,14 @@ public:
 */
 class CCollection {
 public:
-    CCollection(dpfsEngine& engine) : dpfs_engine(engine) {};
-    ~CCollection();
+    // use ccid to locate the collection (search in system collection table)
+    /*
+        @param engine: dpfsEngine reference to the storage engine
+        @param ccid: CCollection ID, used to identify the collection info, 0 for new collection
+        @note this constructor will create a new collection with the given engine and ccid
+    */
+    CCollection(dpfsEngine& engine, int32_t id = 0) : dpfs_engine(engine), ccid(id) { };
+    ~CCollection() {};
 
     enum class storageType {
         COL = 0,    // storage data by column   -> easy to add key
@@ -229,10 +264,7 @@ public:
             return -ENAMETOOLONG; // Key length exceeds maximum allowed size
         }
 
-        dds_field kf;
-        kf.type = type;
-        kf.len = len;
-        kf.scale = scale;
+        dds_field dds = {type, len, scale};
 
         switch(type) {
             case TYPE_DECIMAL: 
@@ -244,10 +276,10 @@ public:
                     return -EINVAL; // Invalid length for string or binary type
                 }
 
-                keys.emplace_back(std::make_pair(key, kf));
+                keys.emplace_back(std::make_pair(key, dds));
                 return 0;
             case TYPE_INT:
-                len = sizeof(int);
+                len = sizeof(int32_t);
                 break;
             case TYPE_BIGINT:
                 len = sizeof(int64_t);
@@ -261,7 +293,7 @@ public:
             default:
                 return -EINVAL; // Invalid data type
         }
-        keys.emplace_back(std::make_pair(key, kf));
+        keys.emplace_back(std::make_pair(key, dds));
 
 
         return 0;
@@ -279,34 +311,34 @@ public:
         @return 0 on success, else on failure
         @note this function will add the item to the collection, and update the index
     */
-    virtual int addItem(CItem* item) = 0;
+    virtual int addItem(CItem* item) { return 0; };
 
     /*
         @param item: CItem pointer to add
         @return 0 on success, else on failure
         @note this function will add the item to the collection, and update the index
     */
-    virtual int addItems(std::vector<CItem*>& items) = 0;
+    virtual int addItems(std::vector<CItem*>& items) { return 0; };
     
-    virtual int deleteItem(int pos) = 0;
+    virtual int deleteItem(int pos) { return 0; };
 
     /*
         @param pos: position of the item in the item list
         @return CItem pointer on success, else nullptr
     */
-    virtual const CItem* const getItem(int pos) = 0;
+    virtual const CItem* const getItem(int pos) { return 0; };
 
     /*
         @param key: key of the item, maybe column name
         @return CItem pointer on success, else nullptr
         @note this function will search the item list for the key, and possible low performance
     */
-    virtual const CItem* const getItemByKey(CKey key) = 0;
+    virtual const CItem* const getItemByKey(CKey key) { return 0; };
 
     /*
         @return number of items in the collection
     */
-    virtual int getItemCount() = 0;
+    virtual int getItemCount() { return 0; };
 
     /*
         @return 0 on success, else on failure
@@ -315,10 +347,20 @@ public:
         need to do : 
         write commit log, and then write data, finally update the index
     */
-    virtual int commit() = 0;
+    virtual int commit() { return 0; };
 
+    std::string owner;
+    std::string name;
     std::vector<dpfs_data_group> keys;
+    // col ptr for logic block
+    std::vector<size_t> col_ptr;
+    // ccid: CCollection ID, used to identify the collection info
+    int32_t ccid;
 
+    /*
+        use cache to storage pending data, if cache is dirty, lock the row untile change is rolled back or committed
+        @note this is a simple cache implementation, not a full cache system
+    */
     struct cache {
         size_t start_pos = 0;
         size_t end_pos = 0;

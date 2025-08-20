@@ -93,7 +93,7 @@ public:
     int reorgStorageNode(const std::string& nodeName, size_t blockSize);
 
 
-    int createStorageBlock(const std::string& blockName, );
+    int createStorageBlock(const std::string& blockName);
 
 
     void addBlock(const std::string& blockName);
