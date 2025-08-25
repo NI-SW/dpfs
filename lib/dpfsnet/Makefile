@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := item nvmf sys tcp
+SUBDIRS := net tcp
 
 all clean::
 	@for subdir in $(SUBDIRS); \

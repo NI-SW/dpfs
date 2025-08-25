@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := log storage dpfssys
+SUBDIRS := log storage dpfssys dpfsnet
 
 all clean::
 	@for subdir in $(SUBDIRS); \

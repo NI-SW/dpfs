@@ -1,3 +1,7 @@
+/*  DPFS-License-Identifier: Apache-2.0 license
+ *  Copyright (C) 2025 LBR.
+ *  All rights reserved.
+ */
 #include <cstddef>
 
 #if __cplusplus >= 201103L

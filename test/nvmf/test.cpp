@@ -3,6 +3,7 @@
  *  All rights reserved.
  */
 #include <storage/nvmf/nvmf.hpp>
+#include <cstring>
 #include <thread>
 using namespace std;
 std::thread test;
