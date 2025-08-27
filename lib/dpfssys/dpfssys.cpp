@@ -74,21 +74,41 @@ int dpfsSystem::readConfig() {
     }
     
 
+    if(doc.HasMember("net")) {
+        const rapidjson::Value& net = doc["net"];
+        if(net.HasMember("tcp")) {
+            const rapidjson::Value& tcp = net["tcp"];
+            if(tcp.HasMember("data_service") && tcp["data_service"].IsString()) {
+                dataSvrStr = tcp["data_service"].GetString();
+            }
+            if(tcp.HasMember("control_service") && tcp["control_service"].IsString()) {
+                controlSvrStr = tcp["control_service"].GetString();
+            }
+            if(tcp.HasMember("replication_service") && tcp["replication_service"].IsString()) {
+                replicationSvrStr = tcp["replication_service"].GetString();
+            }
+        }
+        log.log_inf("Data service: %s\n", dataSvrStr.c_str());
+        log.log_inf("Control service: %s\n", controlSvrStr.c_str());
+        log.log_inf("Replication service: %s\n", replicationSvrStr.c_str());
+    }
 
-    if(doc.HasMember("dataport") && doc["dataport"].IsInt()) {
-        dataport = static_cast<dpfssysPort>(doc["dataport"].GetInt());
-    }
-    if(doc.HasMember("controlport") && doc["controlport"].IsInt()) {
-        controlport = static_cast<dpfssysPort>(doc["controlport"].GetInt());
-    }
-    if(doc.HasMember("replicationport") && doc["replicationport"].IsInt()) {
-        replicationport = static_cast<dpfssysPort>(doc["replicationport"].GetInt());
-    }
+
+
+    // if(doc.HasMember("dataport") && doc["dataport"].IsInt()) {
+    //     dataport = static_cast<dpfssysPort>(doc["dataport"].GetInt());
+    // }
+    // if(doc.HasMember("controlport") && doc["controlport"].IsInt()) {
+    //     controlport = static_cast<dpfssysPort>(doc["controlport"].GetInt());
+    // }
+    // if(doc.HasMember("replicationport") && doc["replicationport"].IsInt()) {
+    //     replicationport = static_cast<dpfssysPort>(doc["replicationport"].GetInt());
+    // }
 
     
-    log.log_inf("Data port: %d\n", static_cast<int>(dataport));
-    log.log_inf("Control port: %d\n", static_cast<int>(controlport));
-    log.log_inf("Replication port: %d\n", static_cast<int>(replicationport));
+    // log.log_inf("Data port: %d\n", static_cast<int>(dataport));
+    // log.log_inf("Control port: %d\n", static_cast<int>(controlport));
+    // log.log_inf("Replication port: %d\n", static_cast<int>(replicationport));
 
     // add engine for system
     if(doc.HasMember("engines")) {
@@ -113,7 +133,7 @@ int dpfsSystem::readConfig() {
                     std::string engine_desc = eng[j].GetString();
                     log.log_inf("Adding engine: %s\n", engine_desc.c_str());
                     dpfseng->set_logdir(log.get_log_path() + engine_desc);
-                    dpfseng->set_async_mode(true);
+                    dpfseng->set_async_mode(false);
                     int rc = dpfseng->attach_device(engine_desc);
                     if(rc != 0) {
                         log.log_error("Failed to attach device %s: %d\n", engine_desc.c_str(), rc);
@@ -122,7 +142,6 @@ int dpfsSystem::readConfig() {
                     } else {
                         log.log_inf("Successfully attached device %s\n", engine_desc.c_str());
                     }
-                    
                 }
                 engine_list.emplace_back(dpfseng);
             }

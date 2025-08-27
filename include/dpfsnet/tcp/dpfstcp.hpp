@@ -24,7 +24,7 @@ public:
 
     CDpfsTcp();
     virtual ~CDpfsTcp() override;
-
+    virtual bool is_connected() const override;
     /*
         "ip:192.168.34.12 port:20500"
     */
@@ -47,6 +47,13 @@ public:
         @note not thread safe
     */
     virtual void set_log_level(int level) override;
+    
+    /*
+        @return name of the object
+    */
+    virtual const char* name() const override { 
+        return "DPFS_TCP_CLIENT"; 
+    }
 
 private:
     logrecord log;

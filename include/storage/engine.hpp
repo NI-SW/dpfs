@@ -5,7 +5,7 @@
 #pragma once
 #include <string>
 
-const size_t dpfs_lba_size = 4096; 
+constexpr size_t dpfs_lba_size = 4096; 
 
 class dpfsEngine {
 public:
@@ -96,6 +96,11 @@ public:
         @param ptr: pointer to the memory to free
     */
     virtual void zfree(void* ptr) const = 0;
+
+    /*
+        @return name of the engine
+    */
+    virtual const char* name() const = 0;
 
 };
 

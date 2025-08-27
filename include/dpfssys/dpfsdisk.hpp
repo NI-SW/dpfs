@@ -4,7 +4,8 @@
 */
 class CDiskMan {
 public:
-    CDiskMan() = default;
+    CDiskMan() = delete;
+    CDiskMan(dpfsEngine* engine) : eng(engine) {};
     ~CDiskMan() = default;
 
     /*
@@ -26,7 +27,7 @@ public:
         @return 0 on success, else on failure
         @note init a new disk or load disk space information from the engine
     */
-    int init() noexcept;
+    int init();
 
     dpfsEngine* eng;
     

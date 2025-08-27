@@ -1,6 +1,8 @@
 #include <storage/nvmf/nvmf.hpp>
 #include <spdk/nvme.h>
 
+#define DATA_BUFFER_STRING "Hello world!"
+
 struct hello_world_sequence {
 	nvmfDevice* dev_entry;
 	char		*buf;

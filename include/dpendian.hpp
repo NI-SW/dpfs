@@ -17,6 +17,9 @@ public:
         }
 
     }
+    bool operator()() const {
+        return B_END;
+    }
 };
 
 static getEndian globalEndian;

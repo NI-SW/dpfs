@@ -153,6 +153,14 @@ int CDpfstcpsvr::listen(const char* server_string, listenCallback cb, void* cb_a
                 if(dcon->thd.joinable()) {
                     dcon->thd.join();
                 }
+
+                log.log_debug("Destroy client connection %u.%u.%u.%u:%u\n", 
+                    dcon->ip & 0xFF,
+                    (dcon->ip >> 8) & 0xFF,
+                    (dcon->ip >> 16) & 0xFF,
+                    (dcon->ip >> 24) & 0xFF, 
+                    dcon->port);
+
                 delete dcon;
 
             }
@@ -173,7 +181,17 @@ int CDpfstcpsvr::listen(const char* server_string, listenCallback cb, void* cb_a
             // Create a new CDpfsTcp instance for the accepted connection
             dpfsconn* dcon = new dpfsconn;
             dcon->cli.sockfd = clifd;
+
+            dcon->ip = clientAddr.sin_addr.s_addr;
+            dcon->port = ntohs(clientAddr.sin_port);
+            log.log_debug("new connection from %u.%u.%u.%u:%u\n", 
+                dcon->ip & 0xFF,
+                (dcon->ip >> 8) & 0xFF,
+                (dcon->ip >> 16) & 0xFF,
+                (dcon->ip >> 24) & 0xFF, 
+                dcon->port);
             
+
             // add to active list
             clientLock.lock();
             clients.emplace_front(dcon);
@@ -216,6 +234,9 @@ connerror:
 
 int CDpfstcpsvr::stop() {
     CMutexGuard lock(m_lock);
+    if(m_exit) {
+        return 0;
+    }
     int rc = 0;
     // stop listen
     rc = shutdown(sockfd, SHUT_RDWR);
@@ -234,22 +255,8 @@ int CDpfstcpsvr::stop() {
         cli->cli.disconnect();
     }
     clientLock.unlock();
-    
-    // while(!clients.empty());
-    // // clean up destroy queue
-    // destroyLock.lock();
-    // while (!destroyQueue.empty()) {
-    //     dpfsconn* dcon = destroyQueue.front();
-    //     destroyQueue.pop();
-    //     dcon->cli.disconnect();
-    //     if (dcon->thd.joinable()) {
-    //         dcon->thd.join(); // Wait for the client thread to finish
-    //     }
-    //     delete dcon;
-    // }
-    // destroyLock.unlock();
 
-    // stop destroy thread
+    // wait destroy thread stop
     if (destroyGuard.joinable()) {
         destroyGuard.join(); // Wait for the destroy thread to finish
     }

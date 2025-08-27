@@ -46,8 +46,12 @@ public:
     */
     virtual void set_log_level(int level) override;
 
-
-
+    /*
+        @return name of the object
+    */
+    virtual const char* name() const override { 
+        return "DPFS_TCP_SERVER"; 
+    }
     
 private:
     logrecord log;
@@ -70,6 +74,10 @@ private:
         std::thread thd;
         // position in client list
         std::list<dpfsconn*>::iterator it;
+        uint32_t ip;
+        uint16_t port;
+        // char ipStr[16] { 0 };
+        // char portStr[16] { 0 };
     };
 
     std::list<dpfsconn*> clients;

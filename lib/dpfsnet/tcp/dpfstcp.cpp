@@ -40,7 +40,9 @@ void initWinsock() { }
 void destroyWinsock() { }
 #endif
 
-static const char exitStr[] = "exit";
+static constexpr uint8_t exitStr[] {0x14, 0x00, 0x08, 0xff, 0x28, 0xe5, 0x74, 'h', 'g', ']', '\\', '+', '/', 'W', 'O', 'w', 0x00};
+
+// or " hgOQWP]qw\\cxz/*";
 
 static inline bool is_disconnect(const char* buffer, int size) {
 
@@ -87,7 +89,6 @@ CDpfsTcp::CDpfsTcp() {
         std::unique_lock<std::mutex> lk(this->sendMutex);
 
         while (!m_exit) {
-            // Sending logic here
 
             // if not empty, continue.
             sendCv.wait_for(lk, std::chrono::milliseconds(1000), [this] { return (!sendQueue.empty() || m_exit); });
@@ -105,18 +106,17 @@ CDpfsTcp::CDpfsTcp() {
 
                 //  4B   nB
                 // |len|data|
-                if(msg->size <= 0) {
-                    delete msg; // Free the message if size is invalid
-                    continue;
-                }
-
                 size_t totalSent = 0;
                 uint32_t msgSize = msg->size + sizeof(msg->size);
+                // if(msg->size == 0) {
+                //     msgSize = sizeof(exitStr);
+                // }
+
                 msg->size = htonl(msg->size); // Convert size to network byte order
                 int retry = 0;
                 log.log_debug("Sending message of size: %u\n", msgSize);
                 while (totalSent < msgSize) {
-                    int sent = ::send(sockfd, msg->data - sizeof(uint32_t) + totalSent, msgSize - totalSent, 0);
+                    int sent = ::send(sockfd, msg->data - sizeof(dpfsmsg) + totalSent, msgSize - totalSent, 0);
                     if (sent < 0) {
                         // retry 2 times in 2 seconds
                         if(retry++ < 2) {
@@ -124,11 +124,9 @@ CDpfsTcp::CDpfsTcp() {
                             std::this_thread::sleep_for(std::chrono::seconds(1));
                             continue; // Retry sending
                         }
-                        goto connnerror;
+                        goto connerror;
                     }
                     log.log_debug("Sent %d bytes, total sent: %zu/%u\n", sent, totalSent, msgSize);
-
-                    
                     totalSent += sent;
                 }
                 sendthdQueue.pop();
@@ -138,14 +136,14 @@ CDpfsTcp::CDpfsTcp() {
                 msg = nullptr;
                 continue;
 
-                connnerror:
+                connerror:
                 // if error disconnect
                 log.log_error("%s:%d Failed to send message, error: %d\n", __FILE__, __LINE__, errno);
                 if(msg) {
                     free(msg);
                     msg = nullptr;
                 }
-                clearCache();
+                // clearCache();
                 clearEnv();
             }
             
@@ -158,6 +156,7 @@ CDpfsTcp::CDpfsTcp() {
         int retry = 0;
         dpfsmsg* msg;
         uint32_t msgSize = 0;
+        // bool disconnMsg = false;
         char buf[4096] { 0 };
 
         while (!m_exit) {
@@ -177,7 +176,9 @@ CDpfsTcp::CDpfsTcp() {
                 }
                 goto connerror;
             } else if (received == 0) {
-                continue;
+                log.log_debug("Connection closed by peer\n");
+                syncSend();
+                goto connerror;
             } else {
                 log.log_debug("Received %d bytes for message size\n", received);
             }
@@ -213,25 +214,31 @@ CDpfsTcp::CDpfsTcp() {
                 log.log_debug("Received %d bytes, total received: %u/%u\n", received, totalReceived, msgSize);
             }
 
-            if(is_disconnect(msg->data, totalReceived)) {
-                log.log_debug("Disconnect message received\n");
-                free(msg);
-                m_connected = false;
-                // wait all data sent
-                syncSend();
-                shutdown(sockfd, SHUT_RDWR);
-                closefd(sockfd);
-                sockfd = -1; // Reset sockfd on failure
-                if (targetAddr) {
-                    freeaddrinfo(targetAddr);
-                    targetAddr = nullptr;
-                }
-                continue;
-            }
-
             msg->size = totalReceived;
             log.log_debug("Received message of size: %u\n", msg->size);
             log.log_debug("Message data: %s\n", std::string(msg->data, msg->size).c_str());
+            
+            // if(disconnMsg) {
+            //     if(is_disconnect(msg->data, totalReceived)) {
+            //         log.log_debug("Disconnect message received\n");
+            //         free(msg);
+            //         m_connected = false;
+            //         // wait all data sent
+            //         syncSend();
+            //         shutdown(sockfd, SHUT_RDWR);
+            //         closefd(sockfd);
+            //         sockfd = -1; // Reset sockfd on failure
+            //         if (targetAddr) {
+            //             freeaddrinfo(targetAddr);
+            //             targetAddr = nullptr;
+            //         }
+            //         disconnMsg = false;
+            //         continue;
+            //     }
+            //     disconnMsg = false;
+            // }
+
+
 
             recvthdLock.lock();
             recvthdQueue.push(msg);
@@ -246,8 +253,9 @@ CDpfsTcp::CDpfsTcp() {
                 free(msg);
                 msg = nullptr;
             }
-            clearCache();
+            // clearCache();
             clearEnv();
+            continue;
 
         }
 
@@ -258,8 +266,8 @@ CDpfsTcp::CDpfsTcp() {
 }
 
 CDpfsTcp::~CDpfsTcp() {
-    m_exit = true;
     disconnect();
+    m_exit = true;
 
 
     if (sendGuard.joinable()) {
@@ -274,7 +282,7 @@ CDpfsTcp::~CDpfsTcp() {
         freeaddrinfo(targetAddr);
         targetAddr = nullptr;
     }
-
+    clearCache();
     // if (localAddr) {
     //     freeaddrinfo(localAddr);
     //     localAddr = nullptr;
@@ -289,6 +297,10 @@ CDpfsTcp::~CDpfsTcp() {
         }
     }
     g_dtlock.unlock();
+}
+
+bool CDpfsTcp::is_connected() const {
+    return (m_connected && (sockfd != -1));
 }
 
 int CDpfsTcp::connect(const char* connString) {
@@ -365,6 +377,7 @@ int CDpfsTcp::connect(const char* connString) {
     m_connected = true;
     return 0;
 connerror:
+    m_connected = false;
     if(sockfd != -1) {
         closefd(sockfd);
         sockfd = -1; // Reset sockfd on failure
@@ -379,22 +392,23 @@ connerror:
 // wait all send pending data sent, then disconnect
 int CDpfsTcp::disconnect() {
 
-    if(!m_connected) {
+    if(!m_connected || sockfd == -1) {
         return 0; // Not connected
     }
     m_reject = true;
 
-    dpfsmsg* msg = (dpfsmsg*)malloc(sizeof(dpfsmsg) + sizeof(exitStr));
-    if(!msg) {
-        return -ENOMEM;
-    }
+    // dpfsmsg* msg = (dpfsmsg*)malloc(sizeof(dpfsmsg) + sizeof(exitStr));
+    // if(!msg) {
+    //     return -ENOMEM;
+    // }
 
-    msg->size = sizeof(exitStr);
-    memcpy(msg->data, exitStr, sizeof(exitStr));
-    sendLock.lock();
-    sendQueue.push(msg);
-    sendLock.unlock();
-    sendCv.notify_one();
+    // if disconnect, send exitStr to server to notify disconnect, set size to 0 to indicate disconnect
+    // msg->size = 0;
+    // memcpy(msg->data, exitStr, sizeof(exitStr));
+    // sendLock.lock();
+    // sendQueue.push(msg);
+    // sendLock.unlock();
+    // sendCv.notify_one();
 
     // dpfsmsg* msg = (dpfsmsg*)malloc(sizeof(dpfsmsg) + sizeof(exitStr));
     // msg->size = htonl(sizeof(exitStr));
@@ -404,15 +418,12 @@ int CDpfsTcp::disconnect() {
     m_lock.lock();
     // wait all data sent
     syncSend();
-    // ::send(sockfd, msg, sizeof(msg) + sizeof(exitStr), 0);
     m_connected = false;
     shutdown(sockfd, SHUT_RDWR);
-    if(sockfd == -1) {
-        return 0; // Not connected
-    } else {
-        closefd(sockfd);
-        sockfd = -1; // Reset sockfd on failure
-    }
+
+    closefd(sockfd);
+    sockfd = -1; // Reset sockfd on failure
+
     if (targetAddr) {
         freeaddrinfo(targetAddr);
         targetAddr = nullptr;
@@ -462,6 +473,9 @@ int CDpfsTcp::recv(char*& buffer, int* retsize) {
     if(recvQueue.empty()) {
         while(recvthdQueue.empty() && !m_exit && m_connected) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        if(!m_connected && recvthdQueue.empty()) {
+            return -ECONNRESET;
         }
         recvthdLock.lock();
         recvQueue.swap(recvthdQueue);
@@ -567,8 +581,11 @@ void CDpfsTcp::clearCache() {
 
 void CDpfsTcp::clearEnv() {
     CSpinGuard lock(m_lock);
-
-    sockfd = -1;
+    
+    if(sockfd != -1) {
+        closefd(sockfd);
+        sockfd = -1;
+    }
     m_connected = false;
     m_reject = false;
     if (targetAddr) {

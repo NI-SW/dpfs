@@ -42,7 +42,7 @@ public:
     /*
         @return name of the object
     */
-    // virtual const char* name() const = 0;
+    virtual const char* name() const = 0;
     
 };
 

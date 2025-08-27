@@ -34,7 +34,7 @@ void* engineGuardFunction() {
 	return nullptr;
 }
 
-const char* eng_name = "DPFS-NVMF-Engine";
+constexpr char eng_name[] = "DPFS-NVMF-ENGINE";
 
 int initSpdk() {
 	/*

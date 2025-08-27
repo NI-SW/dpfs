@@ -13,7 +13,6 @@
 // for each disk host
 // this class will become context for each disk host
 
-#define DATA_BUFFER_STRING "Hello world!"
 
 /*
  * 对于一个host下的所有nvme设备，使用一个类来管理，对外提供的接口将所有硬盘抽象为一个块空间，块大小为4KB
@@ -115,6 +114,7 @@ public:
 	virtual size_t size() const override;
 	virtual void* zmalloc(size_t size) const override;
 	virtual void zfree(void*) const override;
+	virtual const char* name() const override { return "DPFS-NVMF-ENGINE"; }
 
 	void hello_world();
 	int device_judge(size_t lba) const;

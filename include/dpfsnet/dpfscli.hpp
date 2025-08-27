@@ -10,6 +10,10 @@ public:
     CDpfscli() = default;
     virtual ~CDpfscli() = default;
 
+    /*
+        @return true if connected, false not connected or connection lost.
+    */
+    virtual bool is_connected() const = 0;
 
     /*
         @param conn_tring: Connection string for the network connection.
@@ -74,6 +78,11 @@ public:
         @return 0 on success, else on failure.
     */
     virtual void set_log_level(int level) = 0;
+
+    /*
+        @return name of the object
+    */
+    virtual const char* name() const = 0;
 };
 
 
