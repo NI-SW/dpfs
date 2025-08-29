@@ -4,13 +4,12 @@
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
 #include <fstream>
-#include <cryptlib.h>
 
 static void dataSvc(CDpfscli& cli, void* cb_arg) {
     // Handle data service requests here
-    dpfsSystem* sys = (dpfsSystem*)cb_arg;
+    // dpfsSystem* sys = (dpfsSystem*)cb_arg;
 
-    
+    // sys->cleanup();
 }
 
 static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
@@ -89,14 +88,14 @@ int dpfsSystem::start() {
         }
     }
     if(dataSvr) {
-        rc = dataSvr->listen(dataSvrStr.c_str(), dataSvc, );
+        rc = dataSvr->listen(dataSvrStr.c_str(), dataSvc, nullptr);
         if(rc != 0) {
             log.log_error("Failed to start data server: %d\n", rc);
             return rc;
         }
     }
     if(repSvr) {
-        rc = repSvr->listen(replicationSvrStr.c_str(), repSvc, );
+        rc = repSvr->listen(replicationSvrStr.c_str(), repSvc, nullptr);
         if(rc != 0) {
             log.log_error("Failed to start replication server: %d\n", rc);
             return rc;
