@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := net tcp
+SUBDIRS := tcp net
 
 all clean::
 	@for subdir in $(SUBDIRS); \

@@ -5,8 +5,18 @@
 
 CXXFLAG += -fpie -fPIC -shared
 
+ifeq ($(OSNAME), AIX)
+EXTRALIB := $(patsubst %.so,%.a,$(LIB))
+EXTRADLL := $(shell echo 'ln -sf $(LIB) $(EXTRALIB)')
+EXTRARMDLL := $(shell echo 'rm -f $(EXTRALIB)')
+else ifeq ($(OSNAME), OS400)
+EXTRALIB := $(patsubst %.so,%.a,$(LIB))
+EXTRADLL := $(shell echo 'ln -sf $(LIB) $(EXTRALIB)')
+EXTRARMDLL := $(shell echo 'rm -f $(EXTRALIB)')
+endif
 
 all : $(LIB)
+	$(EXTRALIB)
 
 $(LIB) : $(OBJS)
 	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -o $@ $(OBJS)
@@ -17,3 +27,4 @@ $(LIB) : $(OBJS)
 
 clean : 
 	rm -f $(LIB) $(OBJS)
+	$(EXTRARMDLL)

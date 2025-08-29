@@ -4,36 +4,194 @@
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
 #include <fstream>
+#include <cryptlib.h>
+
+static void dataSvc(CDpfscli& cli, void* cb_arg) {
+    // Handle data service requests here
+    dpfsSystem* sys = (dpfsSystem*)cb_arg;
+
+    
+}
+
+static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
+
+}
+
+static void repSvc(CDpfscli& cli, void* cb_arg) {
+
+}
 
 
 dpfsSystem::dpfsSystem(const char* cfile) {
+    CRecursiveGuard guard(m_lock);
     conf_file = cfile;
     int rc = init();
     if(rc != 0) {
         throw std::runtime_error("Failed to initialize dpfsSystem with configuration file: " + conf_file);
     }
-    
 }
 
 dpfsSystem::~dpfsSystem() {
+    CRecursiveGuard guard(m_lock);
+    stop();
+    cleanup();
     if(!engine_list.empty()) {
         for(auto& eng : engine_list) {
             delete eng;
         }
     }
     engine_list.clear();
+
 };
+
+int dpfsSystem::cleanup() {
+    // Cleanup the system, detach devices, stop services, etc.
+    CRecursiveGuard guard(m_lock);
+    
+    if(ctrlSvr) {
+        ctrlSvr->stop();
+        delete ctrlSvr;
+        ctrlSvr = nullptr;
+    }
+    if(dataSvr) {
+        dataSvr->stop();
+        delete dataSvr;
+        dataSvr = nullptr;
+    }
+    if(repSvr) {
+        repSvr->stop();
+        delete repSvr;
+        repSvr = nullptr;
+    }
+
+    if(!engine_list.empty()) {
+        for(auto& eng : engine_list) {
+            delete eng;
+        }
+    }
+    engine_list.clear();
+
+    return 0; // Return 0 on success
+}
+
+int dpfsSystem::start() {
+    CRecursiveGuard guard(m_lock);
+    if(m_start) {
+        return 0; // Already started
+    }
+    int rc = 0;
+    if(ctrlSvr) {
+        // 
+        rc = ctrlSvr->listen(controlSvrStr.c_str(), ctrlSvc, this);
+        if(rc != 0) {
+            log.log_error("Failed to start control server: %d\n", rc);
+            return rc;
+        }
+    }
+    if(dataSvr) {
+        rc = dataSvr->listen(dataSvrStr.c_str(), dataSvc, );
+        if(rc != 0) {
+            log.log_error("Failed to start data server: %d\n", rc);
+            return rc;
+        }
+    }
+    if(repSvr) {
+        rc = repSvr->listen(replicationSvrStr.c_str(), repSvc, );
+        if(rc != 0) {
+            log.log_error("Failed to start replication server: %d\n", rc);
+            return rc;
+        }
+    }
+
+    m_start = true;
+    m_exit = false;
+    return 0; // Return 0 on success
+}
+
+int dpfsSystem::stop() {
+    CRecursiveGuard guard(m_lock);
+    if(!m_start) {
+        return 0; // Already stopped
+    }
+    int rc = 0;
+    if(ctrlSvr) {
+        rc = ctrlSvr->stop();
+        if(rc != 0) {
+            log.log_error("Failed to stop control server: %d\n", rc);
+            return rc;
+        }
+    }
+    if(dataSvr) {
+        rc = dataSvr->stop();
+        if(rc != 0) {
+            log.log_error("Failed to stop data server: %d\n", rc);
+            return rc;
+        }
+    }
+    if(repSvr) {
+        rc = repSvr->stop();
+        if(rc != 0) {
+            log.log_error("Failed to stop replication server: %d\n", rc);
+            return rc;
+        }
+    }
+
+    m_start = false;
+    return 0; // Return 0 on success
+}
 
 int dpfsSystem::init() {
     // Initialize the system, load configurations, etc.
+    CRecursiveGuard guard(m_lock);
+
+    int rc = 0;
     if(!conf_file.empty()) {
         // Load configuration from file
         if(readConfig()) {
             return -1; // Return error if configuration loading fails
         }
     }
+
+    // Initialize members
+    if((int)ctrlSvrType < 0 || ctrlSvrType >= dpfsnetType::MAX) {
+        rc = -EINVAL;
+        goto errinit; // Return error if control server type is invalid
+    }
+    ctrlSvr = newServer(dpfsnetTypeStr[(int)ctrlSvrType]);
+    if(!ctrlSvr) {
+        rc = -ENOMEM;
+        goto errinit; // Return error if server creation fails
+    }
+
+    if((int)dataSvrType < 0 || dataSvrType >= dpfsnetType::MAX) {
+        rc = -EINVAL;
+        goto errinit; // Return error if data server type is invalid
+    }
+    dataSvr = newServer(dpfsnetTypeStr[(int)dataSvrType]);
+    if(!dataSvr) {
+        rc = -ENOMEM;
+        goto errinit; // Return error if server creation fails
+    }
+
+    if((int)repSvrType < 0 || repSvrType >= dpfsnetType::MAX) {
+        rc = -EINVAL;
+        goto errinit; // Return error if replication server type is invalid
+    }
+    repSvr = newServer(dpfsnetTypeStr[(int)repSvrType]);
+    if(!repSvr) {
+        rc = -ENOMEM;
+        goto errinit; // Return error if server creation fails
+    }
+
     // use default configurations if no file is provided
     return 0; // Return 0 on success
+
+errinit:
+
+    cleanup();
+    return rc;
+    
+
 }
 
 int dpfsSystem::readConfig() {
@@ -80,12 +238,15 @@ int dpfsSystem::readConfig() {
             const rapidjson::Value& tcp = net["tcp"];
             if(tcp.HasMember("data_service") && tcp["data_service"].IsString()) {
                 dataSvrStr = tcp["data_service"].GetString();
+                dataSvrType = dpfsnetType::TCP;
             }
             if(tcp.HasMember("control_service") && tcp["control_service"].IsString()) {
                 controlSvrStr = tcp["control_service"].GetString();
+                ctrlSvrType = dpfsnetType::TCP;
             }
             if(tcp.HasMember("replication_service") && tcp["replication_service"].IsString()) {
                 replicationSvrStr = tcp["replication_service"].GetString();
+                repSvrType = dpfsnetType::TCP;
             }
         }
         log.log_inf("Data service: %s\n", dataSvrStr.c_str());
@@ -94,28 +255,12 @@ int dpfsSystem::readConfig() {
     }
 
 
-
-    // if(doc.HasMember("dataport") && doc["dataport"].IsInt()) {
-    //     dataport = static_cast<dpfssysPort>(doc["dataport"].GetInt());
-    // }
-    // if(doc.HasMember("controlport") && doc["controlport"].IsInt()) {
-    //     controlport = static_cast<dpfssysPort>(doc["controlport"].GetInt());
-    // }
-    // if(doc.HasMember("replicationport") && doc["replicationport"].IsInt()) {
-    //     replicationport = static_cast<dpfssysPort>(doc["replicationport"].GetInt());
-    // }
-
-    
-    // log.log_inf("Data port: %d\n", static_cast<int>(dataport));
-    // log.log_inf("Control port: %d\n", static_cast<int>(controlport));
-    // log.log_inf("Replication port: %d\n", static_cast<int>(replicationport));
-
     // add engine for system
     if(doc.HasMember("engines")) {
         const rapidjson::Value& engines = doc["engines"];
 
-        rapidjson::GenericMemberIterator it = engines.MemberBegin();
-        rapidjson::GenericMemberIterator itend = engines.MemberEnd();
+        rapidjson::GenericMemberIterator<true, rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>> it = engines.MemberBegin();
+        rapidjson::GenericMemberIterator<true, rapidjson::UTF8<>, rapidjson::MemoryPoolAllocator<>> itend = engines.MemberEnd();
 
         // for each engine type
         for (;it != itend; ++it) {
@@ -149,6 +294,7 @@ int dpfsSystem::readConfig() {
     }
 
 
+    
 
     return 0; // Return 0 on success
 }

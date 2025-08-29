@@ -73,6 +73,21 @@ private:
     std::mutex& m_lock;
 };
 
+class CRecursiveGuard {
+public:
+    CRecursiveGuard(std::recursive_mutex& lock) : m_lock(lock) {
+        m_lock.lock();
+    }
+    ~CRecursiveGuard() {
+        m_lock.unlock();
+    }
+private:
+    CRecursiveGuard(const CRecursiveGuard &);
+    CRecursiveGuard & operator = (const CRecursiveGuard &);
+private:
+    std::recursive_mutex& m_lock;
+};
+
 class CSpinGuard {
 public:
     CSpinGuard(CSpin& lock) : m_lock(lock) {

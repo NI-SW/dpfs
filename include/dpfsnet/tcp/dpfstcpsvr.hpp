@@ -52,12 +52,17 @@ public:
     virtual const char* name() const override { 
         return "DPFS_TCP_SERVER"; 
     }
+
+    virtual bool is_listening() const override {
+        return (m_listening && (sockfd != -1));
+    }
     
 private:
     logrecord log;
     bool m_exit = false;
     int sockfd = -1;
     int listenQueue = 16;
+    volatile bool m_listening = false;
     struct addrinfo *localAddr = nullptr;
     std::thread listenGuard;
 
@@ -85,7 +90,8 @@ private:
     std::queue<dpfsconn*> destroyQueue;
     CSpin destroyLock;
     std::thread destroyGuard;
-    std::mutex m_lock;
+    std::recursive_mutex m_lock;
+
 
 
 };

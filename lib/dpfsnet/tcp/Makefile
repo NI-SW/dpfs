@@ -11,4 +11,6 @@ CXXFLAG += -g
 
 LIB := $(DPFS_ROOT_DIR)/lib/libdpfs_tcp.so
 
+CXXLIB += -ldpfs_log
+
 include $(DPFS_ROOT_DIR)/mk/dpfs.lib.mk

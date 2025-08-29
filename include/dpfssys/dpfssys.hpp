@@ -1,12 +1,13 @@
 #include <storage/engine.hpp>
+#include <dpfsnet/dpfssvr.hpp>
 #include <log/logbinary.h>
-#include "dpfsconst.hpp"
+#include <dpfsconst.hpp>
 
 class CDatasvc;
 class CControlsvc;
 class CReplicatesvc;
 
-class dpfsSystem {
+class dpfsSystem final {
 public:
     /*
         @param cfile: configuration file path
@@ -23,30 +24,74 @@ public:
     */
     inline const char* name() const { return "DPFS_SYSTEM"; }
 
-    
+    /*
+        @note start all services
+        @return 0 on success, else on failure
+    */
+    int start();
+
+    /*
+        @note stop all services
+        @return 0 on success, else on failure
+    */
+    int stop();
+
+
 // private:
 
     // below shoud be private, but now keep it public for simplicity
+
+    /*
+        @note read configuration from the file and initialize the system, only called in constructor
+        @return 0 on success, else on failure
+    */
     int init();
     /*
         read configuration from the file
         @return 0 on success, else on failure
     */
     int readConfig();
+
+    /*
+        @note reload configuration from the file. some services may not support warm reload, need to stop and start again
+        @return 0 on success, else on failure
+    */
+    int reloadConfig();
+
+    /*
+        @note cleanup the system, detach all devices, stop and release all services, function will be called in destructor
+        @return 0 on success, else on failure
+    */
+    int cleanup();
     
     // net server string
     // for client data I/O
     std::string dataSvrStr = "0.0.0.0:20500";
+    dpfsnetType dataSvrType = dpfsnetType::TCP;
     // for remote control and management
     std::string controlSvrStr = "0.0.0.0:20501";
+    dpfsnetType ctrlSvrType = dpfsnetType::TCP;
     // for data replication between dpfs nodes
     std::string replicationSvrStr = "0.0.0.0:20502";
+    dpfsnetType repSvrType = dpfsnetType::TCP;
+
+
+    CDpfssvr* ctrlSvr = nullptr;
+    CDpfssvr* dataSvr = nullptr;
+    CDpfssvr* repSvr = nullptr;
+
+    CDatasvc* dataService = nullptr;
+    CReplicatesvc* repService = nullptr;
+
 
     // specified by configuration file
     std::vector<dpfsEngine*> engine_list; // storage engines list
     // CDatasvc data_svc;
     logrecord log;
-    std::string conf_file;
+    std::string conf_file = "config.json";
+    std::recursive_mutex m_lock;
+    volatile bool m_start = false;
+    volatile bool m_exit = false;
 
 };
 

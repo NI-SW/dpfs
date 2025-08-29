@@ -1,0 +1,22 @@
+{
+    "engines" : {
+        "nvmf" : [
+            "trtype:pcie traddr:0000.1b.00.0",
+            "trtype:pcie traddr:0000.13.00.0"
+        ],
+        "other" : []
+    },
+    
+    "net" : {
+        "tcp" : {
+            "data_service" : "0.0.0.0:20500",
+            "control_service" : "0.0.0.0:20501",
+            "replication_service" : "0.0.0.0:20502"
+        },
+        "other" : {}
+    },
+    
+    "logpath" : "./dpfsdiag.log",
+    "asynclog" : true
+
+}

@@ -60,7 +60,7 @@ CDpfstcpsvr::~CDpfstcpsvr() {
 }
 
 int CDpfstcpsvr::listen(const char* server_string, listenCallback cb, void* cb_arg) {
-    CMutexGuard lock(m_lock);
+    CRecursiveGuard lock(m_lock);
     m_exit = false;
     if (sockfd != -1) {
         return -EISCONN; // Already listening
@@ -134,6 +134,7 @@ int CDpfstcpsvr::listen(const char* server_string, listenCallback cb, void* cb_a
     if (rc) {
         goto connerror; // Listen failed
     }
+    m_listening = true;
 
     destroyGuard = std::thread([this](){
         std::queue<dpfsconn*> tmpQue;
@@ -233,8 +234,8 @@ connerror:
 }
 
 int CDpfstcpsvr::stop() {
-    CMutexGuard lock(m_lock);
-    if(m_exit) {
+    CRecursiveGuard lock(m_lock);
+    if(m_exit || !m_listening) {
         return 0;
     }
     int rc = 0;
@@ -263,13 +264,15 @@ int CDpfstcpsvr::stop() {
 
     if (sockfd != -1) {
         closefd(sockfd);
-        sockfd = -1;
+        
     }
     if (localAddr) {
         freeaddrinfo(localAddr);
-        localAddr = nullptr;
     }
-
+    
+    localAddr = nullptr;
+    sockfd = -1;
+    m_listening = false;
     return 0;
 }
 

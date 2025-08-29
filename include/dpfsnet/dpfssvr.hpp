@@ -43,6 +43,11 @@ public:
         @return name of the object
     */
     virtual const char* name() const = 0;
+
+    /*
+        @return statue of the server, false for stopped, true for running.
+    */
+    virtual bool is_listening() const = 0;
     
 };
 
