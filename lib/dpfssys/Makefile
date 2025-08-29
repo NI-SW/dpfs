@@ -9,6 +9,7 @@ include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 
 
 CXXFLAG += -g
+CXXHEADER += -I$(DPFS_ROOT_DIR)/thirdparty/rapidjson/include
 
 LIB := $(DPFS_ROOT_DIR)/lib/libdpfs_dpfssys.so
 

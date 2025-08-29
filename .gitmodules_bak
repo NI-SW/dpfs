@@ -1,15 +1,18 @@
 [submodule "dpdk"]
   path = thirdparty/dpdk
-  url =https://github.com/DPDK/dpdk.git
+  url = https://github.com/DPDK/dpdk.git
 [submodule "spdk"]
   path = thirdparty/spdk
-  url =https://github.com/spdk/spdk.git
+  url = https://github.com/spdk/spdk.git
 [submodule "fio"]
   path = thirdparty/fio
-  url =https://github.com/axboe/fio.git
+  url = https://github.com/axboe/fio.git
 [submodule "openssl"]
   path = thirdparty/openssl
-  url =https://github.com/openssl/openssl.git
+  url = https://github.com/openssl/openssl.git
 [submodule "zlib"]
   path = thirdparty/zlib
-  url =https://github.com/madler/zlib.git
+  url = https://github.com/madler/zlib.git
+[submodule "rapidjson"]
+  path = thirdparty/rapidjson
+  url = https://github.com/Tencent/rapidjson.git
