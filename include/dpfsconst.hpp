@@ -1,6 +1,6 @@
 enum class dpfsnetType : int {
     TCP = 0,
-    MAX
+    MAX,
 };
 
 constexpr const char* dpfsnetTypeStr[] = {
@@ -17,7 +17,7 @@ enum class dpfsipc : int {
 struct dpfs_cmd {
     dpfsipc cmd;                // command type
     int rc;                     // return code
-    uint32_t size;              // size of parameters
+    int size;              // size of parameters
     char data[];                // parameters
 
 };
@@ -30,7 +30,7 @@ using msgCallback = int (*)(const dpfs_cmd* cmd);
 
 class CDpfsIPC {
 public:
-    CDpfsIPC() { }
+    CDpfsIPC();
 
     inline const char* name() const { 
         return "DPFS_IPC"; 

@@ -13,6 +13,11 @@
 #ifdef _WIN64
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#ifndef SHUT_RDWR
+#define SHUT_RDWR SD_BOTH
+#endif
+CSpin g_wsainitlock;
+volatile bool WSA_initialized = false;
 static WORD wVer = MAKEWORD(2, 2);
 static WSAData wd;
 #pragma comment(lib, "Ws2_32.lib")
@@ -20,10 +25,24 @@ static int closefd(int fd) {
     return closesocket(fd);
 }
 void initWinsock() {
+    if (WSA_initialized) {
+        return;
+    }
+    CSpinGuard lock(g_wsainitlock);
+    if (WSA_initialized) {
+        return;
+    }
+    WSA_initialized = true;
     WSAStartup(wVer, &wd);
 }
-
 void destroyWinsock() {
+    if (!WSA_initialized) {
+        return;
+    }
+    CSpinGuard lock(g_wsainitlock);
+    if (!WSA_initialized) {
+        return;
+    }
     WSACleanup();
 }
 
@@ -108,9 +127,6 @@ CDpfsTcp::CDpfsTcp() {
                 // |len|data|
                 size_t totalSent = 0;
                 uint32_t msgSize = msg->size + sizeof(msg->size);
-                // if(msg->size == 0) {
-                //     msgSize = sizeof(exitStr);
-                // }
 
                 msg->size = htonl(msg->size); // Convert size to network byte order
                 int retry = 0;
@@ -154,7 +170,7 @@ CDpfsTcp::CDpfsTcp() {
 
         uint32_t totalReceived = 0;
         int retry = 0;
-        dpfsmsg* msg;
+        dpfsmsg* msg = nullptr;
         uint32_t msgSize = 0;
         // bool disconnMsg = false;
         char buf[4096] { 0 };
@@ -396,24 +412,6 @@ int CDpfsTcp::disconnect() {
         return 0; // Not connected
     }
     m_reject = true;
-
-    // dpfsmsg* msg = (dpfsmsg*)malloc(sizeof(dpfsmsg) + sizeof(exitStr));
-    // if(!msg) {
-    //     return -ENOMEM;
-    // }
-
-    // if disconnect, send exitStr to server to notify disconnect, set size to 0 to indicate disconnect
-    // msg->size = 0;
-    // memcpy(msg->data, exitStr, sizeof(exitStr));
-    // sendLock.lock();
-    // sendQueue.push(msg);
-    // sendLock.unlock();
-    // sendCv.notify_one();
-
-    // dpfsmsg* msg = (dpfsmsg*)malloc(sizeof(dpfsmsg) + sizeof(exitStr));
-    // msg->size = htonl(sizeof(exitStr));
-    // memcpy(msg->data, exitStr, sizeof(exitStr));
-
 
     m_lock.lock();
     // wait all data sent

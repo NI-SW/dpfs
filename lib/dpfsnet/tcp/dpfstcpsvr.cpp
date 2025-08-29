@@ -7,6 +7,9 @@
 #ifdef _WIN64
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#ifndef SHUT_RDWR
+#define SHUT_RDWR SD_BOTH
+#endif
 static int closefd(int fd) {
     return closesocket(fd);
 }
@@ -243,7 +246,7 @@ int CDpfstcpsvr::stop() {
     rc = shutdown(sockfd, SHUT_RDWR);
     if(rc) {
         log.log_error("Shutdown socket failed, rc=%d\n", rc);
-        return -EIO;
+        // return -EIO;
     }
     m_exit = true;
     if(listenGuard.joinable()) {

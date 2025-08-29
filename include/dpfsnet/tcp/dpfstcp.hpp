@@ -12,6 +12,8 @@
 #include <log/logbinary.h>
 
 #ifdef _WIN64
+extern CSpin g_wsainitlock;
+extern volatile bool WSA_initialized;
 void initWinsock();
 void destroyWinsock();
 #else 
