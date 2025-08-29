@@ -16,7 +16,7 @@ EXTRARMDLL := $(shell echo 'rm -f $(EXTRALIB)')
 endif
 
 all : $(LIB)
-	$(EXTRALIB)
+	$(EXTRADLL)
 
 $(LIB) : $(OBJS)
 	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -o $@ $(OBJS)
