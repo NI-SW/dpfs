@@ -59,7 +59,7 @@ public:
     
 private:
     logrecord log;
-    bool m_exit = false;
+    volatile bool m_exit = false;
     int sockfd = -1;
     int listenQueue = 16;
     volatile bool m_listening = false;

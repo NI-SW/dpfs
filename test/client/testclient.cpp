@@ -9,7 +9,7 @@ void sigfun(int sig) {
     g_exit = true;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     signal(SIGINT, sigfun);
     signal(SIGKILL, sigfun);
 

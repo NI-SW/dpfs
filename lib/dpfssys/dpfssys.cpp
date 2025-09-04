@@ -20,14 +20,13 @@ static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
             break;
         }
         dsys->log.log_debug("Waiting for connect command from client...\n");
-    }while(rc == -ENODATA);
+    } while(rc == -ENODATA);
     dpfs_cmd* cmd = (dpfs_cmd*)reqPtr;
     if(B_END) {
         cmd_edn_cvt(cmd);
     }
 
-    dsys->log.log_debug("Received request: %s\n", dpfsipcStr[(uint32_t)cmd->cmd]);
-    if(cmd->cmd != dpfsipc::DPFS_IPC_CONNECT) {
+    if(cmd->cmd != dpfsipc::DPFS_IPC_CONNECT && retsize != (sizeof(dpfs_cmd) + sizeof(ipc_connect))) {
         cli.send(&error_rsp, sizeof(dpfs_rsp));
         dsys->log.log_notic("illegal first command: %u\n", (uint32_t)cmd->cmd);
         // std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -35,6 +34,7 @@ static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
         cli.disconnect();
         return;
     }
+    dsys->log.log_debug("Received request: %s\n", dpfsipcStr[(uint32_t)cmd->cmd]);
 
     dpfs_rsp* rsp = dsys->controlService.process_request(cmd);
     if(!rsp) {

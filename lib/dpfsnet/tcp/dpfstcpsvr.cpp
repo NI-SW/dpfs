@@ -181,12 +181,14 @@ int CDpfstcpsvr::listen(const char* server_string, listenCallback cb, void* cb_a
             if (clifd < 0) {
                 continue; // Accept failed, continue to next iteration
             }
+            
 
             // Create a new CDpfsTcp instance for the accepted connection
             dpfsconn* dcon = new dpfsconn;
             dcon->cli.sockfd = clifd;
 
-            dcon->ip = clientAddr.sin_addr.s_addr;
+            
+            dcon->ip = ntohl(clientAddr.sin_addr.s_addr);
             dcon->port = ntohs(clientAddr.sin_port);
             log.log_debug("new connection from %u.%u.%u.%u:%u\n", 
                 dcon->ip & 0xFF,
@@ -267,8 +269,8 @@ int CDpfstcpsvr::stop() {
 
     if (sockfd != -1) {
         closefd(sockfd);
-        
     }
+
     if (localAddr) {
         freeaddrinfo(localAddr);
     }
