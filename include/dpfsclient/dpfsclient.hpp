@@ -28,8 +28,8 @@ public:
     bool is_connected() const;
 
     
-private:
     logrecord log;
+private:
     CDpfscli* m_cli;
     std::string m_netType;
     bool serverEndian = false; // false: little endian, true: big endian

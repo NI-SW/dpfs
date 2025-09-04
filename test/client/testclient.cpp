@@ -14,7 +14,7 @@ int main() {
     signal(SIGKILL, sigfun);
 
     CDpfsSysCli a("tcp");
-    
+    a.log.set_loglevel(logrecord::LOG_DEBUG);
     int rc = 0;
     try {
         a.connect("ip:127.0.0.1 port:20500 user:root passwd:123456");

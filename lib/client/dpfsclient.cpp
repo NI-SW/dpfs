@@ -78,7 +78,7 @@ int CDpfsSysCli::connect(const char* connStr) {
         m_cli->disconnect();
         return rc;
     }
-    log.log_debug("Received response from server. %s\n", dpfsrspStr[(uint32_t)rsp->rsp]);
+    log.log_debug("Received response from server. rsp: %s\n", dpfsrspStr[(uint32_t)rsp->rsp]);
 
 
     if(B_END) {
@@ -103,13 +103,13 @@ int CDpfsSysCli::connect(const char* connStr) {
     // get server endian and auth token
     serverEndian = connRsp->serverEndian;
     memcpy(authToken, connRsp->authToken, sizeof(authToken));
-    m_cli->buffree(rsp);
-
+    
     log.log_debug("Connected to server, version: %u.%u.%u.%u, authToken: %s, serverEndian: %s\n",
         (uint8_t)connRsp->version[0], (uint8_t)connRsp->version[1],
         (uint8_t)connRsp->version[2], (uint8_t)connRsp->version[3],
         authToken,
         serverEndian ? "big-endian" : "little-endian");
+    m_cli->buffree(rsp);
     return 0;
 
     error:

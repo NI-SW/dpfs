@@ -37,6 +37,19 @@ void rsp_edn_cvt(dpfs_rsp* rsp) {
     return;
 }
 
+bool is_valid_ipc(dpfsipc cmd) {
+    if(cmd >= dpfsipc::DPFS_IPC_MAX) {
+        return false;
+    }
+    return true;
+}
+
+bool is_valid_rsp(dpfsrsp rsp) {
+    if(rsp >= dpfsrsp::DPFS_RSP_MAX) {
+        return false;
+    }
+    return true;
+}
 
 int parse_string(const char* str, const char* key, char* value, size_t size) {
     if (!value) {

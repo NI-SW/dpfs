@@ -104,6 +104,8 @@ void cmd_edn_cvt(dpfs_cmd* cmd);
 
 void rsp_edn_cvt(dpfs_rsp* rsp);
 
+bool is_valid_ipc(dpfsipc cmd);
+bool is_valid_rsp(dpfsrsp rsp);
 
 int parse_string(const char* str, const char* key, char* value, size_t size);
 

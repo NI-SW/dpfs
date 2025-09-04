@@ -14,12 +14,18 @@ static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
     int retsize = 0;
     int rc = 0;
     // process connect ipc
-    cli.recv(&reqPtr, &retsize);
+    do {
+        rc = cli.recv(&reqPtr, &retsize);
+        if(rc == 0) {
+            break;
+        }
+        dsys->log.log_debug("Waiting for connect command from client...\n");
+    }while(rc == -ENODATA);
     dpfs_cmd* cmd = (dpfs_cmd*)reqPtr;
     if(B_END) {
         cmd_edn_cvt(cmd);
     }
-    
+
     dsys->log.log_debug("Received request: %s\n", dpfsipcStr[(uint32_t)cmd->cmd]);
     if(cmd->cmd != dpfsipc::DPFS_IPC_CONNECT) {
         cli.send(&error_rsp, sizeof(dpfs_rsp));
@@ -59,6 +65,13 @@ static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
 
         // convert from network byte order
         cmd = (dpfs_cmd*)reqPtr;
+
+        if(!is_valid_ipc(cmd->cmd)) {
+            cli.send(&error_rsp, sizeof(dpfs_rsp));
+            dsys->log.log_notic("illegal command: %u\n", (uint32_t)cmd->cmd);
+            cli.buffree(reqPtr);
+            continue;
+        }
 
         // process the request and get a response
         // use little-endian to receive and send ipc
