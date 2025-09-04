@@ -59,17 +59,16 @@ void initWinsock() { }
 void destroyWinsock() { }
 #endif
 
-static constexpr uint8_t exitStr[] {0x14, 0x00, 0x08, 0xff, 0x28, 0xe5, 0x74, 'h', 'g', ']', '\\', '+', '/', 'W', 'O', 'w', 0x00};
-
-// or " hgOQWP]qw\\cxz/*";
+static constexpr uint8_t aliveStr[0] {};
+static constexpr uint8_t keepAliveDuration = 15;
 
 static inline bool is_disconnect(const char* buffer, int size) {
 
-    if(size != sizeof(exitStr)) {
+    if(size != sizeof(aliveStr)) {
         return false;
     } else if(buffer == nullptr) {
         return false;
-    } else if(memcmp(buffer, exitStr, sizeof(exitStr)) == 0) {
+    } else if(memcmp(buffer, aliveStr, sizeof(aliveStr)) == 0) {
         return true;
     }
     return false;
@@ -83,7 +82,6 @@ static std::thread dpfstcp_guard;
 void dpfstcp_guard_thread() {
     initWinsock();
     while (dpfstcp_count) {
-
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
     destroyWinsock();
@@ -119,7 +117,7 @@ CDpfsTcp::CDpfsTcp() {
             sendthdQueue.swap(sendQueue); // Swap the local queue with the send queue
             sendLock.unlock();
 
-            while(!sendthdQueue.empty()) {
+            while(!sendthdQueue.empty() && m_connected && !m_exit) {
                 dpfsmsg* msg = sendthdQueue.front();
                 // sendthdQueue.pop();
 
@@ -135,7 +133,7 @@ CDpfsTcp::CDpfsTcp() {
                     int sent = ::send(sockfd, msg->data - sizeof(dpfsmsg) + totalSent, msgSize - totalSent, 0);
                     if (sent < 0) {
                         // retry 2 times in 2 seconds
-                        if(retry++ < 2) {
+                        if(retry++ < 2 && (!m_exit && m_connected)) {
                             log.log_error("%s:%d Failed to send message, error: %d, retrying...\n", __FILE__, __LINE__, errno);
                             std::this_thread::sleep_for(std::chrono::seconds(1));
                             continue; // Retry sending
@@ -155,10 +153,6 @@ CDpfsTcp::CDpfsTcp() {
                 connerror:
                 // if error disconnect
                 log.log_error("%s:%d Failed to send message, error: %d\n", __FILE__, __LINE__, errno);
-                if(msg) {
-                    free(msg);
-                    msg = nullptr;
-                }
                 // clearCache();
                 clearEnv();
             }
@@ -181,6 +175,7 @@ CDpfsTcp::CDpfsTcp() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 continue;
             }
+            lastActiveTime = time(nullptr);
 
             // recv length first
             int received = ::recv(sockfd, (char*)&msgSize, sizeof(uint32_t), 0);
@@ -193,10 +188,15 @@ CDpfsTcp::CDpfsTcp() {
                 goto connerror;
             } else if (received == 0) {
                 log.log_debug("Connection closed by peer\n");
-                syncSend();
-                goto connerror;
+                disconnect();
+                continue;
             } else {
                 log.log_debug("Received %d bytes for message size\n", received);
+            }
+
+            if(msgSize == 0) {
+                log.log_debug("%s:%d receive heart beat msg.\n", __FILE__, __LINE__);
+                continue;
             }
 
             // Convert size from network byte order
@@ -279,6 +279,30 @@ CDpfsTcp::CDpfsTcp() {
 
     });
 
+    keepAliveGuard = std::thread([this]() {
+        uint8_t i = 0;
+        while(!m_exit) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            if(!m_connected || m_reject) {
+                continue;
+            }
+            
+
+            // if time out over 4 times keepAliveDuration, disconnect
+            if(time(nullptr) - lastActiveTime > keepAliveDuration * 4) {
+                log.log_debug("Connection timeout, disconnecting...\n");
+                disconnect();
+                continue;
+            }
+
+            ++i;
+            if(i >= keepAliveDuration * 2) {
+                this->send(aliveStr, sizeof(aliveStr));
+                i = 0;
+            }
+        }
+    });
+
 }
 
 CDpfsTcp::~CDpfsTcp() {
@@ -292,6 +316,10 @@ CDpfsTcp::~CDpfsTcp() {
 
     if (recvGuard.joinable()) {
         recvGuard.join();
+    }
+
+    if(keepAliveGuard.joinable()) {
+        keepAliveGuard.join();
     }
 
     if (targetAddr) {
@@ -390,6 +418,8 @@ int CDpfsTcp::connect(const char* connString) {
         goto connerror; // Connection failed
     }
 
+    lastActiveTime = time(nullptr);
+
     m_connected = true;
     return 0;
 connerror:
@@ -434,12 +464,12 @@ int CDpfsTcp::disconnect() {
     return 0;
 }
 
-int CDpfsTcp::send(const char* buffer, int size) {
+int CDpfsTcp::send(const void* buffer, int size) {
     if(m_reject) {
         return -ENOTCONN;
     }
 
-    if (buffer == nullptr || size == 0) {
+    if (buffer == nullptr) {
         return -EINVAL;
     }
     
@@ -463,8 +493,11 @@ int CDpfsTcp::send(const char* buffer, int size) {
     return 0;
 }
 
-int CDpfsTcp::recv(char*& buffer, int* retsize) {
-    if (retsize == nullptr) {
+int CDpfsTcp::recv(void** buffer, int* retsize) {
+    // if (retsize == nullptr) {
+    //     return -EINVAL;
+    // }
+    if(buffer == nullptr) {
         return -EINVAL;
     }
     
@@ -495,8 +528,10 @@ int CDpfsTcp::recv(char*& buffer, int* retsize) {
         return -ENOBUFS;
     }
 
-    *retsize = msg->size;
-    buffer = msg->data;
+    if(retsize) {
+        *retsize = msg->size;
+    }
+    *buffer = msg->data;
     
     return 0;
 }
@@ -524,11 +559,11 @@ void CDpfsTcp::set_log_level(int level) {
 }
 
 void CDpfsTcp::syncSend() const {
-    while(!m_exit && !sendQueue.empty()) {
+    while(!m_exit && !sendQueue.empty() && m_connected) {
         // std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    while(!m_exit && !sendthdQueue.empty()) {
+    while(!m_exit && !sendthdQueue.empty() && m_connected) {
         // std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }

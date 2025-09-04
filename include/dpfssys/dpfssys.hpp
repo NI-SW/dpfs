@@ -1,8 +1,7 @@
 #include <storage/engine.hpp>
 #include <dpfsnet/dpfssvr.hpp>
 #include <log/logbinary.h>
-#include <dpfsconst.hpp>
-
+#include "dpfscontrol.hpp"
 class CDatasvc;
 class CControlsvc;
 class CReplicatesvc;
@@ -46,6 +45,7 @@ public:
         @return 0 on success, else on failure
     */
     int init();
+    
     /*
         read configuration from the file
         @return 0 on success, else on failure
@@ -79,6 +79,9 @@ public:
     CDpfssvr* ctrlSvr = nullptr;
     CDpfssvr* dataSvr = nullptr;
     CDpfssvr* repSvr = nullptr;
+
+    // control services only one instance
+    CControlsvc controlService;
 
     CDatasvc* dataService = nullptr;
     CReplicatesvc* repService = nullptr;

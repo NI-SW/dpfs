@@ -11,6 +11,6 @@ CXXFLAG += -g
 CXXLIB += -ldpfs_nvmf -ldpfs_log
 
 
-APP := app
+APP := test_nvmf
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.app.mk

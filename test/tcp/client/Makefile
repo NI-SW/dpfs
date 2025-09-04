@@ -11,6 +11,6 @@ CXXFLAG += -g
 CXXLIB += -ldpfs_net -ldpfs_tcp -ldpfs_log
 
 
-APP := app
+APP := test_tcp_client
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.app.mk

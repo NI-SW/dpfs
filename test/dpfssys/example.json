@@ -9,9 +9,9 @@
     
     "net" : {
         "tcp" : {
-            "data_service" : "0.0.0.0:20500",
-            "control_service" : "0.0.0.0:20501",
-            "replication_service" : "0.0.0.0:20502"
+            "control_service" : "ip:0.0.0.0 port:20500",
+            "data_service" : "ip:0.0.0.0 port:20501",
+            "replication_service" : "ip:0.0.0.0 port:20502"
         },
         "other" : {}
     },

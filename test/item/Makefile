@@ -10,6 +10,6 @@ include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 CXXFLAG += -g
 CXXLIB += -ldpfs_nvmf -ldpfs_log
 
-APP := app
+APP := test_item
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.app.mk

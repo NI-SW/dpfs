@@ -9,31 +9,34 @@ using namespace std;
 void callbackfun(CDpfscli& cli, void* cb_arg) {
     cli.set_log_level(5);
     cout << "New connection established!" << endl;
-    char* buffer;
+    void* buffer = nullptr;
     int size;
     int rc = 0;
     while(1) {
-        rc = cli.recv(buffer, &size);
+        rc = cli.recv(&buffer, &size);
         if(rc != 0) {
             if(rc == -ENODATA) {
                 std::this_thread::sleep_for(chrono::milliseconds(100));
                 continue;
+            } else if (rc == -ECONNRESET) {
+                printf("Connection closed by peer!\n");
+            } else {
+                printf("Receive error, code: %d\n", rc);
             }
-            printf("Failed to receive data, error code: %d\n", rc);
             break;
         }
         printf("Received %d bytes: ", size);
         printf("Data: ");
         for(int i = 0; i < size; ++i) {
-            printf("%02X ", (unsigned char)buffer[i]);
+            printf("%02X ", ((unsigned char*)buffer)[i]);
         }
         printf("\n");
 
-        rc = cli.send("hello client!", 14);
-        if(rc != 0) {
-            printf("Failed to send data, error code: %d\n", rc);
-            break;
-        }
+        // rc = cli.send("hello client!", 14);
+        // if(rc != 0) {
+        //     printf("Failed to send data, error code: %d\n", rc);
+        //     break;
+        // }
         
         cli.buffree(buffer);
     }

@@ -36,7 +36,7 @@ public:
         @param size: Size of the data in bytes.
         @return 0 on success, else -1 on failure.
     */
-    virtual int send(const char* buffer, int size) = 0;
+    virtual int send(const void* buffer, int size) = 0;
 
     // /*
     //     @param data: Pointer to the data to be sent.
@@ -49,10 +49,10 @@ public:
     /*
         @note receive data from the network connection. the buffer retrived must be freed by buffree manually.
         @param buffer: 
-        @param size: Size of the buffer in bytes.
+        @param retsize: Size of the buffer in bytes.
         @return 0 on success, else on failure.
     */
-    virtual int recv(char*& buffer, int* retsize) = 0;
+    virtual int recv(void** buffer, int* retsize) = 0;
 
     /*
         @note allocate a buffer for read or receive data.

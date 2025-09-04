@@ -32,8 +32,8 @@ public:
     */
     virtual int connect(const char* connString) override;
     virtual int disconnect() override;
-    virtual int send(const char* buffer, int size) override;
-    virtual int recv(char*& buffer, int* retsize) override;
+    virtual int send(const void* buffer, int size) override;
+    virtual int recv(void** buffer, int* retsize) override;
     // virtual void* bufalloc(size_t size) override;
     virtual void buffree(void* buffer) override;
     /*
@@ -79,8 +79,6 @@ private:
     std::condition_variable sendCv;
     std::mutex sendMutex;
 
-
-
     // thread to recv data
     std::thread recvGuard;
     std::queue<dpfsmsg*> recvQueue;
@@ -88,6 +86,10 @@ private:
     // this queue only used in recv thread
     std::queue<dpfsmsg*> recvthdQueue;
     CSpin recvthdLock;
+    
+
+    std::thread keepAliveGuard;
+    volatile time_t lastActiveTime = 0;
 
     // for client connect
     struct addrinfo *targetAddr = nullptr;

@@ -5,15 +5,103 @@
 #include <rapidjson/stringbuffer.h>
 #include <fstream>
 
+dpfs_rsp error_rsp = {dpfsrsp::DPFS_RSP_SYSTEMERROR, 0, {}};
+
+static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
+    dpfsSystem* dsys = (dpfsSystem*)cb_arg;
+
+    void* reqPtr = nullptr;
+    int retsize = 0;
+    int rc = 0;
+    // process connect ipc
+    cli.recv(&reqPtr, &retsize);
+    dpfs_cmd* cmd = (dpfs_cmd*)reqPtr;
+    if(B_END) {
+        cmd_edn_cvt(cmd);
+    }
+    
+    dsys->log.log_debug("Received request: %s\n", dpfsipcStr[(uint32_t)cmd->cmd]);
+    if(cmd->cmd != dpfsipc::DPFS_IPC_CONNECT) {
+        cli.send(&error_rsp, sizeof(dpfs_rsp));
+        dsys->log.log_notic("illegal first command: %u\n", (uint32_t)cmd->cmd);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        cli.buffree(reqPtr);
+        cli.disconnect();
+        return;
+    }
+
+    dpfs_rsp* rsp = dsys->controlService.process_request(cmd);
+    if(!rsp) {
+        cli.send(&error_rsp, sizeof(dpfs_rsp));
+        dsys->log.log_error("Failed to process request: %s\n", dpfsipcStr[(uint32_t)cmd->cmd]);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        cli.disconnect();
+        return;
+    }
+
+    if(B_END) {
+        rsp_edn_cvt(rsp);
+    }
+    cli.send(rsp, sizeof(dpfs_rsp) + rsp->size);
+    cli.buffree(reqPtr);
+    dsys->log.log_notic("Client connected.\n");
+    
+    // after connect, server do not check endian, client do it.
+    // process control service requests here
+    while(cli.is_connected()) {
+
+        
+        // receive a request
+        rc = cli.recv(&reqPtr, &retsize);
+        if(rc) {
+            goto error;
+        }
+
+        // convert from network byte order
+        cmd = (dpfs_cmd*)reqPtr;
+
+        // process the request and get a response
+        // use little-endian to receive and send ipc
+        dsys->log.log_debug("Received request: %s\n", dpfsipcStr[(uint32_t)cmd->cmd]);
+        rsp = dsys->controlService.process_request(cmd);
+        if(!rsp) {
+            cli.send(&error_rsp, sizeof(dpfs_rsp));
+            dsys->log.log_error("Failed to process request: %s\n", dpfsipcStr[(uint32_t)cmd->cmd]);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            cli.disconnect();
+            break;
+        }
+
+        // convert to network byte order and send the response
+        dsys->log.log_debug("Processed request: %s\n", dpfsipcStr[(uint32_t)cmd->cmd]);
+        cli.send(rsp, sizeof(dpfs_rsp) + rsp->size);
+        dsys->log.log_debug("Sent response: %u\n", (uint32_t)rsp->rsp);
+        cli.buffree(reqPtr);
+
+        // if received a disconnect command, close the connection
+        if(cmd->cmd == dpfsipc::DPFS_IPC_DISCONNECT) {
+            // disconnect command, close the connection
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            cli.disconnect();
+            break;
+        }
+
+        continue;
+        error:
+        if(rc == -ENODATA) {
+            continue;
+        }
+        break;
+    }
+    dsys->log.log_notic("Client disconnected.\n");
+    return;
+}
+
 static void dataSvc(CDpfscli& cli, void* cb_arg) {
     // Handle data service requests here
     // dpfsSystem* sys = (dpfsSystem*)cb_arg;
 
     // sys->cleanup();
-}
-
-static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
-
 }
 
 static void repSvc(CDpfscli& cli, void* cb_arg) {
@@ -34,12 +122,6 @@ dpfsSystem::~dpfsSystem() {
     CRecursiveGuard guard(m_lock);
     stop();
     cleanup();
-    if(!engine_list.empty()) {
-        for(auto& eng : engine_list) {
-            delete eng;
-        }
-    }
-    engine_list.clear();
 
 };
 
@@ -146,8 +228,9 @@ int dpfsSystem::init() {
     int rc = 0;
     if(!conf_file.empty()) {
         // Load configuration from file
-        if(readConfig()) {
-            return -1; // Return error if configuration loading fails
+        rc = readConfig();
+        if(rc) {
+            return rc; // Return error if configuration loading fails
         }
     }
 
@@ -208,7 +291,7 @@ int dpfsSystem::readConfig() {
 
 
     if(doc.Parse(buffer).HasParseError()) {
-        return -1; // Return error if parsing fails
+        return -EINVAL; // Return error if parsing fails
     }
     // Load the JSON configuration file into the document
     // Parse the JSON and populate the system's configurations
