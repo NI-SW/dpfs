@@ -10,9 +10,9 @@
 [submodule "openssl"]
   path = thirdparty/openssl
   url = https://github.com/openssl/openssl.git
-[submodule "zlib"]
-  path = thirdparty/zlib
-  url = https://github.com/madler/zlib.git
+[submodule "zstd"]
+  path = thirdparty/zstd
+  url = https://github.com/facebook/zstd.git
 [submodule "rapidjson"]
   path = thirdparty/rapidjson
   url = https://github.com/Tencent/rapidjson.git
