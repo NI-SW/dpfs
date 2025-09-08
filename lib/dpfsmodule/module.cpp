@@ -98,7 +98,7 @@ int CModuleMan::load_module(const char* modType, const char* modName, const char
         return -EINVAL;
     }
 
-    void* handle = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
+    void* handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
     if(!handle) {
         std::cerr << "Cannot open library: " << dlerror() << std::endl;
         return -EINVAL;
