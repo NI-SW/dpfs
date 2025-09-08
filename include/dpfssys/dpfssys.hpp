@@ -1,9 +1,9 @@
 #include <storage/engine.hpp>
 #include <dpfsnet/dpfssvr.hpp>
 #include <log/logbinary.h>
+#include <dpfsmodule/module.hpp>
 #include "dpfscontrol.hpp"
 class CDatasvc;
-class CControlsvc;
 class CReplicatesvc;
 
 class dpfsSystem final {
@@ -95,7 +95,7 @@ public:
     std::recursive_mutex m_lock;
     volatile bool m_start = false;
     volatile bool m_exit = false;
-
+    CModuleMan m_modules;
 };
 
 

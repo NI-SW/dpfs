@@ -13,4 +13,7 @@ $(APP) : $(OBJS)
 	$(CXX) $(CXXFLAG) $(CXXHEADER) $(CXXLIB) -c $< -o $@
 
 clean : 
-	rm -f $(APP) $(OBJS)
+	rm -f $(APP) $(OBJS) $(EXTRCLEAN)
+
+# cleanall : clean
+# 	rm -f *.log core core.*

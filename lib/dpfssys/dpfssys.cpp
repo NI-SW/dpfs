@@ -28,7 +28,7 @@ static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
 
     if(cmd->cmd != dpfsipc::DPFS_IPC_CONNECT && retsize != (sizeof(dpfs_cmd) + sizeof(ipc_connect))) {
         cli.send(&error_rsp, sizeof(dpfs_rsp));
-        dsys->log.log_notic("illegal first command: %u\n", (uint32_t)cmd->cmd);
+        dsys->log.log_notic("illegal command: %u\n", (uint32_t)cmd->cmd);
         // std::this_thread::sleep_for(std::chrono::milliseconds(500));
         cli.buffree(reqPtr);
         cli.disconnect();
@@ -45,10 +45,11 @@ static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
         return;
     }
 
+    uint32_t rspSize = sizeof(dpfs_rsp) + rsp->size; 
     if(B_END) {
         rsp_edn_cvt(rsp);
     }
-    cli.send(rsp, sizeof(dpfs_rsp) + rsp->size);
+    cli.send(rsp, rspSize);
     cli.buffree(reqPtr);
     dsys->log.log_notic("Client connected.\n");
     
@@ -113,7 +114,6 @@ static void ctrlSvc(CDpfscli& cli, void* cb_arg) {
 static void dataSvc(CDpfscli& cli, void* cb_arg) {
     // Handle data service requests here
     // dpfsSystem* sys = (dpfsSystem*)cb_arg;
-
     // sys->cleanup();
 }
 

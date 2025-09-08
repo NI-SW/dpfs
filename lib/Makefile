@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := basic log storage dpfsnet dpfssys client
+SUBDIRS := dpfsmodule basic log storage dpfsnet dpfssys client
 
 all clean::
 	@for subdir in $(SUBDIRS); \

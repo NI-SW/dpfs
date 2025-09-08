@@ -406,11 +406,11 @@ void logrecord::log_inf(const char* str, ...) {
 		}
 		
 		// printf(str, ap);
-		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
 		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
-			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
 		}
 		va_end(ap);
 
@@ -468,10 +468,10 @@ void logrecord::log_notic(const char* str, ...) {
 			log_seq = new log_sequence;
 		}
 
-		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
-			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
 		}
 		va_end(ap);
 		log_seq->logl = LOG_NOTIC;
@@ -524,11 +524,11 @@ void logrecord::log_error(const char* str, ...) {
 		}
 
 		// printf(str, ap);
-		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
 		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
-			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
 		}
 		va_end(ap);
 
@@ -586,11 +586,11 @@ void logrecord::log_fatal(const char* str, ...) {
 		
 
 		// printf(str, ap);
-		len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
 		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
-			len = vsnprintf(&log_seq->log_str[0], log_seq->log_str.size(), str, ap);
+			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
 		}
 		va_end(ap);
 
@@ -710,7 +710,7 @@ void logrecord::log_binary(const void* pBuf, size_t len) {
 		if(log_seq->log_str.size() < len) {
 			log_seq->log_str.resize(len * 2);
 		}
-		memcpy(&log_seq->log_str[0], pBuf, len);
+		memcpy(const_cast<char*>(log_seq->log_str.c_str()),pBuf, len);
 
 		logQueMutex.lock();
 		log_queue.push(log_seq);

@@ -1,5 +1,10 @@
 DPFS
 Data Partitioned Foodtrace System
+需求：
+1、较低的成本
+2、较高的性能
+3、支持配料溯源
+
 
 分布式食品溯源系统
 

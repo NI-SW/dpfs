@@ -26,7 +26,7 @@ public:
 
     CDpfsTcp();
     virtual ~CDpfsTcp() override;
-    virtual bool is_connected() const override;
+    virtual bool is_connected() const noexcept override;
     /*
         "ip:192.168.34.12 port:20500"
     */
@@ -53,7 +53,7 @@ public:
     /*
         @return name of the object
     */
-    virtual const char* name() const override { 
+    virtual const char* name() const noexcept override { 
         return "DPFS_TCP_CLIENT"; 
     }
 

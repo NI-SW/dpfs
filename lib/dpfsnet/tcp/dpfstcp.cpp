@@ -343,7 +343,7 @@ CDpfsTcp::~CDpfsTcp() {
     g_dtlock.unlock();
 }
 
-bool CDpfsTcp::is_connected() const {
+bool CDpfsTcp::is_connected() const noexcept {
     return (m_connected && (sockfd != -1));
 }
 
