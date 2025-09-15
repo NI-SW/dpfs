@@ -107,11 +107,11 @@ int CModuleMan::load_module(const char* modType, const char* modName, const char
     // Clear any existing error
     dlerror();
 
-    std::string symbolName = funcName;
-    void* (*func)() = (void* (*)())dlsym(handle, symbolName.c_str());
+    // std::string symbolName = funcName;
+    void* (*func)() = (void* (*)())dlsym(handle, funcName);
     const char* dlsym_error = dlerror();
     if (dlsym_error) {
-        std::cerr << "Cannot load symbol '" << symbolName << "': " << dlsym_error << std::endl;
+        std::cerr << "Cannot load symbol '" << funcName << "': " << dlsym_error << std::endl;
         dlclose(handle);
         return -EINVAL;
     }
