@@ -122,7 +122,7 @@ static void repSvc(CDpfscli& cli, void* cb_arg) {
 }
 
 
-dpfsSystem::dpfsSystem(const char* cfile) {
+dpfsSystem::dpfsSystem(const char* cfile) : m_modules(log) {
     CRecursiveGuard guard(m_lock);
     conf_file = cfile;
     int rc = init();
