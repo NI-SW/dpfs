@@ -11,9 +11,9 @@ dpfsModules:
     engine:
         {{nvmf, newNvmf}}
     net_client:
-        {{tcp, newClient}}
+        {{tcp, newTcpClient}}
     net_server:
-        {{tcp, newServer}}
+        {{tcp, newTcpServer}}
 */
 
 extern std::unordered_map<std::string, void* (*)()> engineTypes;
@@ -69,7 +69,7 @@ enum class ModuleType : uint32_t {
 
 const std::vector<std::string> moduleTypeStr = {"engine", "net_client", "net_server"};
 
-CModuleMan::CModuleMan() {
+CModuleMan::CModuleMan(logrecord& log) : logger(log) {
     dpfsModules.clear();
     dpfsModules[moduleTypeStr[(uint32_t)ModuleType::ENGINE]] = &engineTypes;
     dpfsModules[moduleTypeStr[(uint32_t)ModuleType::NET_CLIENT]] = &clientTypes;
@@ -85,7 +85,7 @@ CModuleMan::~CModuleMan() {
 
 int CModuleMan::load_module(const char* modType, const char* modName, const char* funcName, const char* path) {
     if(modType == nullptr || path == nullptr || funcName == nullptr) {
-        std::cerr << "Invalid parameters to load_module" << std::endl;
+        logger.log_error("Invalid parameters to load_module\n");
         return -EINVAL;
     }
     std::string typeStr(modType);
@@ -94,13 +94,13 @@ int CModuleMan::load_module(const char* modType, const char* modName, const char
 
     std::unordered_map<std::string, std::unordered_map<std::string, void* (*)()>*>::iterator type = dpfsModules.find(typeStr);
     if(type == dpfsModules.end()) {
-        std::cerr << "Unsupported module type: " << modType << std::endl;
+        logger.log_error("Unsupported module type: %s\n", modType);
         return -EINVAL;
     }
 
     void* handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
     if(!handle) {
-        std::cerr << "Cannot open library: " << dlerror() << std::endl;
+        logger.log_error("Cannot open library: %s\n", dlerror());
         return -EINVAL;
     }
 
@@ -111,7 +111,7 @@ int CModuleMan::load_module(const char* modType, const char* modName, const char
     void* (*func)() = (void* (*)())dlsym(handle, funcName);
     const char* dlsym_error = dlerror();
     if (dlsym_error) {
-        std::cerr << "Cannot load symbol '" << funcName << "': " << dlsym_error << std::endl;
+        logger.log_error("Cannot load symbol '%s': %s\n", funcName, dlsym_error);
         dlclose(handle);
         return -EINVAL;
     }
@@ -125,7 +125,7 @@ int CModuleMan::load_module(const char* modType, const char* modName, const char
 
 int CModuleMan::unload_module(const char* modType, const char* modName) {
     if(modType == nullptr || modName == nullptr) {
-        std::cerr << "Invalid parameters to unload_module" << std::endl;
+        logger.log_error("Invalid parameters to unload_module\n");
         return -EINVAL;
     }
     std::string typeStr(modType);
@@ -134,7 +134,7 @@ int CModuleMan::unload_module(const char* modType, const char* modName) {
 
     std::unordered_map<std::string, ModuleInfo>::iterator mod = loadedModules.find(modName);
     if(mod == loadedModules.end()) {
-        std::cerr << "Module not loaded: " << modName << std::endl;
+        logger.log_error("Module not loaded: %s\n", modName);
         return -EINVAL;
     }
 

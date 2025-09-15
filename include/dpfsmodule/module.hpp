@@ -1,8 +1,8 @@
 #pragma once
-
+#include <log/logbinary.h>
 class CModuleMan {
 public:
-    CModuleMan();
+    CModuleMan(logrecord& log);
     virtual ~CModuleMan();
 
     /*
@@ -21,4 +21,6 @@ public:
     */
     virtual int unload_module(const char* modType, const char* modName);
 
+private:
+    logrecord& logger;
 };
