@@ -8,7 +8,7 @@
 #include <string>
 #include <cstring>
 
-uint32_t bswap32(uint32_t x) {
+uint32_t bswap32(uint32_t x) noexcept {
     uint8_t tmp[4];
     uint8_t* p = (uint8_t*)&x;
     tmp[0] = p[3];
@@ -23,28 +23,28 @@ uint32_t bswap32(uint32_t x) {
     @param cmd: command structure to be converted
     @return pointer to the converted command structure
 */
-void cmd_edn_cvt(dpfs_cmd* cmd) {
+void cmd_edn_cvt(dpfs_cmd* cmd) noexcept {
     // need to convert
     cmd->size = bswap32(cmd->size);
     cmd->cmd = (dpfsipc)bswap32((uint32_t)cmd->cmd);
     return;
 }
 
-void rsp_edn_cvt(dpfs_rsp* rsp) {
+void rsp_edn_cvt(dpfs_rsp* rsp) noexcept {
     // need to convert
     rsp->size = bswap32(rsp->size);
     rsp->rsp = (dpfsrsp)bswap32((uint32_t)rsp->rsp);
     return;
 }
 
-bool is_valid_ipc(dpfsipc cmd) {
+bool is_valid_ipc(dpfsipc cmd) noexcept {
     if(cmd >= dpfsipc::DPFS_IPC_MAX) {
         return false;
     }
     return true;
 }
 
-bool is_valid_rsp(dpfsrsp rsp) {
+bool is_valid_rsp(dpfsrsp rsp) noexcept {
     if(rsp >= dpfsrsp::DPFS_RSP_MAX) {
         return false;
     }

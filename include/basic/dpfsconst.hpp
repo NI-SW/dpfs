@@ -98,19 +98,25 @@ struct dpfs_rsp {
     char data[];           // response data
 };
 
-uint32_t bswap32(uint32_t x);
+uint32_t bswap32(uint32_t x) noexcept;
 
 /*
     @note the pointer will be changed, Convert command structure to network byte order or convert back to host byte order
     @param cmd: command structure to be converted
 */
-void cmd_edn_cvt(dpfs_cmd* cmd);
+void cmd_edn_cvt(dpfs_cmd* cmd) noexcept;
+void rsp_edn_cvt(dpfs_rsp* rsp) noexcept;
+bool is_valid_ipc(dpfsipc cmd) noexcept;
+bool is_valid_rsp(dpfsrsp rsp) noexcept;
 
-void rsp_edn_cvt(dpfs_rsp* rsp);
-
-bool is_valid_ipc(dpfsipc cmd);
-bool is_valid_rsp(dpfsrsp rsp);
-
+/*
+    @param str string that include key and value
+    @param key the key that need to be used
+    @param value return value that found by key
+    @param size size of string
+    @note find key in str, and return to value
+    @attention string format = "key:value key:value ... key:value"
+*/
 int parse_string(const char* str, const char* key, char* value, size_t size);
 
 

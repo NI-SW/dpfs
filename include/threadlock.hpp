@@ -12,41 +12,43 @@ public:
         m_lock.store(0);
     }
 
-    void lock() {
+    void lock() noexcept {
         while (m_lock.exchange(1, std::memory_order_acquire) == 1);
     }
 
-    void unlock() {
+    void unlock() noexcept {
         m_lock.store(0, std::memory_order_release);
     }
 
-    bool try_lock() {
+    bool try_lock() noexcept {
         while (m_lock.exchange(1, std::memory_order_acquire) == 1) {
             return false;
         }
         return true;
 	}
-
+private:
     std::atomic<uint8_t> m_lock;
 };
 
-
+/*
+    a test for atomic_flag
+*/
 class CSpinB {
 public:
     CSpinB() {
         m_lock.clear();
     }
 
-    void lock() {
+    void lock() noexcept {
         while (m_lock.test_and_set()) {
 		};
     }
 
-    void unlock() {
+    void unlock() noexcept {
         m_lock.clear();
     }
 
-    bool try_lock() {
+    bool try_lock() noexcept {
         if (m_lock.test_and_set()) {
 			return false;
 		}

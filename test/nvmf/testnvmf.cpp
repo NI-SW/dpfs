@@ -50,14 +50,14 @@ int testnfhost(void* arg = nullptr) {
 
 
 
-	rc = nfhost.attach_device("trtype:pcie traddr:0000.1b.00.0");  nfhost.attach_device("trtype:pcie traddr:0000.13.00.0");
-	// rc = nfhost.attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
+	// rc = nfhost.attach_device("trtype:pcie traddr:0000.1b.00.0");  nfhost.attach_device("trtype:pcie traddr:0000.13.00.0");
+	rc = nfhost.attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
 	// rc = nfhost.attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	if(rc) {
 		nfhost.log.log_error("Failed to attach device\n");
 		goto exit;
 	}
-	printf("using pcie transport\n");
+	printf("using rdma transport\n");
 
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -71,7 +71,7 @@ int testnfhost(void* arg = nullptr) {
 	for(int i = 0;i < 100; ++i) {
 		test[i] = (char*)nfhost.zmalloc(dpfs_lba_size * 10); // 40kB
 		if(!test[i]) {
-			printf("Failed to allocate memory for test buffer\n");
+			printf("Failed to allocate memory for test buffer, iter:%d\n", i);
 			return -1;
 		}
 	}

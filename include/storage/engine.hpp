@@ -4,7 +4,7 @@
  */
 #pragma once
 #include <string>
-
+// 4KB
 constexpr size_t dpfs_lba_size = 4096; 
 
 class dpfsEngine {

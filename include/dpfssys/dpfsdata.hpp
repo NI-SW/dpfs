@@ -1,5 +1,7 @@
 #include "dpfsdisk.hpp"
 #include <vector>
+#include <collect/product/product.hpp>
+#include <basic/dpfscache.hpp>
 /*
     data service class
     1.process ddl and dml commands
@@ -15,6 +17,13 @@ public:
     // engines managed by this service
     std::vector<CDiskMan> engines; 
 
+    // product list, should storage on disk but not vector
+    std::vector<std::pair<product_id, std::string>> pdl;
+    // product cache, when trigger a query, 
+    CDpfsCache<product_id, CProduct*> pdCache;
+    
+
+    
     
 
 };
