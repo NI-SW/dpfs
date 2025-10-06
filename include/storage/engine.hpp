@@ -4,8 +4,30 @@
  */
 #pragma once
 #include <string>
+#include <functional>
 // 4KB
 constexpr size_t dpfs_lba_size = 4096; 
+
+struct dpfs_compeletion {
+    int return_code = 0;
+    const char* errMsg = nullptr;
+};
+
+using dpfs_engine_async_cb = void(*)(void* arg, const struct dpfs_compeletion* dpfs_cpl);
+
+// 并非每一次IO都使用回调函数，可能仅部分IO使用，暂时std::function，如果对性能损耗较大，则在进行修改
+struct dpfs_engine_cb_struct {
+    dpfs_engine_cb_struct() = delete;
+    // dpfs_engine_cb_struct(dpfs_engine_async_cb cb, void* arg) : m_cb(cb), m_arg(arg) {}
+    // dpfs_engine_async_cb m_cb;
+    // void* m_arg;
+
+    // use std::function may bring poor performance, now just for convenient
+    dpfs_engine_cb_struct(std::function<void(void*, const struct dpfs_compeletion*)> cb, void* arg) : m_cb(cb), m_arg(arg) {}
+    std::function<void(void*, const struct dpfs_compeletion*)> m_cb;
+    void* m_arg;
+
+};
 
 class dpfsEngine {
 public:
@@ -13,13 +35,13 @@ public:
  	virtual ~dpfsEngine() = default;
     
     /*
-        @param devdesc_str: device description string, format is user defined
+        @param devdesc_str device description string, format is user defined
         @return 0 on success, else on failure
     */
  	virtual int attach_device(const std::string& devdesc_str) = 0;
     
     /*
-        @param devdesc_str: device description string, format is user defined
+        @param devdesc_str device description string, format is user defined
         @return 0 on success, else on failure
     */
  	virtual int detach_device(const std::string& devdesc_str) = 0;
@@ -37,21 +59,42 @@ public:
     virtual bool async() const = 0;
     
     /*
-        @param lbaPos: logical block address position
-        @param pBuf: pointer to the buffer to read data into
-        @param lbc: logic block count, number of blocks to read
+        @param lbaPos logical block address position
+        @param pBuf pointer to the buffer to read data into
+        @param lbc logic block count, number of blocks to read
         @return number of submitted requests on success, else on failure
     */
     virtual int read(size_t lbaPos, void* pBuf, size_t lbc) = 0;
     
     /*
-        @param lbaPos: logical block address position
-        @param pBuf: pointer to the buffer to read data into
-        @param lbc: logic block count, number of blocks to write
+        @param lbaPos logical block address position
+        @param pBuf pointer to the buffer to read data into
+        @param lbc logic block count, number of blocks to write
         @return number of submitted requests on success, else on failure
     */
     virtual int write(size_t lbaPos, void* pBuf, size_t lbc) = 0;
     
+
+    /*
+        @param lbaPos logical block address position
+        @param pBuf pointer to the buffer to read data into
+        @param lbc logic block count, number of blocks to read
+        @param arg async call back struct
+        @return number of submitted requests on success, else on failure
+        @note call back version of read, arg must be valid untill callback function return.
+    */
+    virtual int read(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) = 0;
+    
+    /*
+        @param lbaPos logical block address position
+        @param pBuf pointer to the buffer to read data into
+        @param lbc logic block count, number of blocks to write
+        @param arg async call back struct
+        @return number of submitted requests on success, else on failure
+        @note call back version of write, arg must be valid untill callback function return.
+    */
+    virtual int write(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) = 0;
+
     // flush all data to the device, ensure all data is written to the device
     virtual int flush() = 0;
     

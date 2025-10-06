@@ -58,10 +58,14 @@ public:
 
 	int read(size_t lbaPos, void* pBuf, size_t lbc);
 	int write(size_t lbaPos, void* pBuf, size_t lbc);
+
+	// async mode function
+	int read(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg);
+	int write(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg);
+
 	int lba_judge(size_t lba);
 
 };
-
 
 class nvmfnsDesc {
 public:
@@ -89,6 +93,8 @@ public:
 	int read(size_t lbaPos, void* pBuf, size_t lbc);
 	int write(size_t lbaPos, void* pBuf, size_t lbc);
 
+	int read(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg);
+	int write(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg);
 };
 
 // for each disk host
@@ -105,6 +111,10 @@ public:
     virtual void set_logdir(const std::string& log_path) override;
     virtual int read(size_t lbaPos, void* pBuf, size_t len) override;
     virtual int write(size_t lbaPos, void* pBuf, size_t pBufLen) override;
+
+    virtual int read(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) override;
+    virtual int write(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) override;
+
     virtual int flush() override;
     virtual int sync(size_t n = 0) override;
 	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) override = delete;

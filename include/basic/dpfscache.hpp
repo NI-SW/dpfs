@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <list>
 #include <unordered_map>
+#include <storage/engine.hpp>
 // #define __DPFS_CACHE_DEBUG__
 
 #ifdef __DPFS_CACHE_DEBUG__
@@ -22,11 +23,16 @@ public:
 template<class IDX, class T>
 class CStorageSample {
 public:
-    CStorageSample(){}
-    ~CStorageSample(){}
+    CStorageSample(dpfsEngine* engine) : eng(engine) {
+        data = eng->zmalloc(dpfs_lba_size * 10);
+    }
+    ~CStorageSample() {
+
+    }
 
     // from index load target
     T* load(IDX idx) {
+        eng->read();
         return nullptr;
     }
 
@@ -34,6 +40,10 @@ public:
     int writeBack(IDX idx, T* cache) {
         return 0;
     }
+
+private:
+    dpfsEngine* eng;
+    void* data;
 };
 
 // for quick range compare

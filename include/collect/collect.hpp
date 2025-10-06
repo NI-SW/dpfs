@@ -286,13 +286,13 @@ public:
     }
 
     /*
+        @param writeBack write to storage immediate if true
         @return 0 on success, else on failure
         @note commit the item changes to the storage.
-
         need to do : 
         write commit log, and then write data, finally update the index
     */
-    virtual int commit() {
+    virtual int commit(bool writeBack = false) { 
 
         return 0;
     };
@@ -531,25 +531,25 @@ public:
 
         }
 
-        /*
-            load data from storage.
-        */
-        int loadCache(size_t start_pos, size_t end_pos, CValue* start_value) {
-            dirty = false;
-        }
+        // /*
+        //     load data from storage.
+        // */
+        // int loadCache(size_t start_pos, size_t end_pos, CValue* start_value) {
+        //     dirty = false;
+        // }
 
-        /*
-            save changes to storage.
-        */
-        int storeCache() {
+        // /*
+        //     save changes to storage.
+        // */
+        // int storeCache() {
 
-            dirty = false;
-            return 0;
-        }
+        //     dirty = false;
+        //     return 0;
+        // }
 
-        class index {
+        // class index {
             
-        };
+        // };
     };
 
     cache caches;

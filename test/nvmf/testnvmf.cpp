@@ -5,6 +5,7 @@
 #include <storage/nvmf/nvmf.hpp>
 #include <cstring>
 #include <thread>
+#include <unistd.h>
 using namespace std;
 std::thread test;
 int testnfhost(void* arg = nullptr) {
@@ -15,7 +16,6 @@ int testnfhost(void* arg = nullptr) {
 	int reqs = 0;
 	int start = 0;
 	int end = 10000;
-
 	dpfsEngine* engine = nullptr;
 	if(arg) {
 		engine = (dpfsEngine*)arg;
@@ -42,7 +42,7 @@ int testnfhost(void* arg = nullptr) {
 
 	nfhost.log.set_log_path("./output.log");
 	// nfhost.log.set_loglevel(logrecord::LOG_DEBUG);
-	nfhost.log.set_async_mode(true);
+	nfhost.log.set_async_mode(false);
 
 	nfhost.log.log_inf("Starting NVMF host...\n");
 
@@ -76,14 +76,6 @@ int testnfhost(void* arg = nullptr) {
 		}
 	}
 	// test[0] = (char*)nfhost.zmalloc(dpfs_lba_size * 10); // 40kB
-
-
-
-
-
-
-
-
 	// nfhost.hello_world();
 
 	memcpy(test[0], "Hello World from NVMF host11!", 30);
@@ -100,7 +92,6 @@ int testnfhost(void* arg = nullptr) {
 	now = std::chrono::duration_cast<std::chrono::milliseconds>(hclock.time_since_epoch()).count();
 
 
-
 	for(int i = start; i < end; ++i) {
 		int waitCount = 0;
 
@@ -112,7 +103,25 @@ int testnfhost(void* arg = nullptr) {
 			if(i % 1000 == 0) {
 				printf("count: %d\n", i);
 			}
-			rc = nfhost.write(5242879 + i * 10, test[i % 100], 10); //10 * i + k * 100); //5242879
+			
+			if(i % 50 == 49) {
+				// 关键操作使用回调，非关键操作不使用回调
+				auto my_cb = [i, &nfhost](void* arg, const struct dpfs_compeletion* dcp){
+					// cout << "comp " << i << endl;
+					nfhost.log.log_inf("count : %d completed\n", i);
+					delete (dpfs_engine_cb_struct*)arg;
+				};
+				int j = i;
+				nfhost.log.log_inf("count: %d, load.\n", j);
+				dpfs_engine_cb_struct* cbs = new dpfs_engine_cb_struct(my_cb, 0);
+				cbs->m_arg = cbs;
+
+
+				rc = nfhost.write(5242879 + i * 10, test[i % 100], 10, cbs); //10 * i + k * 100); //5242879
+					
+			} else {
+				rc = nfhost.write(5242879 + i * 10, test[i % 100], 10);
+			}
 			if(rc < 0) {
 				++waitCount;
 				if(rc == -ENOMEM) {
@@ -187,7 +196,8 @@ exit:
 }
 
 int main() {
-	dpfsEngine* engine = nullptr; // new CNvmfhost();
+	// dpfsEngine* engine = nullptr; // new CNvmfhost();
+	dpfsEngine* engine = new CNvmfhost();
 	testnfhost(engine);
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 	if(test.joinable())

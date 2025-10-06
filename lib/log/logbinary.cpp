@@ -32,9 +32,9 @@ char nowtmStr[32]{ 0 };
 const size_t nowtmStrSize = 20; // "yyyy-mm-dd HH:MM:SS"
 const size_t loglStrLen = 5; // "[DEBUG]" "[INFO ]"
 volatile size_t logrecord::logCount = 0;
-bool timeGuard = false;
-CSpin timeMutex;
-std::thread timeguard;
+static bool timeGuard = false;
+static CSpin timeMutex;
+static std::thread timeguard;
 
 void logrecord::initlogTimeguard() {
 	if (timeGuard) {
