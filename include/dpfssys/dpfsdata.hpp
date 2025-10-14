@@ -17,10 +17,10 @@ public:
     // engines managed by this service
     std::vector<CDiskMan> engines; 
 
-    // product list, should storage on disk but not vector
-    std::vector<std::pair<product_id, std::string>> pdl;
-    // product cache, when trigger a query, 
-    CDpfsCache<product_id, CProduct*> pdCache;
+    // // product list, should storage on disk but not vector
+    // std::vector<std::pair<bidx, std::string>> pdl;
+    // // product cache, when trigger a query, 
+    // CDpfsCache<bidx, CProduct*> pdCache;
     
 
     

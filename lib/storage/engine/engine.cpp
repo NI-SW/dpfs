@@ -8,7 +8,7 @@ void* newNvmf();
 std::unordered_map<std::string, void* (*)()> engineTyps {{"nvmf", newNvmf}};
 
 
-dpfsEngine* newEngine(std::string& engine_type) {
+dpfsEngine* newEngine(const std::string& engine_type) {
 
     if(engineTyps.find(engine_type) != engineTyps.end()) {
         return reinterpret_cast<dpfsEngine*>(engineTyps[engine_type]());

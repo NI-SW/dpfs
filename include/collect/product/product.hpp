@@ -6,26 +6,7 @@
 * 
 */
 
-struct product_id {
-    // disk group id
-    uint64_t gid;
-    // block id in the disk group
-    uint64_t bid;
-private:
-    bool operator==(const product_id& target) const {
-        return (target.gid == gid && target.bid == bid);
-    }
-};
 
-namespace std {
-    // hash func of product_id
-    template<>
-    struct hash<product_id> {
-        size_t operator()(const product_id& s) const {
-            return std::hash<uint64_t>{}(s.gid) ^ std::hash<uint64_t>{}(s.bid);
-        }
-    };
-}
 
 class CProduct {
 public:
@@ -33,7 +14,7 @@ public:
     ~CProduct();
     
     // product id
-    product_id pid;
+    bidx pid;
     // fixed info for product
     CCollection fixedInfo;
 
@@ -67,3 +48,9 @@ public:
 
 };
 
+
+void qwertest() {
+
+    sizeof(CProduct);
+    return;
+}

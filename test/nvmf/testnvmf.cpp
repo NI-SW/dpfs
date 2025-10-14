@@ -101,7 +101,7 @@ int testnfhost(void* arg = nullptr) {
 				break;
 			}
 			if(i % 1000 == 0) {
-				printf("count: %d\n", i);
+				printf("count : %d\n", i);
 			}
 			
 			if(i % 50 == 49) {
@@ -110,9 +110,12 @@ int testnfhost(void* arg = nullptr) {
 					// cout << "comp " << i << endl;
 					nfhost.log.log_inf("count : %d completed\n", i);
 					delete (dpfs_engine_cb_struct*)arg;
+					if(dcp->return_code) {
+						nfhost.log.log_error("%s\n", dcp->errMsg);
+					}
 				};
 				int j = i;
-				nfhost.log.log_inf("count: %d, load.\n", j);
+				nfhost.log.log_inf("count : %d, load.\n", j);
 				dpfs_engine_cb_struct* cbs = new dpfs_engine_cb_struct(my_cb, 0);
 				cbs->m_arg = cbs;
 
@@ -141,16 +144,16 @@ int testnfhost(void* arg = nullptr) {
 			break;
 		}
 		
-		reqs += rc;
-		if(reqs >= 250) {
-			nfhost.sync(reqs);
-			reqs = 0;
-		}
+		// reqs += rc;
+		// if(reqs >= 250) {
+		// 	nfhost.sync(reqs);
+		// 	reqs = 0;
+		// }
 		// std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
 
 	printf("sync reqs = %d\n", reqs);
-	nfhost.sync(reqs);
+	// nfhost.sync(reqs);
 	printf("duration: %ld ms, reqs = %d\n", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count() - now, reqs);
 
 	reqs = 0;
@@ -162,7 +165,8 @@ int testnfhost(void* arg = nullptr) {
 		printf("Read data err: %d\n", rc);
 	}
 	printf("rc = %d\n", rc);
-	rc = nfhost.sync(reqs);
+	// 等待全部操作完成
+	rc = nfhost.sync();
 	printf("Read data: %s\n", test[5]);
 
 

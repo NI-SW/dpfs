@@ -13,9 +13,14 @@ class logrecord {
 	void handle_info();
 	int judge_format(std::string::iterator iter);
 	void fill_utf8(std::string::iterator iter);
+
+	// 8B
 	bool print_screen;
+	// 8B
 	char* print_info;
+	// 32B
 	std::string log_path;
+	// 8B
 	size_t log_length;
 	
 public:
@@ -66,23 +71,27 @@ public:
 
 private:
 
+	// 8B
 	bool async_mode;
-	std::thread logGuard;
-
-	std::queue<log_sequence*> log_queue;
-	CSpin logQueMutex;
-
-	// std::list<log_sequence*> log_seqs;
-	std::queue<log_sequence*> log_seqs;
-	CSpin logSequenceMutex;
-
-
-	std::vector<std::string> log_files;
 	bool m_exit;
+	CSpin logQueMutex;
+	CSpin logSequenceMutex;
 	loglevel logl;
 
+	// 80B
+	std::queue<log_sequence*> log_queue;
+	std::queue<log_sequence*> log_seqs;
+	// 8B
+	std::thread logGuard;
+	// 24B
+	std::vector<std::string> log_files;
+	
+
+	// 24B
 	static std::vector<const char*> logl_str;
+	// 8B
 	static volatile size_t logCount;
+	
 	static void initlogTimeguard();
 };
 

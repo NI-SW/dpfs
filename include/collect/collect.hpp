@@ -7,7 +7,8 @@
 #include <string>
 #include <cstring>
 #include <vector>
-#include <storage/engine.hpp>
+#include "page.hpp"
+
 class CProduct;
 class CCollection;
 class CColumn;
@@ -324,7 +325,7 @@ public:
         @param ccid: CCollection ID, used to identify the collection info, 0 for new collection
         @note this constructor will create a new collection with the given engine and ccid
     */
-    CCollection(dpfsEngine& engine, uint32_t id = 0) : dpfs_engine(engine), m_ccid(id), caches(m_cols) { 
+    CCollection(uint32_t id = 0) : m_ccid(id) { 
         m_updatable = false;
         m_insertable = false;
         m_detelable = false;
@@ -461,9 +462,6 @@ public:
     */
     virtual const CValue* const getRow(size_t pos) { 
         // TODO 
-        if(pos >= caches.start_pos && pos < caches.end_pos) {
-            
-        }
 
         return nullptr;
     };
@@ -501,6 +499,10 @@ public:
     bool m_needreorg : 1;
     // not used
     bool reserve : 1;
+    // inner locker
+    CSpin m_lock;
+    // ccid: CCollection ID, used to identify the collection info
+    uint32_t m_ccid;
 
     // the product that owns this collection
     CProduct* m_owner;
@@ -508,58 +510,7 @@ public:
     std::string m_name;
     // columns in the collection
     std::vector<CColumn*> m_cols;
-    // inner locker
-    CSpin m_lock;
 
-
-    // ccid: CCollection ID, used to identify the collection info
-    uint32_t m_ccid;
-
-    /*
-        use cache to storage pending data, if cache is dirty, lock the row untile change is rolled back or committed
-        @note this is a simple cache implementation, not a full cache system, use LRU?
-    */
-    struct cache {
-        // row start position
-        size_t start_pos = 0;
-        // row end position
-        size_t end_pos = 0;
-        CItem item;
-        bool dirty = false; // if the cache is dirty, need to commit
-
-        cache(std::vector<CColumn*>& cols) : item(cols) {
-
-        }
-
-        // /*
-        //     load data from storage.
-        // */
-        // int loadCache(size_t start_pos, size_t end_pos, CValue* start_value) {
-        //     dirty = false;
-        // }
-
-        // /*
-        //     save changes to storage.
-        // */
-        // int storeCache() {
-
-        //     dirty = false;
-        //     return 0;
-        // }
-
-        // class index {
-            
-        // };
-    };
-
-    cache caches;
-
-    /*
-        storage user defined data for the collection.
-    */
-    // std::vector<CItem*> items;
-
-    dpfsEngine& dpfs_engine;
     
 
 };

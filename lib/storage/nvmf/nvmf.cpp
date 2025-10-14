@@ -10,15 +10,13 @@
 #include <spdk/env.h>
 #include <spdk/string.h>
 #include <spdk/log.h>
-#include <string>
-#include <threadlock.hpp>
-#include <iostream>
-#include <list>
-#include <vector>
 #include <mutex>
 #include <thread>
 
 #define DPFS_IO_CHECK
+static const int max_qpair_io_queue = 256;
+// default timeout set to 2 seconds
+static const int qpair_io_wait_tm = 2000;
 static std::mutex init_mutex;
 static bool initialized = false;
 static bool g_vmd = false;
@@ -32,6 +30,61 @@ void* engineGuardFunction() {
 		// std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 	return nullptr;
+}
+
+static inline int detach_single_device(nvmfDevice* dev, logrecord& log) {
+	int rc = 0;
+	dev->attached = false;
+	dev->m_exit = true;
+	if(dev->process_complete_thd.joinable()) {
+		dev->process_complete_thd.join();
+	}
+
+	if(dev->qpair) {
+		while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
+			spdk_nvme_qpair_process_completions(dev->qpair, 0);
+			// std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		spdk_nvme_ctrlr_free_io_qpair(dev->qpair);
+		dev->qpair = nullptr;
+	}
+	spdk_nvme_detach_ctx *detach_ctx = nullptr;
+	rc = spdk_nvme_detach_async(dev->ctrlr, &detach_ctx);
+	if(rc) {
+		log.log_error("spdk_nvme_detach_async failed (%d)\n", rc);
+		return rc;
+	}
+	for(auto& nsdesc : dev->nsfield) {
+		delete nsdesc;
+	}
+
+	dev->nsfield.clear();
+
+	if (detach_ctx) {
+		spdk_nvme_detach_poll(detach_ctx);
+	}
+	return rc;
+
+
+}
+
+/*
+	@param reqs total request count of nvmfDevice
+	@param times this io operate count
+	@param max_io_que max io queue depth
+*/
+static inline int checkReqs(const std::atomic<uint16_t>& reqs, int times, int max_io_que) noexcept {
+	std::chrono::milliseconds ms =  std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch());
+
+	// if no more space in queue, polling for new space
+	while(reqs >= max_io_que - times) {
+		// polling wait for some time.
+		if((std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch()) - ms).count() > qpair_io_wait_tm) {
+			// printf("wait once\n"); // about 70 ms
+			return -ETIMEDOUT;
+		}
+	}
+	return 0;
 }
 
 constexpr char eng_name[] = "DPFS-NVMF-ENGINE";
@@ -201,12 +254,83 @@ int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_s
 
 nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 	attached = false;
+	m_exit = false;
 	trid = new spdk_nvme_transport_id;
+	m_reqs.store(0);
+
+	process_complete_thd = std::thread([this](){
+		// process complete lock
+		std::mutex pclck;
+		std::unique_lock lk(pclck);
+
+		// uint32_t n = 0;
+		int32_t rc = 0;
+
+
+		while(!m_exit) {
+			while(attached && qpair) {
+
+				m_convar.wait_for(lk, std::chrono::milliseconds(100), [this]() -> bool { return (this->m_reqs > 0); });
+				this->nfhost.log.log_debug("waked!\n");
+				for(int i = 0; i < 1000; ++i) {
+					if(m_reqs) {
+						i = 0;
+					}
+					while(m_reqs) {
+						rc = spdk_nvme_qpair_process_completions(qpair, 0);
+						if(rc > 0) {
+							m_reqs -= rc;
+						} else if(rc == 0) {
+
+						} else {
+							nfhost.log.log_error("process completions fail! code : %d, unfinished requests : %d\n", rc, m_reqs.load());
+							m_reqs = 0;
+						}
+					}
+				}
+
+
+				// while(m_reqs) {
+				// 	n = spdk_nvme_qpair_get_num_outstanding_reqs(qpair);
+				// 	if(n > 0) {
+				// 		while(n > 0) {
+				// 			rc = spdk_nvme_qpair_process_completions(qpair, 0);
+				// 			if(rc > 0) {
+				// 				m_reqs -= rc;
+				// 			} else if(rc == 0) {
+
+				// 			} else {
+				// 				nfhost.log.log_error("process completions fail! code : %d\n", rc);
+				// 			}
+				// 			n = spdk_nvme_qpair_get_num_outstanding_reqs(qpair);
+				// 		}
+				// 	}
+				// 	std::this_thread::sleep_for(std::chrono::milliseconds(0));
+				// }
+
+				// sleep 0 about 100 ns = 0.1 ms, the processor will polling io for about 10ms, if no more job, sleep more longer.
+				// if(hangCount < 1000) {
+				// 	std::this_thread::sleep_for(std::chrono::milliseconds(sleepTm));
+				// 	++hangCount;
+				// } else {
+				// 	sleepTm < 100 ? sleepTm += 15 : sleepTm;
+				// 	hangCount = 0;
+				// }
+			}
+			// waiting for attach
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+	});
+
 }
 
 nvmfDevice::~nvmfDevice() {
-	delete trid;
 	attached = false;
+	m_exit = true;
+	if(process_complete_thd.joinable()) {
+		process_complete_thd.join();
+	}
+	delete trid;
 }
 
 int nvmfDevice::lba_judge(size_t lba) {
@@ -228,54 +352,102 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 	/*
 	* map host lba to device lba
 	*/
-	int rc = 0;
-	int req_count = 0;
+	int rc;
+	if(!attached || m_exit) {
+		return -EPERM;
+	}
+
+	m_reqs += 1;
+	m_convar.notify_one();
+
 	size_t lba_device = lba_host - lba_start;
 	size_t nsPos = lba_judge(lba_device);
+	nvmfnsDesc* ns;
 
 	if(nsPos >= nsfield.size()) {
+		m_reqs -= 1;
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
-		return -1;
+		rc = -ERANGE;
+		goto errReturn;
 	}
-	nvmfnsDesc* ns = nsfield[nsPos];
+
+	rc = 0;
+	ns = nsfield[nsPos];
 	ns->sequence->is_completed = false;
 	nfhost.log.log_debug("dev: Reading from LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, lbc, lbc * dpfs_lba_size);
 
 	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
 		// next ns start lba
+
+		m_reqs += 1;
+
+		if(nsPos + 1 >= nsfield.size()) {
+			m_reqs -= 2;
+			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
+
+			goto errReturn;
+		}
+
 		size_t pBuf_next_lbc = lba_device + lbc - ns->lba_count;
 		size_t lba_next_ns = ns->lba_start + ns->lba_count;
 		void* next_start_pbuf = (char*)pBuf + ((lbc - pBuf_next_lbc) * dpfs_lba_size);
 		lbc -= pBuf_next_lbc;
-		if(nsPos + 1 >= nsfield.size()) {
-			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
-			return -1;
-		}
+
 		
 		nvmfnsDesc* subns;
 		subns = nsfield[nsPos + 1];
 		subns->sequence->is_completed = false;
+
+		rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
+		if(rc) {
+			m_reqs -= 2;
+			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
+			goto errReturn;
+		}
+		
 		rc = subns->read(lba_next_ns, next_start_pbuf, pBuf_next_lbc);
 		if(rc != 0) {
+			m_reqs -= 2;
 			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos + 1, rc);
-			return rc;
+			goto errReturn;
 		}
-		++req_count;
 		if(!nfhost.async_mode) {
 			// wait for completion
 			do {
 				spdk_nvme_qpair_process_completions(qpair, 0);
 			} while(!subns->sequence->is_completed);
 		}
+
+		rc = ns->read(lba_device, pBuf, lbc);
+		if(rc != 0) {
+			m_reqs -= 1;
+			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
+			goto errReturn;
+		}
+		if(!nfhost.async_mode) {
+			// wait for completion
+			do {
+				spdk_nvme_qpair_process_completions(qpair, 0);
+			} while(!ns->sequence->is_completed);
+		}
+
+		return 2;
 	}
+
+	rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
+	if(rc) {
+		m_reqs -= 1;
+		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
+		goto errReturn;
+	}
+
 	rc = ns->read(lba_device, pBuf, lbc);
 	if(rc != 0) {
+		m_reqs -= 1;
 		nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 		return rc;
 	}
-	++req_count;
-
 	if(!nfhost.async_mode) {
 		// wait for completion
 		do {
@@ -283,46 +455,71 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		} while(!ns->sequence->is_completed);
 	}
 
+	return 1;
 
-	return req_count;
+errReturn:
+
+	return rc;
 }
 
 int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
-	int rc = 0;
-	int req_count = 0;
+	int rc;
+	if(!attached || m_exit) {
+		return -EPERM;
+	}
+
+	m_reqs += 1;
+	m_convar.notify_one();
+
 	size_t lba_device = lba_host - lba_start;
 	size_t nsPos = lba_judge(lba_device);
-	
+	nvmfnsDesc* ns;
+
 	if(nsPos >= nsfield.size()) {
+		m_reqs -= 1;
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
-		return -1;
+		rc = -ERANGE;
+		goto errReturn;
 	}
-	nvmfnsDesc* ns = nsfield[nsPos];
+
+	rc = 0;
+	ns = nsfield[nsPos];
 	ns->sequence->is_completed = false;
 	nfhost.log.log_debug("dev: Writing to LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, lbc, lbc * dpfs_lba_size);
 
 	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
 		// next ns start lba
+		m_reqs += 1;
+
+		if(nsPos + 1 >= nsfield.size()) {
+			m_reqs -= 2;
+			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
+			rc = -ERANGE;
+			goto errReturn;
+		}
 		size_t pBuf_next_lbc = lba_device + lbc - ns->lba_count;
 		size_t lba_next_ns =  ns->lba_start + ns->lba_count;
 		void* next_start_pbuf = (char*)pBuf + ((lbc - pBuf_next_lbc) * dpfs_lba_size);
 		lbc -= pBuf_next_lbc;
 
-		if(nsPos + 1 >= nsfield.size()) {
-			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
-			return -1;
-		}
-
 		nvmfnsDesc* subns;
 		subns = nsfield[nsPos + 1];
 		subns->sequence->is_completed = false;
+		
+		rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
+		if(rc) {
+			m_reqs -= 2;
+			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
+			goto errReturn;
+		}
+
 		rc = subns->write(lba_next_ns, next_start_pbuf, pBuf_next_lbc);
 		if(rc != 0) {
+			m_reqs -= 2;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
-			return rc;
+			goto errReturn;
 		}
-		++req_count;
 		if(!nfhost.async_mode) {
 			// wait for completion
 			do {
@@ -330,13 +527,39 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 			} while(!subns->sequence->is_completed);
 			// spdk_nvme_ns_cmd_flush(subns->ns, qpair, nullptr, 0);
 		}
+
+		rc = ns->write(lba_device, pBuf, lbc);
+		if(rc != 0) {
+			m_reqs -= 1;
+			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
+			goto errReturn;
+		}
+
+		if(!nfhost.async_mode) {
+			// wait for completion
+			do {
+				spdk_nvme_qpair_process_completions(qpair, 0);
+			} while(!ns->sequence->is_completed);
+			// spdk_nvme_ns_cmd_flush(ns->ns, qpair, nullptr, 0);
+		}
+
+		return 2;
 	}
+
+	rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
+	if(rc) {
+		m_reqs -= 1;
+		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
+		goto errReturn;
+	}
+
 	rc = ns->write(lba_device, pBuf, lbc);
 	if(rc != 0) {
+		m_reqs -= 1;
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
-		return rc;
+		goto errReturn;
 	}
-	++req_count;
+
 	if(!nfhost.async_mode) {
 		// wait for completion
 		do {
@@ -345,110 +568,202 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 		// spdk_nvme_ns_cmd_flush(ns->ns, qpair, nullptr, 0);
 	}
 
-	return req_count;
+	return 1;
+
+errReturn:
+
+	return rc;
 }
 
 int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) {
 	/*
 	* map host lba to device lba
 	*/
-	int rc = 0;
-	int req_count = 0;
+	int rc;
+	if(!attached || m_exit) {
+		return -EPERM;
+	}
+
+	m_reqs += 1;
+	m_convar.notify_one();
+
 	size_t lba_device = lba_host - lba_start;
 	size_t nsPos = lba_judge(lba_device);
+	nvmfnsDesc* ns;
 
 	if(nsPos >= nsfield.size()) {
+		m_reqs -= 1;
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
-		return -1;
+		rc = -ERANGE;
+		goto errReturn;
 	}
-	nvmfnsDesc* ns = nsfield[nsPos];
-	ns->sequence->is_completed = false;
+
+	rc = 0;
+	ns = nsfield[nsPos];
 	nfhost.log.log_debug("dev: Reading from LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, lbc, lbc * dpfs_lba_size);
 
 	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
 		// next ns start lba
+		m_reqs += 1;
+
+		if(nsPos + 1 >= nsfield.size()) {
+			m_reqs -= 2;
+			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
+			rc = -ERANGE;
+			goto errReturn;
+		}
+
+
 		size_t pBuf_next_lbc = lba_device + lbc - ns->lba_count;
 		size_t lba_next_ns = ns->lba_start + ns->lba_count;
 		void* next_start_pbuf = (char*)pBuf + ((lbc - pBuf_next_lbc) * dpfs_lba_size);
 		lbc -= pBuf_next_lbc;
-		if(nsPos + 1 >= nsfield.size()) {
-			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
-			return -1;
-		}
 		
 		nvmfnsDesc* subns;
 		subns = nsfield[nsPos + 1];
-		subns->sequence->is_completed = false;
+
+		rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
+		if(rc) {
+			m_reqs -= 2;
+			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
+			goto errReturn;
+		}
+
 		rc = subns->read(lba_next_ns, next_start_pbuf, pBuf_next_lbc, arg);
 		if(rc != 0) {
+			m_reqs -= 2;
 			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos + 1, rc);
-			return rc;
+			goto errReturn;
 		}
-		++req_count;
+
+		rc = ns->read(lba_device, pBuf, lbc, arg);
+		if(rc != 0) {
+			m_reqs -= 1;
+			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
+			goto errReturn;
+		}
+
+		return 2;
 	}
+
+	rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
+	if(rc) {
+		m_reqs -= 1;
+		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
+		goto errReturn;
+	}
+
 	rc = ns->read(lba_device, pBuf, lbc, arg);
 	if(rc != 0) {
+		m_reqs -= 1;
 		nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 		return rc;
 	}
-	++req_count;
 
-	return req_count;
+	return 1;
+
+errReturn:
+
+	return rc;
 }
 
 int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) {
-	int rc = 0;
-	int req_count = 0;
+	int rc;
+	if(!attached || m_exit) {
+		return -EPERM;
+	}
+
+	m_reqs += 1;
+	m_convar.notify_one();
+
 	size_t lba_device = lba_host - lba_start;
 	size_t nsPos = lba_judge(lba_device);
-	
+	nvmfnsDesc* ns;
+
 	if(nsPos >= nsfield.size()) {
+		m_reqs -= 1;
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
-		return -1;
+		rc = -ERANGE;
+		goto errReturn;
 	}
-	nvmfnsDesc* ns = nsfield[nsPos];
-	ns->sequence->is_completed = false;
+
+
+	rc = 0;
+	ns = nsfield[nsPos];
 	nfhost.log.log_debug("dev: Writing to LBA %zu, lba_dev %zu, lba_count %zu, buffer size %zu\n", lba_host, lba_device, lbc, lbc * dpfs_lba_size);
 
 	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
+		m_reqs += 1;
+
+		if(nsPos + 1 >= nsfield.size()) {
+			m_reqs -= 2;
+			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
+			rc = -ERANGE;
+			goto errReturn;
+		}
+
 		// next ns start lba
 		size_t pBuf_next_lbc = lba_device + lbc - ns->lba_count;
 		size_t lba_next_ns =  ns->lba_start + ns->lba_count;
 		void* next_start_pbuf = (char*)pBuf + ((lbc - pBuf_next_lbc) * dpfs_lba_size);
 		lbc -= pBuf_next_lbc;
 
-		if(nsPos + 1 >= nsfield.size()) {
-			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
-			return -1;
-		}
+
 
 		nvmfnsDesc* subns;
 		subns = nsfield[nsPos + 1];
-		subns->sequence->is_completed = false;
+
+		rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
+		if(rc) {
+			m_reqs -= 2;
+			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
+			goto errReturn;
+		}
+
 		rc = subns->write(lba_next_ns, next_start_pbuf, pBuf_next_lbc, arg);
 		if(rc != 0) {
+			m_reqs -= 2;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
-			return rc;
+			goto errReturn;
 		}
-		++req_count;
+
+		rc = ns->write(lba_device, pBuf, lbc, arg);
+		if(rc != 0) {
+			m_reqs -= 1;
+			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
+			goto errReturn;
+		}
+		return 2;
 	}
+
+	rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
+	if(rc) {
+		m_reqs -= 1;
+		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
+		goto errReturn;
+	}
+
 	rc = ns->write(lba_device, pBuf, lbc, arg);
 	if(rc != 0) {
+		m_reqs -= 1;
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
-		return rc;
+		goto errReturn;
 	}
-	++req_count;
 
-	return req_count;
+	return 1;
+errReturn:
+
+	return rc;
+
 }
 
 
 static bool probe_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, struct spdk_nvme_ctrlr_opts *opts) {
     nvmfDevice *device = (nvmfDevice *)cb_ctx;
 	CNvmfhost *nfhost = &device->nfhost;
-	nfhost->log.log_inf("Attaching to %s\n", trid->traddr);
+	nfhost->log.log_inf("Attaching to %s, ops: %p\n", trid->traddr, opts);
 	return true;
 }
 
@@ -504,7 +819,7 @@ static void attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid, s
 		exit(1);
 	}
 	fh->block_count += device->lba_count;
-	fh->log.log_inf("Attached to %s\n", trid->traddr);
+	fh->log.log_inf("Attached to %s opts : %p\n", trid->traddr, opts);
 }
 
 static void remove_cb(void *cb_ctx, struct spdk_nvme_ctrlr *ctrlr) {
@@ -522,7 +837,7 @@ static void remove_cb(void *cb_ctx, struct spdk_nvme_ctrlr *ctrlr) {
 	// 	}
 	// }
 
-    fh->log.log_notic("Controller %s removed\n", device->devdesc_str.c_str());
+    fh->log.log_notic("Controller %s removed, ctrlr : %p\n", device->devdesc_str.c_str(), ctrlr);
 
 }
 
@@ -546,15 +861,38 @@ CNvmfhost::CNvmfhost() : async_mode(false) {
 	block_count = 0;
 	m_exit = false;
 	devices.clear();
+	m_allowOperate = true;
+
 	nf_guard = std::thread([this]() {
+		int32_t rc = 0;
 		// keep alive for ctrlr
 		while(!m_exit) {
+			devices_lock.lock();
 			for(auto device : devices) {
-				if(device->attached) {
-					spdk_nvme_ctrlr_process_admin_completions(device->ctrlr);
+				if(device) {
+					if(device->attached) {
+						rc = spdk_nvme_ctrlr_process_admin_completions(device->ctrlr);
+						if(rc < 0) {
+							// maybe need to record err info
+							m_broke = true;
+						}
+					}
 				}
 			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(300));
+			devices_lock.unlock();
+
+			if(m_broke) {
+				// TODO
+				log.log_fatal("device or transport broken, need restart.\n");
+			}
+
+			// wait for 3 seconds
+			for(int i = 0; i < 10; ++i) {
+				if(m_exit) {
+					return;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(300));
+			}
 		}
 	});
 }
@@ -615,6 +953,11 @@ void CNvmfhost::cleanup() {
 	for(auto& dev : devices) {
 		if (dev->attached) {
 			dev->attached = false;
+			dev->m_exit = true;
+			if(dev->process_complete_thd.joinable()) {
+				dev->process_complete_thd.join();
+			}
+
 			if(dev->qpair) {
 				spdk_nvme_ctrlr_free_io_qpair(dev->qpair);
 				dev->qpair = nullptr;
@@ -630,6 +973,12 @@ void CNvmfhost::cleanup() {
 			}
 			dev->nsfield.clear();
 			log.log_inf("Controller %s detached\n", dev->trid->traddr);
+
+			// lock for nsguard thread
+			devices_lock.lock();
+			delete dev;
+			dev = nullptr;
+			devices_lock.unlock();
 		} else {
 			log.log_notic("Controller %s already detached\n", dev->trid->traddr);
 		}
@@ -642,11 +991,15 @@ void CNvmfhost::cleanup() {
     }
 
     delete[] detach_ctx;
+
+	devices_lock.lock();
+	devices.clear();
+	devices_lock.unlock();
 }
 
 void CNvmfhost::register_ns(nvmfDevice* dev, struct spdk_nvme_ns* ns) {
 	
-	log.log_debug("  Namespace ID: %d size: %juGB = %lluB\n", spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_size(ns) / 1024/1024/1024, spdk_nvme_ns_get_size(ns));
+	log.log_debug("dev : %s\nNamespace ID: %d size: %juGB = %lluB\n", dev->devdesc_str, spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_size(ns) / 1024/1024/1024, spdk_nvme_ns_get_size(ns));
 	log.log_debug("nsid : %u  sector_size : %u  size: %llu\n", spdk_nvme_ns_get_id(ns), spdk_nvme_ns_get_sector_size(ns), spdk_nvme_ns_get_size(ns));
 
 }
@@ -729,6 +1082,12 @@ int CNvmfhost::detach_device(const std::string& devdesc_str) {
 	for(auto dev = devices.begin(); dev != devices.end(); ++dev) {
 		if((*dev)->devdesc_str == devdesc_str) {
 			if((*dev)->attached) {
+				(*dev)->attached = false;
+				(*dev)->m_exit = true;
+				if((*dev)->process_complete_thd.joinable()) {
+					(*dev)->process_complete_thd.join();
+				}
+
 				if((*dev)->qpair) {
 					while(spdk_nvme_qpair_get_num_outstanding_reqs((*dev)->qpair)) {
 						spdk_nvme_qpair_process_completions((*dev)->qpair, 0);
@@ -748,7 +1107,6 @@ int CNvmfhost::detach_device(const std::string& devdesc_str) {
 				}
 
 				(*dev)->nsfield.clear();
-				(*dev)->attached = false;
 
 				if (detach_ctx) {
 					spdk_nvme_detach_poll(detach_ctx);
@@ -759,8 +1117,10 @@ int CNvmfhost::detach_device(const std::string& devdesc_str) {
 			} else {
 				log.log_notic("Device %s already detached\n", (*dev)->devdesc_str.c_str());
 			}
+			devices_lock.lock();
 			delete *dev;
 			devices.erase(dev);
+			devices_lock.unlock();
 			return rc;
 		}
 	}
@@ -992,33 +1352,43 @@ int CNvmfhost::flush() {
 	return 0;
 }
  
-int CNvmfhost::sync(size_t n) {
+int CNvmfhost::sync() {
 	if(!async_mode) {
 		log.log_debug("Synchronous mode, no need to wait for completions.\n");
 		return 0;
 	}
-	if(n != 0) {
-		for(const auto& dev : devices) {
-			if(dev->attached) {
-				log.log_debug("Waiting for %lu outstanding requests on device %s\n", n, dev->devdesc_str.c_str());
-				while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair) && n) {
-					n -= spdk_nvme_qpair_process_completions(dev->qpair, 0);
-					// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
-				}
-			}
-		}
-	} else {
-		for(const auto& dev : devices) {
-			if(dev->attached) {
-				log.log_debug("Waiting for outstanding requests on device %s\n", dev->devdesc_str.c_str());
-				while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
-					spdk_nvme_qpair_process_completions(dev->qpair, 0);
 
-					// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
-				}
+	for(const auto& dev : devices) {
+		if(dev->attached) {
+			log.log_debug("Waiting for outstanding requests on device %s\n", dev->devdesc_str.c_str());
+			while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
+				// spdk_nvme_qpair_process_completions(dev->qpair, 0);
+				// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
 			}
 		}
 	}
+
+	// if(n != 0) {
+	// 	for(const auto& dev : devices) {
+	// 		if(dev->attached) {
+	// 			log.log_debug("Waiting for %lu outstanding requests on device %s\n", n, dev->devdesc_str.c_str());
+	// 			while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair) && n) {
+	// 				// n -= spdk_nvme_qpair_process_completions(dev->qpair, 0);
+	// 				// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
+	// 			}
+	// 		}
+	// 	}
+	// } else {
+	// 	for(const auto& dev : devices) {
+	// 		if(dev->attached) {
+	// 			log.log_debug("Waiting for outstanding requests on device %s\n", dev->devdesc_str.c_str());
+	// 			while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
+	// 				// spdk_nvme_qpair_process_completions(dev->qpair, 0);
+	// 				// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
+	// 			}
+	// 		}
+	// 	}
+	// }
 	return 0;
 }
 

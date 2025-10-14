@@ -26,6 +26,16 @@ public:
         }
         return true;
 	}
+
+    CSpin(const CSpin& t) {
+        m_lock.store(t.m_lock.load());
+    }
+
+    CSpin& operator=(const CSpin& t) {
+        m_lock.store(t.m_lock.load());
+        // m_lock.store(0);
+        return *this;
+    }
 private:
     std::atomic<uint8_t> m_lock;
 };

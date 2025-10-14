@@ -17,7 +17,7 @@ using dpfs_engine_async_cb = void(*)(void* arg, const struct dpfs_compeletion* d
 
 // 并非每一次IO都使用回调函数，可能仅部分IO使用，暂时std::function，如果对性能损耗较大，则在进行修改
 struct dpfs_engine_cb_struct {
-    dpfs_engine_cb_struct() = delete;
+    dpfs_engine_cb_struct(){};
     // dpfs_engine_cb_struct(dpfs_engine_async_cb cb, void* arg) : m_cb(cb), m_arg(arg) {}
     // dpfs_engine_async_cb m_cb;
     // void* m_arg;
@@ -99,10 +99,10 @@ public:
     virtual int flush() = 0;
     
     /*
-       @note sync n async submit, if not specified, sync all asynchronous operations, before use this func you must set_async_mode(true)
-       @param n: number of asynchronous operations to sync, if 0, sync all
+       @note sync all asynchronous operations, before use this func you must set_async_mode(true)
+       @return 0 on success else on failure
     */
-    virtual int sync(size_t n = 0) = 0;
+    virtual int sync() = 0;
  
 	/*
         @param trid_str: old device trid string
@@ -147,4 +147,4 @@ public:
 
 };
 
-dpfsEngine* newEngine(std::string engine_type);
+dpfsEngine* newEngine(const std::string& engine_type);

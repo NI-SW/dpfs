@@ -5,9 +5,9 @@
 #include <threadlock.hpp>
 #include <storage/engine.hpp>
 #include <log/logbinary.h>
-#include <iostream>
 #include <list>
 #include <vector>
+#include <condition_variable>
 // #include <spdk/nvme.h>
 
 // for each disk host
@@ -48,6 +48,10 @@ public:
 	// std::vector<struct spdk_nvme_ns*> ns;
 	std::vector<nvmfnsDesc*> nsfield;
 	bool attached = false;
+	bool m_exit = false;
+	std::thread process_complete_thd;
+	std::atomic<uint16_t> m_reqs;
+	std::condition_variable m_convar;
 
 	// total logic block count of this device
 	size_t lba_count = 0;
@@ -116,7 +120,7 @@ public:
     virtual int write(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) override;
 
     virtual int flush() override;
-    virtual int sync(size_t n = 0) override;
+    virtual int sync() override;
 	virtual int replace_device(const std::string& trid_str, const std::string& new_trid_str) override = delete;
 	virtual void set_async_mode(bool async) override;
 	virtual bool async() const override;
@@ -143,10 +147,14 @@ private:
     std::vector<nvmfDevice*> devices;
 	std::thread nf_guard;
 
+	CSpin devices_lock;
+	CSpin m_lock;
 	bool async_mode : 1;
 	bool m_exit : 1;
-	bool : sizeof(bool);
-
+	bool m_broke : 1;
+	bool m_allowOperate : 1;
+	bool : 4;
+	
 
 	// attach all devices to the nvmf host
     int nvmf_attach(nvmfDevice* device);
@@ -162,4 +170,11 @@ private:
 	friend class nvmfDevice;
 };
 
-
+// void totalsizeee() {
+// 	sizeof(logrecord); 					// 320
+// 	sizeof(size_t);						// 8
+// 	sizeof(std::vector<nvmfDevice*>);	// 24	
+// 	sizeof(CSpin);						// 1
+// 	sizeof(std::thread);				// 8
+// 	sizeof(CNvmfhost);					//376
+// }

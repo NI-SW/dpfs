@@ -1,7 +1,7 @@
 #include <cstddef>
 #include <list>
 #include <unordered_map>
-#include <storage/engine.hpp>
+#include <threadlock.hpp>
 // #define __DPFS_CACHE_DEBUG__
 
 #ifdef __DPFS_CACHE_DEBUG__
@@ -14,52 +14,34 @@ using namespace std;
 template<class T>
 class CClearFunc {
 public:
-    CClearFunc(){}
+    CClearFunc(void* initArg){}
     void operator()(T& p) {
 
     }
-};
 
-template<class IDX, class T>
-class CStorageSample {
-public:
-    CStorageSample(dpfsEngine* engine) : eng(engine) {
-        data = eng->zmalloc(dpfs_lba_size * 10);
-    }
-    ~CStorageSample() {
+    void flush(T& p) {
 
     }
-
-    // from index load target
-    T* load(IDX idx) {
-        eng->read();
-        return nullptr;
-    }
-
-    // write back to storage
-    int writeBack(IDX idx, T* cache) {
-        return 0;
-    }
-
-private:
-    dpfsEngine* eng;
-    void* data;
 };
 
 // for quick range compare
 /*
     @tparam IDX cache index
     @tparam T cache type
-    @tparam CLEARFUNC function to clear cache when drop cache
+    @tparam CLEARFUNC function to clear cache when drop cache or flush cache
 */
 #ifdef __DPFS_CACHE_DEBUG__
-template<class IDX = string, class T = int, class CStorage = CStorageSample<IDX, T>, class CLEARFUNC = CClearFunc<T>>
+template<class IDX = string, class T = int, class CLEARFUNC = CClearFunc<T>>
 #else 
-template<class IDX, class T, class CStorage = CStorageSample<IDX, T>, class CLEARFUNC = CClearFunc<T>>
+template<class IDX, class T, class CLEARFUNC = CClearFunc<T>>
 #endif
 class CDpfsCache {
 public:
-    CDpfsCache(CStorage& st) : m_storage(st){
+    /*
+        @param clrFnArg use a pointer to initialize clear function
+        @note 
+    */
+    CDpfsCache(void* clrFnArg = nullptr) : clrfunc(clrFnArg) {
         m_cacheSize = 1024;
         m_cachesList.clear();
         m_cacheMap.clear();
@@ -67,7 +49,7 @@ public:
     /*
         @param cs cache size
     */
-    CDpfsCache(size_t cs, CStorage& st) : m_storage(st) {
+    CDpfsCache(size_t cs, void* clrFnArg = nullptr) : clrfunc(clrFnArg) {
         m_cacheSize = cs;
         m_cachesList.clear();
         m_cacheMap.clear();
@@ -102,27 +84,24 @@ public:
         auto cs = m_cacheMap.find(idx);
         if (cs != m_cacheMap.end()) {
             // move this cache to head
+            m_lock.lock();
             m_cachesList.erase(cs->second->selfIter);
             m_cachesList.push_front(cs->second);
             cs->second->selfIter = m_cachesList.begin();
+            m_lock.unlock();
             return cs->second;
-        } else {
-            // not found in cache, try to find on storage, and load it to cache
-            //T* p = m_storage.load(idx);
-            //if (p) {
-            //    int rc = loadCache(idx, *p);
-            //}
         }
+
         return nullptr;
     }
 
     /*
         @param idx index of the cache
         @param cache cache to insert
-        @note insert cache to LRU system
+        @note insert cache to LRU system, if cache is inserted, update it.
     */
     int loadCache(const IDX& idx, const T& cache) {
-        // insert new cache to list and map
+        // insert or update cache
         cacheIter* it = getCache(idx);
         if (it) {
             it->cache = cache;
@@ -131,12 +110,18 @@ public:
 
         // if larger than max size, remove the last
         if (m_cachesList.size() >= m_cacheSize) {
+
+            m_lock.lock();
+
             // reuse the mem
             it = reinterpret_cast<cacheIter*>(m_cachesList.back());
             // erase cache in map, and pop up the oldest unused cache
-            m_cacheMap.erase(reinterpret_cast<cacheIter*>(m_cachesList.back())->idx);
-            clrfunc(reinterpret_cast<cacheIter*>(m_cachesList.back())->cache);
+            m_cacheMap.erase(it->idx);
             m_cachesList.pop_back();
+
+            m_lock.unlock();
+            
+            clrfunc(it->cache);
         }
         else {
             it = new cacheIter;
@@ -147,9 +132,15 @@ public:
 
         it->cache = cache;
         it->idx = idx;
+
+        m_lock.lock();
+
         m_cachesList.push_front(it);
-        it->selfIter = m_cachesList.begin();
         m_cacheMap[idx] = it;
+        it->selfIter = m_cachesList.begin();
+
+        m_lock.unlock();
+
 
 #ifdef __DPFS_CACHE_DEBUG__
         cout << " now cache list: " << endl;
@@ -161,21 +152,83 @@ public:
         return 0;
     }
 
+    /*
+        @param idx index of the cache
+        @param cache cache to insert
+        @note insert cache to LRU system, do not check if the cache inserted.
+    */
+    int insertCache(const IDX& idx, const T& cache) {
+        cacheIter* it = nullptr;
+        // if larger than max size, remove the last one
+        if (m_cachesList.size() >= m_cacheSize) {
+
+            m_lock.lock();
+
+            // reuse the mem
+            it = reinterpret_cast<cacheIter*>(m_cachesList.back());
+            // erase cache in map, and pop up the oldest unused cache
+            m_cacheMap.erase(it->idx);
+            m_cachesList.pop_back();
+            
+            m_lock.unlock();
+            
+            clrfunc(it->cache);
+        }
+        else {
+            it = new cacheIter;
+            if (!it) {
+                return -ENOMEM;
+            }
+        }
+
+        it->cache = cache;
+        it->idx = idx;
+
+        m_lock.lock();
+
+        m_cachesList.push_front(it);
+        m_cacheMap[idx] = it;
+        it->selfIter = m_cachesList.begin();
+        
+        m_lock.unlock();
+
+
+#ifdef __DPFS_CACHE_DEBUG__
+        cout << " now cache list: " << endl;
+        for (auto& it : m_cachesList) {
+            cout << ((cacheIter*)it)->idx << " : " << ((cacheIter*)it)->cache << endl;
+        }
+#endif
+        
+        return 0;
+    }
+
+    /*
+        @note flush all cache to disk immediate
+        @return 0 on success, else on failure
+    */
+    int flush() {
+        for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
+            clrfunc.flush((*cacheIt).second->cache);
+        }
+
+        return 0;
+    }
 private:
+    // limit of how many caches in pool
     size_t m_cacheSize;
+
+    /*
+        cache struct list, use to record cache info and sort
+        use void* as type is becaues list<cacheIter*>::iterator can't be compile with cacheIter*
+    */
     std::list<void*> m_cachesList;
-    std::unordered_map<IDX, cacheIter*> m_cacheMap;
+    // cache map, use to find cache by idx
+    std::unordered_map<IDX, CDpfsCache<IDX, T, CLEARFUNC>::cacheIter*> m_cacheMap;
     CLEARFUNC clrfunc;
-    CStorage& m_storage;
+    CSpin m_lock;
 };
 
-class myclear {
-public:
-    myclear() {}
-    void operator()(void* p) {
-        delete (int*)p;
-    }
-};
 
 
 #ifdef __DPFS_CACHE_DEBUG__
