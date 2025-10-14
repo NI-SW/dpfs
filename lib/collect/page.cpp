@@ -19,7 +19,7 @@ CPage::~CPage() {
 }
 
 cacheStruct* CPage::get(const bidx& idx, size_t len) {
-    if(idx.gid > m_engine_list.size()) {
+    if(idx.gid >= m_engine_list.size()) {
         return nullptr;
     }
 
@@ -139,7 +139,7 @@ errReturn:
 }
 
 int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
-    if(idx.gid > m_engine_list.size()) {
+    if(idx.gid >= m_engine_list.size()) {
         return -ERANGE;
     }
 

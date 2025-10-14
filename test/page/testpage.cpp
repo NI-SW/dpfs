@@ -38,6 +38,8 @@ int main() {
 
 	bidx testbid;
 
+	cout << "engine size = " << engList[0]->size() << endl;
+
 	while(!g_exit) {
 
 		cout << "input group id: ";
@@ -60,7 +62,7 @@ int main() {
 
 			rc = pge->put(testbid, zptr, data.size() / dpfs_lba_size + 1, true);
 			if(rc) {
-				cout << "put operate fail!" << endl;
+				cout << "put operate fail! code : " << rc << endl;
 			}
 			continue;
 		}
@@ -72,6 +74,10 @@ int main() {
 
 
 		cacheStruct* ptr = pge->get(testbid);
+		if(!ptr) {
+			cout << "error occur, get fail" << endl;
+			continue;
+		}
 
 		char* myptr = (char*)ptr->zptr;
 
