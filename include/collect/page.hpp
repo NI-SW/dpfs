@@ -41,12 +41,12 @@ namespace std {
 
 struct cacheStruct {
     bidx idx = {0, 0};
-    // pointer to dpfsEngine::zmalloc() memory, for nvmf, this memory is dma memory
+    // pointer to dpfsEngine::zmalloc() memory, for example if use nvmf, this pointer point to dma memory
     void* zptr = nullptr;
     // block number, number of blocks, not len of bytes, one block equal to <dpfs_lba_size> bytes usually 4KB
-    uint32_t len = 0;
-    bool dirty = false;
     std::shared_mutex rwLock;
+    bool dirty = false;
+    uint32_t len = 0;
 };
 
 /*
@@ -89,7 +89,7 @@ public:
         @param zptr the pointer to the data that will be insert into cache system or write to the storage
         @param len length of the data blocks, 1 block is 4096B
         @param wb  true if need to write back to disk immediate
-        @note flush data from ptr to cache
+        @note flush data from zptr to cache, bewarn zptr will be take over by CPage
     */
     int put(bidx idx, void* zptr, size_t len = 1, bool wb = false);
 
@@ -104,10 +104,21 @@ public:
         @note flush data from cache to disk immediate
     */
     int flush();
+
+    /*
+        @param sz size of cache block for storage, 1 block equal to dpfs_lba_size (default is 4096B)
+        @return return zptr if success, nullptr on failure
+    */
+    void* cacheMalloc(size_t sz);
+
+    // 4B + 4B
+    uint32_t m_hitCount;
+    uint32_t m_getCount;
+
 private:
 
 
-    // 24B
+    // 8B
     std::vector<dpfsEngine*>& m_engine_list;
 
     // 104B
@@ -119,17 +130,27 @@ private:
     friend PageClrFn;
 
     // map length to ptr, alloc by dpfsEngine::zmalloc length = (dpfs_lba_size * index)
+    // 24B * 2
     std::vector<std::list<void*>> m_zptrList;
     std::vector<CSpin> m_zptrLock;
 
     // storage cacheStruct malloced by get and put
+    // 24B
     std::list<cacheStruct*> m_cacheStructMemList;
 
-    CSpin m_csmLock;
+    // 1B + 1B
     bool m_exit;
+    CSpin m_csmLock;
+
 };
 
 
 // void test(){
 //     sizeof(CDpfsCache<bidx, cacheStruct*, PageClrFn>);
+//     sizeof(CPage);
+//     sizeof(std::list<cacheStruct*>);
+//     sizeof(CSpin);
+
+//     sizeof(cacheStruct);
+//     sizeof(std::shared_mutex);
 // }

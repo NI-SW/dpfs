@@ -1,21 +1,28 @@
 #include <collect/page.hpp>
 
 // max block len, manage memory block alloced by dpfsEngine::zmalloc
-const size_t maxBlockLen = 10;
+const size_t maxBlockLen = 20;
+// ?
 const size_t maxMemBlockLimit = 20;
 
 CPage::CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : m_engine_list(engine_list), m_cache(cacheSize, this), m_log(log) {
     // the length larger then 10 need Special Processing
     m_zptrList.resize(maxBlockLen);
     m_zptrLock.resize(maxBlockLen);
-    m_exit = false;
+    m_exit = 0;
+    m_hitCount = 0;
+    m_getCount = 0;
 }
 
 CPage::~CPage() {
-    m_exit = true;
+    m_exit = 1;
 }
 
 cacheStruct* CPage::get(const bidx& idx, size_t len) {
+    if(idx.gid > m_engine_list.size()) {
+        return nullptr;
+    }
+
     int rc = 0;
     // cache block struct
     cacheStruct* cs = nullptr;
@@ -59,8 +66,15 @@ cacheStruct* CPage::get(const bidx& idx, size_t len) {
         cbs.m_cb = [&complete](void* arg, const dpfs_compeletion* dcp) {
 
             complete = true;
+            if(dcp->return_code) {
+                CPage* pge = static_cast<CPage*>(arg);
+                if(!pge) {
+                    return;
+                }
+                pge->m_log.log_error("write fail code: %d, msg: %s\n", dcp->return_code, dcp->errMsg);
+            }
         };
-        cbs.m_arg = nullptr;
+        cbs.m_arg = this;
 
         // read from disk
         rc = m_engine_list[idx.gid]->read(idx.bid, zptr, len, &cbs);
@@ -98,8 +112,11 @@ cacheStruct* CPage::get(const bidx& idx, size_t len) {
         while(!complete) {
             // wait for async read complete.
         }
+        ++m_getCount;
         return cs;
     }
+    ++m_getCount;
+    ++m_hitCount;
     return ptr->cache;
 
 errReturn:
@@ -122,10 +139,16 @@ errReturn:
 }
 
 int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
+    if(idx.gid > m_engine_list.size()) {
+        return -ERANGE;
+    }
+
     int rc = 0;
     cacheStruct* cs = nullptr;
     dpfs_engine_cb_struct cbs;
     volatile bool cb_completed = false;
+    CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* cptr = nullptr;
+
     // if write back immediate
     if(wb) {
         cbs.m_arg = this;
@@ -147,19 +170,26 @@ int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
             m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
             // write error
             // TODO
+
+            goto errReturn;
         }
+    } else {
+        cb_completed = true;
     }
 
     // update cache
-    CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* cptr = m_cache.getCache(idx);
+    cptr = m_cache.getCache(idx);
     // if this idx is not loaded on cache
     if(!cptr) {
+        // get a cache struct object.
         if(!m_cacheStructMemList.empty()) {
+            // get from list
             m_csmLock.lock();
             cs = m_cacheStructMemList.front();
             m_cacheStructMemList.pop_front();
             m_csmLock.unlock();
         } else {
+            // malloc one
             cs = new cacheStruct;
             if(!cs) {
                 m_log.log_error("can't malloc cacheStruct, no memory\n");
@@ -170,38 +200,50 @@ int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
         cs->zptr = zptr;
         cs->idx = idx;
         cs->len = len;
-        cs->dirty = true;
 
+        // if immediately write back
+        if(wb) {
+            cs->dirty = false;
+        } else {
+            cs->dirty = true;
+        }
+
+        // insert the cache to lru system
         rc = m_cache.insertCache(idx, cs);
+        // if immediately write back
+
 
     } else {
         // if loaded on cache, update it
         // recycle the memory
-
-        // write lock
-        cptr->cache->rwLock.lock();
         m_zptrLock[cptr->cache->len].lock();
         m_zptrList[cptr->cache->len].push_back(cptr->cache->zptr);
         m_zptrLock[cptr->cache->len].unlock();
+        
+        // write lock
+        cptr->cache->rwLock.lock();
 
         // update the cache
         cptr->cache->zptr = zptr;
         cptr->cache->len = len;
         // cptr->cache->idx = idx;
+
+        // if immediately write back
         if(wb) {
             cptr->cache->dirty = false;
         } else {
             cptr->cache->dirty = true;
         }
+        
         cptr->cache->rwLock.unlock();
         // rc = m_cache.loadCache(idx, cptr->cache);
     }
 
-    if(wb) {
-        while(!cb_completed) {
-            // wait for write back complete
-        }
+
+    while(!cb_completed) {
+        // wait for write back complete
     }
+
 
     return 0;
 
@@ -215,13 +257,37 @@ errReturn:
 }
 
 int CPage::writeBack(cacheStruct *cache) {
-    
+    // TODO 
+
     return 0;
 }
 
 int CPage::flush() {
+    // TODO 
 
     return 0;
+}
+
+void* CPage::cacheMalloc(size_t sz) {
+    void* zptr = nullptr;
+    if(sz < maxBlockLen) {
+        if(m_zptrList[sz].empty()) {
+            return m_engine_list[0]->zmalloc(sz);
+        }
+
+        m_zptrLock[sz].lock();
+        if(m_zptrList[sz].empty()) {
+            m_zptrLock[sz].unlock();
+            return m_engine_list[0]->zmalloc(sz);
+        }
+        zptr = m_zptrList[sz].front();
+        m_zptrList[sz].pop_front();
+        m_zptrLock[sz].unlock();
+
+    } else {
+        zptr = m_engine_list[0]->zmalloc(sz);
+    }
+    return zptr;
 }
 
 PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
@@ -298,14 +364,12 @@ void PageClrFn::flush(cacheStruct*& p) {
     // find disk group by gid, find block on disk by bid, write p, block number = blkNum
     // p->p must by alloc by engine_list->zmalloc
 
-    size_t zLen = 0;
-    uint64_t zgid = p->idx.gid;
     void* zptr = p->zptr;
     volatile bool cb_completed = false;
     dpfs_engine_cb_struct cbs;
 
     // some problem, need to considerate call back method
-    if(p->dirty) {
+    if(p->dirty) { 
         cbs.m_arg = this;
 
         // call back function for disk write

@@ -4,10 +4,21 @@
 #include <thread>
 #include <unistd.h>
 #include <iostream>
+#include <csignal>
 using namespace std;
 std::thread test;
 
+volatile bool g_exit = false;
+void sigfun(int sig) {
+    cout << "Signal " << sig << " received, exiting..." << endl;
+    g_exit = true;
+}
+
 int main() {
+
+    signal(SIGINT, sigfun);
+    signal(SIGKILL, sigfun);
+
 	dpfsEngine* engine = nullptr; // new CNvmfhost();
 	int rc = 0;
 	engine = newEngine("nvmf");
@@ -27,20 +38,52 @@ int main() {
 
 	bidx testbid;
 
-	while(1) {
-		cout << "input group id:" << endl;
+	while(!g_exit) {
+
+		cout << "input group id: ";
 		cin >> testbid.gid;
-		cout << "input disk block position:" << endl;
+		
+		if(testbid.gid == -1) {
+			cout << "please input disk idx\n" << endl;
+			cout << "input groupid: "; 
+			cin >> testbid.gid;
+			cout << "input disk block position: ";
+			cin >> testbid.bid;
+
+			
+			cout << "input data: " << endl;
+			string data;
+			cin >> data;
+
+			char* zptr = (char*)pge->cacheMalloc(data.size() % dpfs_lba_size == 0 ? data.size() / dpfs_lba_size : data.size() / dpfs_lba_size + 1);
+			memcpy(zptr, data.c_str(), data.size());
+
+			rc = pge->put(testbid, zptr, data.size() / dpfs_lba_size + 1, true);
+			if(rc) {
+				cout << "put operate fail!" << endl;
+			}
+			continue;
+		}
+
+		cout << "input disk block position: ";
 		cin >> testbid.bid;
+
+		
+
 
 		cacheStruct* ptr = pge->get(testbid);
 
 		char* myptr = (char*)ptr->zptr;
 
 		cout << myptr << endl;
+
+		cout << "getCount : " << pge->m_getCount << endl;
+		cout << "hitCount : " << pge->m_hitCount << endl;
 	}
 
+
 	delete pge;
+
 	delete engine;
 	
 	
