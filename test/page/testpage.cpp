@@ -16,8 +16,8 @@ void sigfun(int sig) {
 
 int main() {
 
-    signal(SIGINT, sigfun);
-    signal(SIGKILL, sigfun);
+    // signal(SIGINT, sigfun);
+    // signal(SIGKILL, sigfun);
 
 	dpfsEngine* engine = nullptr; // new CNvmfhost();
 	int rc = 0;
@@ -26,20 +26,26 @@ int main() {
 		cout << "engine type error" << endl;
 		return -1;
 	}
+	// rc = engine->attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	rc = engine->attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
+	// rc = engine->attach_device("trtype:pcie traddr:0000.1b.00.0");  engine->attach_device("trtype:pcie traddr:0000.13.00.0");
 	if(rc) {
 		cout << " attach device fail " << endl;
 	}
 	vector<dpfsEngine*> engList;
 	engList.emplace_back(engine);
 	logrecord testLog;
+	testLog.set_async_mode(true);
+	engine->set_async_mode(true);
+
+
 	
-	CPage* pge = new CPage(engList, 128, testLog);
+	CPage* pge = new CPage(engList, 65535, testLog);
 
 	bidx testbid;
 
 	cout << "engine size = " << engList[0]->size() << endl;
-
+	
 	while(!g_exit) {
 
 		cout << "input group id: ";
@@ -65,26 +71,52 @@ int main() {
 				cout << "put operate fail! code : " << rc << endl;
 			}
 			continue;
+		} else if(testbid.gid == -2) {
+			break;
 		}
 
 		cout << "input disk block position: ";
 		cin >> testbid.bid;
 
+		uint64_t ttm = 0;
 		
+		cacheStruct** ptr = new cacheStruct*[testbid.bid];
 
+		chrono::milliseconds ns = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
+		for(uint64_t i = 0; i < testbid.bid; ++i) {
+			chrono::microseconds n11 = chrono::duration_cast<chrono::microseconds>(chrono::system_clock().now().time_since_epoch());
+			rc = pge->get(ptr[i], {testbid.gid, i});
+			if(rc) {
+				cout << "error occur, get fail" << endl;
+				continue;
+			}
+			chrono::microseconds n12 = chrono::duration_cast<chrono::microseconds>(chrono::system_clock().now().time_since_epoch());
+			// cout << "total get time : " << (n12 - n11).count() << endl;
+			ttm += (n12 - n11).count();
+			// char* myptr = (char*)ptr[0]->zptr;
+			// cout << myptr << endl;
 
-		cacheStruct* ptr = pge->get(testbid);
-		if(!ptr) {
-			cout << "error occur, get fail" << endl;
-			continue;
+			cout << "getCount : " << pge->m_getCount << endl;
+			cout << "hitCount : " << pge->m_hitCount << endl;
+		}
+		chrono::milliseconds ns1 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
+		cout << "total get time : " << (ns1 - ns).count() << endl;
+		cout << "total add time : " << ttm << " us" << endl;
+
+		for(uint64_t i = 0; i < testbid.bid; ++i) {
+			// testLog.log_inf("waiting for %llu th block, status: %u \n", i, ptr[i]->getStatus());
+			while(ptr[i]->getStatus() != cacheStruct::VALID) {
+
+			}
+			chrono::milliseconds ns2 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
+			// char* myptr = (char*)ptr[i]->zptr;
+			// cout << myptr << endl;
+			testLog.log_inf("get %llu time : %llu\n", i, (ns2 - ns).count());
+			// cout << "get " << i << " time : " << (ns2 - ns).count() << endl;
+			ptr[i]->release();
 		}
 
-		char* myptr = (char*)ptr->zptr;
-
-		cout << myptr << endl;
-
-		cout << "getCount : " << pge->m_getCount << endl;
-		cout << "hitCount : " << pge->m_hitCount << endl;
+		delete[] ptr;
 	}
 
 

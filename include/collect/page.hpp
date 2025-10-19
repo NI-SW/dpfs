@@ -40,13 +40,39 @@ namespace std {
 
 
 struct cacheStruct {
+    cacheStruct(CPage* cp);
+    // 16B
     bidx idx = {0, 0};
-    // pointer to dpfsEngine::zmalloc() memory, for example if use nvmf, this pointer point to dma memory
+    // 8B pointer to dpfsEngine::zmalloc() memory, for example if use nvmf, this pointer point to dma memory
     void* zptr = nullptr;
-    // block number, number of blocks, not len of bytes, one block equal to <dpfs_lba_size> bytes usually 4KB
+    // 56B
     std::shared_mutex rwLock;
-    bool dirty = false;
-    uint32_t len = 0;
+    // 3.875B block number, number of blocks, not len of bytes, one block equal to <dpfs_lba_size> bytes usually 4KB
+    uint32_t len : 31;
+    // 0.125B
+    uint32_t dirty : 1;
+    // 2B
+    std::atomic<uint16_t> status = 0;
+    // 2B
+    std::atomic<uint16_t> refs = 0;
+    // 8B
+    CPage* page = nullptr;
+
+    enum statusEnum : uint16_t {
+        INVALID = 0,
+        VALID = 1,
+        READING = 2,
+        WRITING = 3,
+        ERROR = 4,
+    };
+
+    uint16_t getStatus() {
+        return status;
+    }
+    
+    // after use, you must call release to recycle the memory
+    void release();
+
 };
 
 /*
@@ -61,6 +87,7 @@ public:
     void flush(cacheStruct*& p);
     CPage* cp;
 };
+
 
 /*
     from all dpfs engine, make cache
@@ -77,12 +104,13 @@ public:
     ~CPage();
 
     /*
+        @param ptr this func is an async func, when ptr is not null, the callback is done
         @param idx index of the block
         @param len number of blocks, 1 block is 4096B
         @return return the pointer to the block struct in the memory
         @note unless there is a large object that need be storaged by multiple blocks, len should be set to 1
     */
-    cacheStruct* get(const bidx& idx, size_t len = 1);
+    int get(cacheStruct*& ptr, const bidx& idx, size_t len = 1);
 
     /*
         @param idx the storage index, indicate which disk group and disk block
@@ -117,7 +145,13 @@ public:
 
 private:
 
-
+    void freecs(cacheStruct* cs);
+    cacheStruct* alloccs();
+    void freezptr(void* zptr, size_t sz);
+    void* alloczptr(size_t sz);
+    void freecbs(const dpfs_engine_cb_struct* cbs);
+    dpfs_engine_cb_struct* alloccbs();
+    
     // 8B
     std::vector<dpfsEngine*>& m_engine_list;
 
@@ -128,29 +162,31 @@ private:
     // 8B
     logrecord& m_log;
     friend PageClrFn;
+    friend cacheStruct;
 
     // map length to ptr, alloc by dpfsEngine::zmalloc length = (dpfs_lba_size * index)
-    // 24B * 2
+    // 24B + 24B
     std::vector<std::list<void*>> m_zptrList;
     std::vector<CSpin> m_zptrLock;
 
     // storage cacheStruct malloced by get and put
-    // 24B
+    // 24B + 24B
     std::list<cacheStruct*> m_cacheStructMemList;
-
+    std::list<dpfs_engine_cb_struct*> m_cbMemList;
     // 1B + 1B
-    bool m_exit;
     CSpin m_csmLock;
+    CSpin m_cbmLock;
+    bool m_exit;
 
 };
 
 
-// void test(){
+// void testSize(){
 //     sizeof(CDpfsCache<bidx, cacheStruct*, PageClrFn>);
 //     sizeof(CPage);
 //     sizeof(std::list<cacheStruct*>);
 //     sizeof(CSpin);
-
-//     sizeof(cacheStruct);
 //     sizeof(std::shared_mutex);
+//     sizeof(std::atomic<uint16_t>);
+//     sizeof(cacheStruct);
 // }

@@ -14,7 +14,7 @@
 #include <thread>
 
 #define DPFS_IO_CHECK
-static const int max_qpair_io_queue = 256;
+static const int max_qpair_io_queue = 512;
 // default timeout set to 2 seconds
 static const int qpair_io_wait_tm = 2000;
 static std::mutex init_mutex;
@@ -271,7 +271,7 @@ nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 			while(attached && qpair) {
 
 				m_convar.wait_for(lk, std::chrono::milliseconds(100), [this]() -> bool { return (this->m_reqs > 0); });
-				this->nfhost.log.log_debug("waked!\n");
+				// this->nfhost.log.log_debug("waked!\n");
 				for(int i = 0; i < 1000; ++i) {
 					if(m_reqs) {
 						i = 0;
@@ -283,39 +283,12 @@ nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 						} else if(rc == 0) {
 
 						} else {
+							// TODO process error
 							nfhost.log.log_error("process completions fail! code : %d, unfinished requests : %d\n", rc, m_reqs.load());
 							m_reqs = 0;
 						}
 					}
 				}
-
-
-				// while(m_reqs) {
-				// 	n = spdk_nvme_qpair_get_num_outstanding_reqs(qpair);
-				// 	if(n > 0) {
-				// 		while(n > 0) {
-				// 			rc = spdk_nvme_qpair_process_completions(qpair, 0);
-				// 			if(rc > 0) {
-				// 				m_reqs -= rc;
-				// 			} else if(rc == 0) {
-
-				// 			} else {
-				// 				nfhost.log.log_error("process completions fail! code : %d\n", rc);
-				// 			}
-				// 			n = spdk_nvme_qpair_get_num_outstanding_reqs(qpair);
-				// 		}
-				// 	}
-				// 	std::this_thread::sleep_for(std::chrono::milliseconds(0));
-				// }
-
-				// sleep 0 about 100 ns = 0.1 ms, the processor will polling io for about 10ms, if no more job, sleep more longer.
-				// if(hangCount < 1000) {
-				// 	std::this_thread::sleep_for(std::chrono::milliseconds(sleepTm));
-				// 	++hangCount;
-				// } else {
-				// 	sleepTm < 100 ? sleepTm += 15 : sleepTm;
-				// 	hangCount = 0;
-				// }
 			}
 			// waiting for attach
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -414,9 +387,12 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		}
 		if(!nfhost.async_mode) {
 			// wait for completion
-			do {
-				spdk_nvme_qpair_process_completions(qpair, 0);
-			} while(!subns->sequence->is_completed);
+			while(!subns->sequence->is_completed) {
+
+			}
+			// do {
+			// 	spdk_nvme_qpair_process_completions(qpair, 0);
+			// } while(!subns->sequence->is_completed);
 		}
 
 		rc = ns->read(lba_device, pBuf, lbc);
@@ -427,9 +403,12 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		}
 		if(!nfhost.async_mode) {
 			// wait for completion
-			do {
-				spdk_nvme_qpair_process_completions(qpair, 0);
-			} while(!ns->sequence->is_completed);
+			while(!ns->sequence->is_completed) {
+
+			}
+			// do {
+			// 	spdk_nvme_qpair_process_completions(qpair, 0);
+			// } while(!ns->sequence->is_completed);
 		}
 
 		return 2;
@@ -450,9 +429,12 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 	}
 	if(!nfhost.async_mode) {
 		// wait for completion
-		do {
-			spdk_nvme_qpair_process_completions(qpair, 0);
-		} while(!ns->sequence->is_completed);
+		while(!ns->sequence->is_completed) {
+
+		}
+		// do {
+		// 	spdk_nvme_qpair_process_completions(qpair, 0);
+		// } while(!ns->sequence->is_completed);
 	}
 
 	return 1;
@@ -522,10 +504,13 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 		}
 		if(!nfhost.async_mode) {
 			// wait for completion
-			do {
-				spdk_nvme_qpair_process_completions(qpair, 0);
-			} while(!subns->sequence->is_completed);
-			// spdk_nvme_ns_cmd_flush(subns->ns, qpair, nullptr, 0);
+			while(!subns->sequence->is_completed) {
+
+			}
+			// do {
+			// 	spdk_nvme_qpair_process_completions(qpair, 0);
+			// } while(!subns->sequence->is_completed);
+
 		}
 
 		rc = ns->write(lba_device, pBuf, lbc);
@@ -537,9 +522,12 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 
 		if(!nfhost.async_mode) {
 			// wait for completion
-			do {
-				spdk_nvme_qpair_process_completions(qpair, 0);
-			} while(!ns->sequence->is_completed);
+			while(!ns->sequence->is_completed) {
+
+			}
+			// do {
+			// 	spdk_nvme_qpair_process_completions(qpair, 0);
+			// } while(!ns->sequence->is_completed);
 			// spdk_nvme_ns_cmd_flush(ns->ns, qpair, nullptr, 0);
 		}
 
@@ -562,10 +550,13 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 
 	if(!nfhost.async_mode) {
 		// wait for completion
-		do {
-			spdk_nvme_qpair_process_completions(qpair, 0);
-		} while(!ns->sequence->is_completed);
-		// spdk_nvme_ns_cmd_flush(ns->ns, qpair, nullptr, 0);
+		while(!ns->sequence->is_completed) {
+
+		}
+		// do {
+		// 	spdk_nvme_qpair_process_completions(qpair, 0);
+		// } while(!ns->sequence->is_completed);
+
 	}
 
 	return 1;
@@ -883,6 +874,7 @@ CNvmfhost::CNvmfhost() : async_mode(false) {
 
 			if(m_broke) {
 				// TODO
+
 				log.log_fatal("device or transport broken, need restart.\n");
 			}
 
@@ -1058,9 +1050,9 @@ int CNvmfhost::attach_device(const std::string& devdesc_str) {
 	spdk_nvme_io_qpair_opts qpopts;
 	spdk_nvme_ctrlr_get_default_io_qpair_opts(ndev->ctrlr, &qpopts, sizeof(qpopts));
 	// qpopts.io_queue_size = 4096;
+	qpopts.io_queue_size = max_qpair_io_queue;
 	log.log_inf("get qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 
-	
 	
 	ndev->qpair = spdk_nvme_ctrlr_alloc_io_qpair(ndev->ctrlr, &qpopts, sizeof(qpopts));
 	if (ndev->qpair == nullptr) {

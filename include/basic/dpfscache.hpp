@@ -85,9 +85,10 @@ public:
         if (cs != m_cacheMap.end()) {
             // move this cache to head
             m_lock.lock();
-            m_cachesList.erase(cs->second->selfIter);
-            m_cachesList.push_front(cs->second);
-            cs->second->selfIter = m_cachesList.begin();
+            m_cachesList.splice(m_cachesList.begin(), m_cachesList, cs->second->selfIter);
+            // m_cachesList.erase(cs->second->selfIter);
+            // m_cachesList.push_front(cs->second);
+            // cs->second->selfIter = m_cachesList.begin();
             m_lock.unlock();
             return cs->second;
         }
@@ -208,10 +209,11 @@ public:
         @return 0 on success, else on failure
     */
     int flush() {
+        m_lock.lock();
         for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
             clrfunc.flush((*cacheIt).second->cache);
         }
-
+        m_lock.unlock();
         return 0;
     }
 private:

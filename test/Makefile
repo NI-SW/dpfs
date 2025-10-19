@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := item nvmf dpfssys tcp client
+SUBDIRS := item nvmf dpfssys tcp client page collect
 
 all clean::
 	@for subdir in $(SUBDIRS); \

@@ -5,6 +5,19 @@ const size_t maxBlockLen = 20;
 // ?
 const size_t maxMemBlockLimit = 20;
 
+cacheStruct::cacheStruct(CPage* cp) : page(cp) {
+    len = 0;
+    dirty = 0;
+}
+
+void cacheStruct::release() {
+    if(--refs <= 0) {
+        status = INVALID;
+        page->freezptr(zptr, len);
+        page->freecs(this);
+    }
+}
+
 CPage::CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : m_engine_list(engine_list), m_cache(cacheSize, this), m_log(log) {
     // the length larger then 10 need Special Processing
     m_zptrList.resize(maxBlockLen);
@@ -18,124 +31,106 @@ CPage::~CPage() {
     m_exit = 1;
 }
 
-cacheStruct* CPage::get(const bidx& idx, size_t len) {
+int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
     if(idx.gid >= m_engine_list.size()) {
-        return nullptr;
+        return -ERANGE;
     }
+    cptr = nullptr;
 
     int rc = 0;
-    // cache block struct
-    cacheStruct* cs = nullptr;
-    // dpfsEngine memory pointer
 
+    // cacheStruct* cs;
+    // dpfsEngine memory pointer
     void* zptr = nullptr;
-    dpfs_engine_cb_struct cbs;
+    // io call back struct
+    dpfs_engine_cb_struct* cbs = new dpfs_engine_cb_struct;
 
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* ptr = m_cache.getCache(idx);
     if(!ptr) {
-        // zptr = nullptr;
         // alloc zptr
-        if(len < maxBlockLen) {
-            if(!m_zptrList[len].empty()) {
-                // acquire a memory block from mem list
-                m_zptrLock[len].lock();
-                zptr = m_zptrList[len].front();
-                m_zptrList[len].pop_front();
-                m_zptrLock[len].unlock();
-            } else {
-                zptr = m_engine_list[idx.gid]->zmalloc(dpfs_lba_size * len);
-                if(!zptr) {
-                    // can't malloc mem block, reutrn error
-                    m_log.log_error("Can't malloc block, size = %llu Bytes\n", dpfs_lba_size * len);
-                    goto errReturn;
-                }
-            }
-        } else { 
-            // big block
-            zptr = m_engine_list[idx.gid]->zmalloc(dpfs_lba_size * len);
-            if(!zptr) {
-                // can't malloc big block, reutrn error
-                m_log.log_error("Can't malloc large block, size = %llu Bytes\n", dpfs_lba_size * len);
-                goto errReturn;
-            }
+        zptr = alloczptr(dpfs_lba_size * len);
+        if(!zptr) {
+            // can't malloc big block, reutrn error
+            m_log.log_error("Can't malloc large block, size = %llu Bytes\n", dpfs_lba_size * len);
+            goto errReturn;
         }
 
-        // async read, if read completed, it will change to true.
-        volatile bool complete = false;
-        // use lambda to define callback func
-        cbs.m_cb = [&complete](void* arg, const dpfs_compeletion* dcp) {
 
-            complete = true;
+
+        // alloc cache block struct 
+        cptr = alloccs();
+        if(!cptr) {
+            m_log.log_error("can't malloc cacheStruct, no memory\n");
+            goto errReturn;
+        }
+
+        // use lambda to define callback func
+        cbs->m_cb = [&cptr](void* arg, const dpfs_compeletion* dcp) {
             if(dcp->return_code) {
                 CPage* pge = static_cast<CPage*>(arg);
                 if(!pge) {
                     return;
                 }
+                cptr->status = cacheStruct::ERROR;
                 pge->m_log.log_error("write fail code: %d, msg: %s\n", dcp->return_code, dcp->errMsg);
+                return;
             }
+            cptr->status = cacheStruct::VALID;
         };
-        cbs.m_arg = this;
+        cbs->m_arg = this;
 
+        cptr->status = cacheStruct::READING;
         // read from disk
-        rc = m_engine_list[idx.gid]->read(idx.bid, zptr, len, &cbs);
+        rc = m_engine_list[idx.gid]->read(idx.bid, zptr, len, cbs);
         if(rc < 0) {
             m_log.log_error("read from disk err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
             goto errReturn;
         }
 
-        // alloc cache block struct 
-        // cs = nullptr;
-        if(!m_cacheStructMemList.empty()) {
-            m_csmLock.lock();
-            cs = m_cacheStructMemList.front();
-            m_cacheStructMemList.pop_front();
-            m_csmLock.unlock();
-        } else {
-            cs = new cacheStruct;
-            if(!cs) {
-                m_log.log_error("can't malloc cacheStruct, no memory\n");
-                goto errReturn;
-            }
-        }
 
-        cs->idx = idx;
-        cs->len = len;
-        cs->zptr = zptr;
+        cptr->idx = idx;
+        cptr->len = len;
+        cptr->zptr = zptr;
+        // one for lru, one for user
+        cptr->refs += 2;
 
         // insert to cache
-        rc = m_cache.insertCache(cs->idx, cs);
+        rc = m_cache.insertCache(cptr->idx, cptr);
         if(rc) {
             m_log.log_error("insert to cache err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
             goto errReturn;
         }
 
-        while(!complete) {
-            // wait for async read complete.
-        }
         ++m_getCount;
-        return cs;
+        
+        // std::chrono::milliseconds ns = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch());
+        // while(!complete) {
+        //     // wait for async read complete.
+        // }
+        // std::chrono::milliseconds ns1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch());
+        // m_log.log_inf("wait time : %llu ms\n", (ns1 - ns).count());
+        
+        return 0;
     }
     ++m_getCount;
     ++m_hitCount;
-    return ptr->cache;
+
+    // add a reference count
+    ++ptr->cache->refs;
+    cptr = ptr->cache;
+
+    return 0;
 
 errReturn:
-    if(cs) {
-        m_csmLock.lock();
-        m_cacheStructMemList.push_back(cs);
-        m_csmLock.unlock();
+    if(cptr) {
+        freecs(cptr);
+        cptr = nullptr;
     }
     if(zptr) {
-        if(len < maxBlockLen) {
-            m_zptrLock[len].lock();
-            m_zptrList[len].push_back(zptr);
-            m_zptrLock[len].unlock();
-        } else {
-            m_engine_list[idx.gid]->zfree(zptr);
-        }
+        freezptr(zptr, len);
         zptr = nullptr;
     }
-    return nullptr;
+    return rc;
 }
 
 int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
@@ -145,80 +140,42 @@ int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
 
     int rc = 0;
     cacheStruct* cs = nullptr;
-    dpfs_engine_cb_struct cbs;
-    volatile bool cb_completed = false;
+    dpfs_engine_cb_struct* cbs = new dpfs_engine_cb_struct;
+
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* cptr = nullptr;
 
-    // if write back immediate
-    if(wb) {
-        cbs.m_arg = this;
 
-        // call back function for disk write
-        cbs.m_cb = [&cb_completed](void* arg, const dpfs_compeletion* dcp) {
-            PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
-            cb_completed = true;
-            if(dcp->return_code) {
-                pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
-                // write error
-                // TODO process error
-
-            }
-        };
-        // write to disk
-        rc = m_engine_list[idx.gid]->write(idx.bid, zptr, len, &cbs);
-        if(rc < 0) {
-            m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
-            // write error
-            // TODO
-
-            goto errReturn;
-        }
-    } else {
-        cb_completed = true;
-    }
 
     // update cache
     cptr = m_cache.getCache(idx);
     // if this idx is not loaded on cache
     if(!cptr) {
         // get a cache struct object.
-        if(!m_cacheStructMemList.empty()) {
-            // get from list
-            m_csmLock.lock();
-            cs = m_cacheStructMemList.front();
-            m_cacheStructMemList.pop_front();
-            m_csmLock.unlock();
-        } else {
-            // malloc one
-            cs = new cacheStruct;
-            if(!cs) {
-                m_log.log_error("can't malloc cacheStruct, no memory\n");
-                goto errReturn;
-            }
+        cs = alloccs();
+        if(!cs) {
+            goto errReturn;
         }
 
         cs->zptr = zptr;
         cs->idx = idx;
         cs->len = len;
-
-        // if immediately write back
-        if(wb) {
-            cs->dirty = false;
-        } else {
-            cs->dirty = true;
-        }
+        cs->status = cacheStruct::VALID;
+        cs->dirty = 1;
+        ++cs->refs;
+        
 
         // insert the cache to lru system
         rc = m_cache.insertCache(idx, cs);
-        // if immediately write back
-
+        if(rc) {
+            m_log.log_error("insert to cache err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
+            --cs->refs;
+            goto errReturn;
+        }
 
     } else {
         // if loaded on cache, update it
         // recycle the memory
-        m_zptrLock[cptr->cache->len].lock();
-        m_zptrList[cptr->cache->len].push_back(cptr->cache->zptr);
-        m_zptrLock[cptr->cache->len].unlock();
+        freezptr(cptr->cache->zptr, cptr->cache->len);
         
         // write lock
         cptr->cache->rwLock.lock();
@@ -226,32 +183,56 @@ int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
         // update the cache
         cptr->cache->zptr = zptr;
         cptr->cache->len = len;
-        // cptr->cache->idx = idx;
-
-        // if immediately write back
-        if(wb) {
-            cptr->cache->dirty = false;
-        } else {
-            cptr->cache->dirty = true;
-        }
+        cptr->cache->dirty = 1;
         
         cptr->cache->rwLock.unlock();
         // rc = m_cache.loadCache(idx, cptr->cache);
     }
 
 
-    while(!cb_completed) {
-        // wait for write back complete
-    }
+    // if write back immediate
+    if(wb) {
+        cbs->m_arg = this;
+        // call back function for disk write
+        cbs->m_cb = [&cptr](void* arg, const dpfs_compeletion* dcp) {
+            cptr->cache->rwLock.unlock_shared();
+            if(dcp->return_code) {
+                cptr->cache->status = cacheStruct::ERROR;
+                PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
+                pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
+                // write error
+                // TODO process error
 
+                cptr->cache->status = cacheStruct::ERROR;
+                return;
+            }
+            cptr->cache->status = cacheStruct::VALID;
+            cptr->cache->dirty = 0;
+        };
+
+        // read lock 
+        cptr->cache->rwLock.lock_shared();
+
+        // write to disk
+        rc = m_engine_list[idx.gid]->write(idx.bid, zptr, len, cbs);
+        if(rc < 0) {
+            m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
+            // write error
+            // TODO
+
+            // if error, unlock immediately, else unlock in callback
+            cptr->cache->rwLock.unlock_shared();
+            goto errReturn;
+        }
+    } else {
+        cptr->cache->dirty = 1;
+    }
 
     return 0;
 
 errReturn:
     if(cs) {
-        m_csmLock.lock();
-        m_cacheStructMemList.push_back(cs);
-        m_csmLock.unlock();
+        freecs(cs);
     }
     return rc;
 }
@@ -268,6 +249,7 @@ int CPage::flush() {
     return 0;
 }
 
+// for class outside call
 void* CPage::cacheMalloc(size_t sz) {
     void* zptr = nullptr;
     if(sz < maxBlockLen) {
@@ -290,71 +272,143 @@ void* CPage::cacheMalloc(size_t sz) {
     return zptr;
 }
 
+void CPage::freecs(cacheStruct* cs) {
+    if(!cs) {
+        return;
+    }
+    cs->zptr = nullptr;
+    cs->dirty = 0;
+    cs->status = cacheStruct::INVALID;
+    m_csmLock.lock();
+    m_cacheStructMemList.push_back(cs);
+    m_csmLock.unlock();
+}
+
+cacheStruct* CPage::alloccs() {
+    cacheStruct* cs = nullptr;
+    if(!m_cacheStructMemList.empty()) {
+        m_csmLock.lock();
+        cs = m_cacheStructMemList.front();
+        m_cacheStructMemList.pop_front();
+        m_csmLock.unlock();
+    } else {
+        cs = new cacheStruct(this);
+        if(!cs) {
+            return nullptr;
+        }
+    }
+    return cs;
+}
+
+void CPage::freezptr(void* zptr, size_t sz) {
+    if(!zptr) {
+        return;
+    }
+    if(sz < maxBlockLen) {
+        m_zptrLock[sz].lock();
+        m_zptrList[sz].push_back(zptr);
+        m_zptrLock[sz].unlock();
+    } else {
+        m_engine_list[0]->zfree(zptr);
+    }
+}
+
+void* CPage::alloczptr(size_t sz) {
+    void* zptr = nullptr;
+    if(sz < maxBlockLen) {
+        if(!m_zptrList[sz].empty()) {
+            m_zptrLock[sz].lock();
+
+            if(m_zptrList[sz].empty()) {
+                m_zptrLock[sz].unlock();
+                return m_engine_list[0]->zmalloc(sz);
+            }
+            zptr = m_zptrList[sz].front();
+            m_zptrList[sz].pop_front();
+            m_zptrLock[sz].unlock();
+        } else {
+            zptr = m_engine_list[0]->zmalloc(sz);
+        }
+    } else {
+        zptr = m_engine_list[0]->zmalloc(sz);
+    }
+    return zptr;
+}
+
+void CPage::freecbs(const dpfs_engine_cb_struct* cbs) {
+    if(!cbs) {
+        return;
+    }
+}
+
+
+dpfs_engine_cb_struct* CPage::alloccbs() {
+    dpfs_engine_cb_struct* cbs = nullptr;
+    if(!m_cbMemList.empty()) {
+        m_cbmLock.lock();
+        if(m_cbMemList.empty()) {
+            m_cbmLock.unlock();
+            return new dpfs_engine_cb_struct;
+        }
+        cbs = m_cbMemList.front();
+        m_cbMemList.pop_front();
+        m_cbmLock.unlock();
+    } else {
+        cbs = new dpfs_engine_cb_struct;
+        if(!cbs) {
+            return nullptr;
+        }
+    }
+    return cbs;
+}
+
 PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
 
 }
 
+// write back only
 void PageClrFn::operator()(cacheStruct*& p) {
     int rc = 0;
     // find disk group by gid, find block on disk by bid, write p, block number = blkNum
     // p->p must by alloc by engine_list->zmalloc
 
-    size_t zLen = 0;
-    uint64_t zgid = p->idx.gid;
     void* zptr = p->zptr;
-    volatile bool cb_completed = false;
-    dpfs_engine_cb_struct cbs;
+
+    dpfs_engine_cb_struct* cbs = new dpfs_engine_cb_struct;
 
     // some problem, need to considerate call back method
     if(p->dirty) {
-        cbs.m_arg = this;
+        cbs->m_arg = this;
 
         // call back function for disk write
-        cbs.m_cb = [&cb_completed](void* arg, const dpfs_compeletion* dcp) {
+        cbs->m_cb = [&p](void* arg, const dpfs_compeletion* dcp) {
+            p->rwLock.unlock_shared();
             PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
-            cb_completed = true;
+
             if(dcp->return_code) {
                 pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
                 // write error
                 // TODO process error
-
+                
+                // p->status = cacheStruct::ERROR;
+                p->release();
+                return;
             }
+            p->release();
         };
 
-        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, &cbs);
+        p->rwLock.lock_shared();
+        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
         if(rc < 0) {
             cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
             // write error
+            // !-!QUESTION!-!
             // TODO
+
+            p->rwLock.unlock_shared();
+            return;
         }
-    } else {
-        cb_completed = true;
     }
-
-    // free cacheStruct, recycle the memory
-    p->zptr = nullptr;
-    cp->m_csmLock.lock();
-    cp->m_cacheStructMemList.push_back(p);
-    cp->m_csmLock.unlock();
-    zLen = p->len;
-    p = nullptr;
-    
-
-    while(!cb_completed) {
-        // wait for call back complete.
-        
-    }
-
-
-    // free zptr(alloced by dpfsEngine::zmalloc)
-    if(zLen < maxBlockLen) {
-        cp->m_zptrLock[zLen].lock();
-        cp->m_zptrList[zLen].push_back(zptr);
-        cp->m_zptrLock[zLen].unlock();
-    } else {
-        cp->m_engine_list[zgid]->zfree(zptr);
-    }
-
 
 
 }
@@ -365,39 +419,37 @@ void PageClrFn::flush(cacheStruct*& p) {
     // p->p must by alloc by engine_list->zmalloc
 
     void* zptr = p->zptr;
-    volatile bool cb_completed = false;
-    dpfs_engine_cb_struct cbs;
+    dpfs_engine_cb_struct* cbs = new dpfs_engine_cb_struct;
 
     // some problem, need to considerate call back method
     if(p->dirty) { 
-        cbs.m_arg = this;
+        cbs->m_arg = this;
 
         // call back function for disk write
-        cbs.m_cb = [&cb_completed](void* arg, const dpfs_compeletion* dcp) {
-            PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
-            cb_completed = true;
+        cbs->m_cb = [&p](void* arg, const dpfs_compeletion* dcp) {
+            p->rwLock.unlock_shared();
+            
             if(dcp->return_code) {
+                PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
                 pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
                 // write error
                 // TODO process error
-
+                p->status = cacheStruct::ERROR;
+                return;
             }
+            p->dirty = 0;
         };
 
-        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, &cbs);
+        p->rwLock.lock_shared();
+        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
         if(rc < 0) {
             cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
             // write error
             // TODO
-        }
-    } else {
-        cb_completed = true;
-    }
-    
 
-    while(!cb_completed) {
-        // wait for call back complete.
-        
+            p->rwLock.unlock_shared();
+            return;
+        }
     }
 
 }
