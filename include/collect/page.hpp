@@ -9,7 +9,7 @@ extern const size_t maxBlockLen;
 extern const size_t maxMemBlockLimit;
 
 class CPage;
-
+class PageClrFn;
 
 // index for a block
 struct bidx {
@@ -17,10 +17,10 @@ struct bidx {
     uint64_t gid;
     // block id in the disk group
     uint64_t bid;
-    bool operator==(const bidx& target) const {
+    bool operator==(const bidx& target) const noexcept {
         return (target.gid == gid && target.bid == bid);
     }
-    bidx& operator=(const bidx& other) {
+    bidx& operator=(const bidx& other) noexcept {
         gid = other.gid;
         bid = other.bid;
         return *this;
@@ -31,7 +31,7 @@ namespace std {
     // hash func of bidx
     template<>
     struct hash<bidx> {
-        size_t operator()(const bidx& s) const {
+        size_t operator()(const bidx& s) const noexcept {
             return std::hash<uint64_t>{}(s.gid) ^ std::hash<uint64_t>{}(s.bid);
         }
     };
@@ -41,37 +41,125 @@ namespace std {
 
 struct cacheStruct {
     cacheStruct(CPage* cp);
+private:
+    friend class CPage;
+    friend class PageClrFn;
     // 16B
     bidx idx = {0, 0};
     // 8B pointer to dpfsEngine::zmalloc() memory, for example if use nvmf, this pointer point to dma memory
     void* zptr = nullptr;
-    // 56B
-    std::shared_mutex rwLock;
+    // 1B
+    CSpin csLock;
+    // 2B
+    std::atomic<uint16_t> readRefs = 0;
+    
     // 3.875B block number, number of blocks, not len of bytes, one block equal to <dpfs_lba_size> bytes usually 4KB
     uint32_t len : 31;
     // 0.125B
     uint32_t dirty : 1;
+
     // 2B
-    std::atomic<uint16_t> status = 0;
+    volatile uint16_t status = VALID;
     // 2B
     std::atomic<uint16_t> refs = 0;
     // 8B
     CPage* page = nullptr;
 
+public:
     enum statusEnum : uint16_t {
-        INVALID = 0,
-        VALID = 1,
-        READING = 2,
-        WRITING = 3,
-        ERROR = 4,
+        VALID = 1000,              // valid data in zptr
+        WRITING = 1001,            // writing to disk, zptr not change
+        READING = 1002,            // reading from disk, zptr may change
+        INVALID = 1003,            // cache invalid
+        ERROR = 1004,              // error occur when read or write
     };
 
-    uint16_t getStatus() {
+    static const std::vector<std::string> statusEnumStr;
+
+    uint16_t getStatus() noexcept {
         return status;
     }
     
     // after use, you must call release to recycle the memory
     void release();
+    
+    // if need change zptr, you must lock first
+    /*
+        @note this func will make sure status is VALID
+        @return 0 on success, else on failure
+    */
+    int lock() noexcept {
+        begin:
+        while(status != VALID || readRefs > 0) {
+            switch(status) {
+                case INVALID:
+                case ERROR:
+                    return -status;
+                default:
+                    break;
+            }
+        }
+        csLock.lock();
+        if(status != VALID || readRefs > 0) {
+            csLock.unlock();
+            goto begin;
+        }
+
+        return 0;
+    }
+
+    /*
+        @note this func will make sure status is VALID or WRITING
+        @return 0 on success, else on failure
+    */
+    int read_lock() noexcept {
+        begin:
+        while(status != VALID && status != WRITING) {
+            switch(status) {
+                case INVALID:
+                case ERROR:
+                    return -status;
+                default:
+                    break;
+            }
+        }
+        csLock.lock();
+        if(status != VALID && status != WRITING) {
+            csLock.unlock();
+            goto begin;
+        }
+        ++readRefs;
+        csLock.unlock();
+
+        return 0;
+    }
+
+    /*
+        @return true if lock success, else false
+    */
+    bool try_lock() noexcept {
+        if(status != VALID || readRefs > 0) {
+            return false;
+        }
+        if(!csLock.try_lock()) {
+            return false;
+        }
+        if(status != VALID || readRefs > 0) {
+            csLock.unlock();
+            return false;
+        }
+        return true;
+    }
+
+    void unlock() noexcept {
+        csLock.unlock();
+        return;
+    }
+
+    void read_unlock() noexcept {
+        --readRefs;
+        return;
+    }
 
 };
 
@@ -87,7 +175,6 @@ public:
     void flush(cacheStruct*& p);
     CPage* cp;
 };
-
 
 /*
     from all dpfs engine, make cache
@@ -149,7 +236,7 @@ private:
     cacheStruct* alloccs();
     void freezptr(void* zptr, size_t sz);
     void* alloczptr(size_t sz);
-    void freecbs(const dpfs_engine_cb_struct* cbs);
+    void freecbs(dpfs_engine_cb_struct* cbs);
     dpfs_engine_cb_struct* alloccbs();
     
     // 8B

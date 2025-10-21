@@ -49,6 +49,7 @@ public:
 	std::vector<nvmfnsDesc*> nsfield;
 	bool attached = false;
 	bool m_exit = false;
+	CSpin m_processLock;
 	std::thread process_complete_thd;
 	std::atomic<uint16_t> m_reqs;
 	std::condition_variable m_convar;
@@ -68,6 +69,15 @@ public:
 	int write(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg);
 
 	int lba_judge(size_t lba);
+
+	/*
+		@param reqs total request count of nvmfDevice
+		@param times this io operate count
+		@param max_io_que max io queue depth
+	*/
+	inline int checkReqs(std::atomic<uint16_t>& reqs, int times, int max_io_que) noexcept;
+	int clear();
+
 
 };
 
@@ -158,7 +168,7 @@ private:
 
 	// attach all devices to the nvmf host
     int nvmf_attach(nvmfDevice* device);
-
+	int reattach_device(nvmfDevice* dev);
 	// if device is first attached, then init it
 	int init_device();
 
