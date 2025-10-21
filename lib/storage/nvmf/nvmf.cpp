@@ -137,26 +137,16 @@ int nvmfDevice::clear() {
 	}
 
 	nsfield.clear();
-				
 	
+	
+	struct spdk_nvme_detach_ctx* detach_ctx = nullptr;
 
-
-	rc = spdk_nvme_detach_async(ctrlr, &detach_ctx[i++]);
+	rc = spdk_nvme_detach_async(ctrlr, &detach_ctx);
 	if (rc) {
-		log.log_inf("spdk_nvme_detach_async failed (%d)\n", rc);
-		continue;
+		nfhost.log.log_inf("spdk_nvme_detach_async failed (%d)\n", rc);
 	}
-	for(auto& nsdesc : dev->nsfield) {
-		delete nsdesc;
-	}
-	dev->nsfield.clear();
-	log.log_inf("Controller %s detached\n", dev->trid->traddr);
-
-	// lock for nsguard thread
-	devices_lock.lock();
-	delete dev;
-	dev = nullptr;
-	devices_lock.unlock();
+	ctrlr = nullptr;
+	nfhost.log.log_inf("Controller %s detached\n", trid->traddr);
 
 
 	return rc;
@@ -1551,6 +1541,7 @@ int CNvmfhost::reattach_device(nvmfDevice* dev) {
 	// 	ndev->position = devices.back()->position + 1;
 	// }
 
+	// alloc qpair
 	spdk_nvme_io_qpair_opts qpopts;
 	spdk_nvme_ctrlr_get_default_io_qpair_opts(dev->ctrlr, &qpopts, sizeof(qpopts));
 	// qpopts.io_queue_size = 4096;
