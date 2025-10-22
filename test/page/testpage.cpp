@@ -85,11 +85,14 @@ int main() {
 		chrono::milliseconds ns = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
 		for(uint64_t i = 0; i <= testbid.bid; ++i) {
 			chrono::microseconds n11 = chrono::duration_cast<chrono::microseconds>(chrono::system_clock().now().time_since_epoch());
-			rc = pge->get(ptr[i], {testbid.gid, i});
-			if(rc) {
-				cout << "error occur, get fail" << endl;
-				continue;
-			}
+			// rc = pge->get(ptr[i], {testbid.gid, i});
+			do {
+				rc = pge->get(ptr[i], {testbid.gid, i});
+				if(rc) {
+					cout << "error occur, get fail, count: " << i << endl;
+					this_thread::sleep_for(chrono::milliseconds(1000));
+				}
+			} while(rc);
 			chrono::microseconds n12 = chrono::duration_cast<chrono::microseconds>(chrono::system_clock().now().time_since_epoch());
 			// cout << "total get time : " << (n12 - n11).count() << endl;
 			ttm += (n12 - n11).count();

@@ -41,9 +41,8 @@ static inline int detach_single_device(nvmfDevice* dev, logrecord& log) {
 	}
 
 	if(dev->qpair) {
-		while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
-			spdk_nvme_qpair_process_completions(dev->qpair, 0);
-			// std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair) && dev->attached) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 		spdk_nvme_ctrlr_free_io_qpair(dev->qpair);
 		dev->qpair = nullptr;
@@ -92,14 +91,6 @@ inline int nvmfDevice::checkReqs(std::atomic<uint16_t>& reqs, int times, int max
 	int rc = 0;
 	// if no more space in queue, polling for new space
 	while(reqs >= max_io_que - times) {
-		// rc = spdk_nvme_qpair_process_completions(qpair, 0);
-		// if(rc < 0) {
-		// 	nfhost.log.log_error("spdk_nvme_qpair_process_completions failed (%d)\n", rc);
-		// 	return rc;
-		// }
-
-		// reqs -= rc;
-
 		// polling wait for some time.
 		if((std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch()) - ms).count() > qpair_io_wait_tm) {
 			// printf("wait once\n"); // about 70 ms
@@ -126,7 +117,7 @@ int nvmfDevice::clear() {
 		qpair = nullptr;
 	}
 
-
+// NEED DETACH......
 
 	m_processLock.unlock();
 
@@ -352,29 +343,28 @@ nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 
 						} else {
 							// TODO process error
-							nfhost.log.log_error("process completions fail! code : %d, unfinished requests : %d\n", rc, m_reqs.load());
-							// reconnect
+							nfhost.log.log_error("process completions fail! code : %d, unfinished requests : %d, reattaching device...\n", rc, m_reqs.load());
+							attached = false;
+							m_processLock.unlock();
+							need_reattach = true;
+							goto outLoop;
+							// // realloc io queue pair
+							// rc = spdk_nvme_ctrlr_free_io_qpair(qpair);
+							// if(rc) {
+							// 	nfhost.log.log_error("spdk_nvme_ctrlr_free_io_qpair() failed (%d)\n", rc);
+							// }
 
+							// qpair = nullptr;
 
-							rc = spdk_nvme_ctrlr_free_io_qpair(qpair);
-							if(rc) {
-								nfhost.log.log_error("spdk_nvme_ctrlr_free_io_qpair() failed (%d)\n", rc);
-							}
-
-							qpair = nullptr;
-
-							spdk_nvme_io_qpair_opts qpopts;
-							spdk_nvme_ctrlr_get_default_io_qpair_opts(ctrlr, &qpopts, sizeof(qpopts));
-							qpopts.io_queue_size = max_qpair_io_queue;
-							this->nfhost.log.log_inf("get qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
-
+							// spdk_nvme_io_qpair_opts qpopts;
+							// spdk_nvme_ctrlr_get_default_io_qpair_opts(ctrlr, &qpopts, sizeof(qpopts));
+							// qpopts.io_queue_size = max_qpair_io_queue;
+							// this->nfhost.log.log_inf("realloc qpair, get qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 							
-							qpair = spdk_nvme_ctrlr_alloc_io_qpair(ctrlr, &qpopts, sizeof(qpopts));
-							if (qpair == nullptr) {
-								this->nfhost.log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
-							}
-
-
+							// qpair = spdk_nvme_ctrlr_alloc_io_qpair(ctrlr, &qpopts, sizeof(qpopts));
+							// if (qpair == nullptr) {
+							// 	this->nfhost.log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
+							// }
 							// m_reqs = 0;
 						}
 						
@@ -383,6 +373,7 @@ nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 				}
 				
 			}
+		outLoop:
 			// waiting for attach
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
@@ -483,9 +474,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 			while(!subns->sequence->is_completed) {
 
 			}
-			// do {
-			// 	spdk_nvme_qpair_process_completions(qpair, 0);
-			// } while(!subns->sequence->is_completed);
 		}
 
 		rc = ns->read(lba_device, pBuf, lbc);
@@ -499,9 +487,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 			while(!ns->sequence->is_completed) {
 
 			}
-			// do {
-			// 	spdk_nvme_qpair_process_completions(qpair, 0);
-			// } while(!ns->sequence->is_completed);
 		}
 
 		return 2;
@@ -525,9 +510,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		while(!ns->sequence->is_completed) {
 
 		}
-		// do {
-		// 	spdk_nvme_qpair_process_completions(qpair, 0);
-		// } while(!ns->sequence->is_completed);
 	}
 
 	return 1;
@@ -600,10 +582,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 			while(!subns->sequence->is_completed) {
 
 			}
-			// do {
-			// 	spdk_nvme_qpair_process_completions(qpair, 0);
-			// } while(!subns->sequence->is_completed);
-
 		}
 
 		rc = ns->write(lba_device, pBuf, lbc);
@@ -618,10 +596,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 			while(!ns->sequence->is_completed) {
 
 			}
-			// do {
-			// 	spdk_nvme_qpair_process_completions(qpair, 0);
-			// } while(!ns->sequence->is_completed);
-			// spdk_nvme_ns_cmd_flush(ns->ns, qpair, nullptr, 0);
 		}
 
 		return 2;
@@ -646,9 +620,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 		while(!ns->sequence->is_completed) {
 
 		}
-		// do {
-		// 	spdk_nvme_qpair_process_completions(qpair, 0);
-		// } while(!ns->sequence->is_completed);
 
 	}
 
@@ -961,6 +932,14 @@ CNvmfhost::CNvmfhost() : async_mode(false) {
 							device->attached = false;
 							device->clear();
 							reattach_device(device);
+						}
+					} else if(device->need_reattach) {
+						device->attached = false;
+						device->clear();
+						rc = reattach_device(device);
+
+						if(!rc) {
+							device->need_reattach = false;
 						}
 					}
 				}
@@ -1449,33 +1428,12 @@ int CNvmfhost::sync() {
 		if(dev->attached) {
 			log.log_debug("Waiting for outstanding requests on device %s\n", dev->devdesc_str.c_str());
 			while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
-				// spdk_nvme_qpair_process_completions(dev->qpair, 0);
 				// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
 			}
 		}
 	}
 
-	// if(n != 0) {
-	// 	for(const auto& dev : devices) {
-	// 		if(dev->attached) {
-	// 			log.log_debug("Waiting for %lu outstanding requests on device %s\n", n, dev->devdesc_str.c_str());
-	// 			while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair) && n) {
-	// 				// n -= spdk_nvme_qpair_process_completions(dev->qpair, 0);
-	// 				// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
-	// 			}
-	// 		}
-	// 	}
-	// } else {
-	// 	for(const auto& dev : devices) {
-	// 		if(dev->attached) {
-	// 			log.log_debug("Waiting for outstanding requests on device %s\n", dev->devdesc_str.c_str());
-	// 			while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
-	// 				// spdk_nvme_qpair_process_completions(dev->qpair, 0);
-	// 				// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
-	// 			}
-	// 		}
-	// 	}
-	// }
+
 	return 0;
 }
 

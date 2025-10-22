@@ -100,6 +100,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
             if(dcp->return_code) {
                 cptr->status = cacheStruct::ERROR;
                 pge->m_log.log_error("write fail code: %d, msg: %s\n", dcp->return_code, dcp->errMsg);
+                pge->freecbs(cbs);
                 return;
             }
             cptr->status = cacheStruct::VALID;
