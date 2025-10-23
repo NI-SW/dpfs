@@ -44,10 +44,12 @@ public:
 	struct spdk_nvme_transport_id* trid;
 	struct spdk_nvme_ctrlr*	ctrlr = nullptr;
 	struct spdk_nvme_qpair* qpair = nullptr;
+	CSpin qpLock;
 	const struct spdk_nvme_ctrlr_data *cdata = nullptr;
 	// std::vector<struct spdk_nvme_ns*> ns;
 	std::vector<nvmfnsDesc*> nsfield;
-	bool attached = false;
+	volatile bool attached = false;
+	volatile bool need_reattach = false;
 	bool m_exit = false;
 	CSpin m_processLock;
 	std::thread process_complete_thd;

@@ -117,7 +117,6 @@ int nvmfDevice::clear() {
 		qpair = nullptr;
 	}
 
-// NEED DETACH......
 
 	m_processLock.unlock();
 
@@ -139,6 +138,11 @@ int nvmfDevice::clear() {
 	ctrlr = nullptr;
 	nfhost.log.log_inf("Controller %s detached\n", trid->traddr);
 
+
+	if (detach_ctx) {
+		spdk_nvme_detach_poll(detach_ctx);
+	}
+    
 
 	return rc;
 }
@@ -267,7 +271,12 @@ int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc) {
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
 	size_t lba_ns_count = lba_bundle * lbc;
 	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Reading from LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
-	return spdk_nvme_ns_cmd_read(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, read_complete, this, 0);
+	
+	dev.qpLock.lock();
+	int rc = spdk_nvme_ns_cmd_read(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, read_complete, this, 0);
+	dev.qpLock.unlock();
+	
+	return rc;
 
 }
 
@@ -275,7 +284,12 @@ int nvmfnsDesc::write(size_t lba_device, void* pBuf, size_t lbc) {
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
 	size_t lba_ns_count = lba_bundle * lbc;
 	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
-	return spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, write_complete, this, 0);
+	
+	dev.qpLock.lock();
+	int rc = spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, write_complete, this, 0);
+	dev.qpLock.unlock();
+
+	return rc;
 }
 
 static void async_compelete(void *arg, const struct spdk_nvme_cpl *completion) {
@@ -293,7 +307,10 @@ int nvmfnsDesc::write(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
 	size_t lba_ns_count = lba_bundle * lbc;
 	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
-	return spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, async_compelete, arg, 0);
+	dev.qpLock.lock();
+	int rc = spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, async_compelete, arg, 0);
+	dev.qpLock.unlock();
+	return rc;
 }
 
 int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) {
@@ -303,7 +320,12 @@ int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_s
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
 	size_t lba_ns_count = lba_bundle * lbc;
 	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Reading from LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
-	return spdk_nvme_ns_cmd_read(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, async_compelete, arg, 0);
+	
+	dev.qpLock.lock();
+	int rc = spdk_nvme_ns_cmd_read(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, async_compelete, arg, 0);
+	dev.qpLock.unlock();
+	return rc;
+
 
 }
 
@@ -336,7 +358,9 @@ nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 							m_processLock.unlock();
 							break;
 						}
-						rc = spdk_nvme_qpair_process_completions(qpair, 0);
+						qpLock.lock();
+						rc = spdk_nvme_qpair_process_completions(qpair, m_reqs);
+						qpLock.unlock();
 						if(rc > 0) {
 							m_reqs -= rc;
 						} else if(rc == 0) {
@@ -414,7 +438,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		return -EPERM;
 	}
 
-	m_reqs += 1;
 	m_convar.notify_one();
 
 	size_t lba_device = lba_host - lba_start;
@@ -422,7 +445,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 	nvmfnsDesc* ns;
 
 	if(nsPos >= nsfield.size()) {
-		m_reqs -= 1;
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
 		rc = -ERANGE;
 		goto errReturn;
@@ -437,10 +459,8 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		// cross ns write
 		// next ns start lba
 
-		m_reqs += 1;
 
 		if(nsPos + 1 >= nsfield.size()) {
-			m_reqs -= 2;
 			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
 
 			goto errReturn;
@@ -458,17 +478,26 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 
 		rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
 		if(rc) {
-			m_reqs -= 2;
 			nfhost.log.log_error("Failed to read from ns %zu, rc: %d\n", nsPos + 1, rc);
 			goto errReturn;
 		}
 		
 		rc = subns->read(lba_next_ns, next_start_pbuf, pBuf_next_lbc);
 		if(rc != 0) {
-			m_reqs -= 2;
 			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos + 1, rc);
 			goto errReturn;
 		}
+
+
+		rc = ns->read(lba_device, pBuf, lbc);
+		if(rc != 0) {
+			m_reqs += 1;
+			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
+			goto errReturn;
+		}
+
+		m_reqs += 2;
+
 		if(!nfhost.async_mode) {
 			// wait for completion
 			while(!subns->sequence->is_completed) {
@@ -476,12 +505,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 			}
 		}
 
-		rc = ns->read(lba_device, pBuf, lbc);
-		if(rc != 0) {
-			m_reqs -= 1;
-			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
-			goto errReturn;
-		}
 		if(!nfhost.async_mode) {
 			// wait for completion
 			while(!ns->sequence->is_completed) {
@@ -494,17 +517,16 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 
 	rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
 	if(rc) {
-		m_reqs -= 1;
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 		goto errReturn;
 	}
 
 	rc = ns->read(lba_device, pBuf, lbc);
 	if(rc != 0) {
-		m_reqs -= 1;
 		nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 		return rc;
 	}
+	m_reqs += 1;
 	if(!nfhost.async_mode) {
 		// wait for completion
 		while(!ns->sequence->is_completed) {
@@ -525,7 +547,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 		return -EPERM;
 	}
 
-	m_reqs += 1;
 	m_convar.notify_one();
 
 	size_t lba_device = lba_host - lba_start;
@@ -533,7 +554,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 	nvmfnsDesc* ns;
 
 	if(nsPos >= nsfield.size()) {
-		m_reqs -= 1;
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
 		rc = -ERANGE;
 		goto errReturn;
@@ -547,10 +567,8 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
 		// next ns start lba
-		m_reqs += 1;
 
 		if(nsPos + 1 >= nsfield.size()) {
-			m_reqs -= 2;
 			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
 			rc = -ERANGE;
 			goto errReturn;
@@ -566,29 +584,31 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 		
 		rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
 		if(rc) {
-			m_reqs -= 2;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
 			goto errReturn;
 		}
 
 		rc = subns->write(lba_next_ns, next_start_pbuf, pBuf_next_lbc);
 		if(rc != 0) {
-			m_reqs -= 2;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
 			goto errReturn;
 		}
+
+
+		rc = ns->write(lba_device, pBuf, lbc);
+		if(rc != 0) {
+			m_reqs += 1;
+			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
+			goto errReturn;
+		}
+
+		m_reqs += 2;
+
 		if(!nfhost.async_mode) {
 			// wait for completion
 			while(!subns->sequence->is_completed) {
 
 			}
-		}
-
-		rc = ns->write(lba_device, pBuf, lbc);
-		if(rc != 0) {
-			m_reqs -= 1;
-			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
-			goto errReturn;
 		}
 
 		if(!nfhost.async_mode) {
@@ -610,11 +630,10 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 
 	rc = ns->write(lba_device, pBuf, lbc);
 	if(rc != 0) {
-		m_reqs -= 1;
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 		goto errReturn;
 	}
-
+	m_reqs += 1;
 	if(!nfhost.async_mode) {
 		// wait for completion
 		while(!ns->sequence->is_completed) {
@@ -639,7 +658,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_str
 		return -EPERM;
 	}
 
-	m_reqs += 1;
 	m_convar.notify_one();
 
 	size_t lba_device = lba_host - lba_start;
@@ -647,7 +665,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_str
 	nvmfnsDesc* ns;
 
 	if(nsPos >= nsfield.size()) {
-		m_reqs -= 1;
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
 		rc = -ERANGE;
 		goto errReturn;
@@ -660,10 +677,8 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_str
 	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
 		// next ns start lba
-		m_reqs += 1;
 
 		if(nsPos + 1 >= nsfield.size()) {
-			m_reqs -= 2;
 			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
 			rc = -ERANGE;
 			goto errReturn;
@@ -680,41 +695,38 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_str
 
 		rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
 		if(rc) {
-			m_reqs -= 2;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
 			goto errReturn;
 		}
 
 		rc = subns->read(lba_next_ns, next_start_pbuf, pBuf_next_lbc, arg);
 		if(rc != 0) {
-			m_reqs -= 2;
 			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos + 1, rc);
 			goto errReturn;
 		}
 
 		rc = ns->read(lba_device, pBuf, lbc, arg);
 		if(rc != 0) {
-			m_reqs -= 1;
+			m_reqs += 1;
 			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 			goto errReturn;
 		}
-
+		m_reqs += 2;
 		return 2;
 	}
 
 	rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
 	if(rc) {
-		m_reqs -= 1;
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 		goto errReturn;
 	}
 
 	rc = ns->read(lba_device, pBuf, lbc, arg);
 	if(rc != 0) {
-		m_reqs -= 1;
 		nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 		return rc;
 	}
+	m_reqs += 1;
 
 	return 1;
 
@@ -729,7 +741,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_st
 		return -EPERM;
 	}
 
-	m_reqs += 1;
 	m_convar.notify_one();
 
 	size_t lba_device = lba_host - lba_start;
@@ -737,7 +748,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_st
 	nvmfnsDesc* ns;
 
 	if(nsPos >= nsfield.size()) {
-		m_reqs -= 1;
 		nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
 		rc = -ERANGE;
 		goto errReturn;
@@ -750,10 +760,8 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_st
 
 	if(lba_device + lbc > ns->lba_count + ns->lba_start) {
 		// cross ns write
-		m_reqs += 1;
 
 		if(nsPos + 1 >= nsfield.size()) {
-			m_reqs -= 2;
 			nfhost.log.log_error("LBA %zu is out of range for device %s\n", lba_host, devdesc_str.c_str());
 			rc = -ERANGE;
 			goto errReturn;
@@ -772,40 +780,38 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_st
 
 		rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
 		if(rc) {
-			m_reqs -= 2;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
 			goto errReturn;
 		}
 
 		rc = subns->write(lba_next_ns, next_start_pbuf, pBuf_next_lbc, arg);
 		if(rc != 0) {
-			m_reqs -= 2;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
 			goto errReturn;
 		}
 
 		rc = ns->write(lba_device, pBuf, lbc, arg);
 		if(rc != 0) {
-			m_reqs -= 1;
+			m_reqs += 1;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 			goto errReturn;
 		}
+		m_reqs += 2;
 		return 2;
 	}
 
 	rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
 	if(rc) {
-		m_reqs -= 1;
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 		goto errReturn;
 	}
 
 	rc = ns->write(lba_device, pBuf, lbc, arg);
 	if(rc != 0) {
-		m_reqs -= 1;
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 		goto errReturn;
 	}
+	m_reqs += 1;
 
 	return 1;
 errReturn:
