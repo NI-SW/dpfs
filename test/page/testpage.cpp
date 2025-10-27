@@ -18,34 +18,41 @@ int main() {
 
     // signal(SIGINT, sigfun);
     // signal(SIGKILL, sigfun);
-
+	cacheStruct** ptr = nullptr;
+	bidx testbid;
 	dpfsEngine* engine = nullptr; // new CNvmfhost();
+	CPage* pge = nullptr;
 	int rc = 0;
 	engine = newEngine("nvmf");
 	if(!engine) {
 		cout << "engine type error" << endl;
 		return -1;
 	}
-	rc = engine->attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
-	// rc = engine->attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
-	// rc = engine->attach_device("trtype:pcie traddr:0000.1b.00.0");  engine->attach_device("trtype:pcie traddr:0000.13.00.0");
-	if(rc) {
-		cout << " attach device fail " << endl;
-	}
+
 	vector<dpfsEngine*> engList;
 	engList.emplace_back(engine);
 	logrecord testLog;
 	testLog.set_async_mode(true);
 	engine->set_async_mode(true);
 
+	// rc = engine->attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
+	rc = engine->attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
+	// rc = engine->attach_device("trtype:pcie traddr:0000.1b.00.0");  engine->attach_device("trtype:pcie traddr:0000.13.00.0");
+	if(rc) {
+		cout << " attach device fail " << endl;
+		goto errReturn;
+	}
+
+
+
 
 	
-	CPage* pge = new CPage(engList, 4, testLog);
+	pge = new CPage(engList, 1, testLog);
 
-	bidx testbid;
+	
 
 	cout << "engine size = " << engList[0]->size() << endl;
-	cacheStruct** ptr = nullptr;
+	
 	while(!g_exit) {
 
 		cout << "input group id: ";
@@ -90,7 +97,7 @@ int main() {
 				rc = pge->get(ptr[i], {testbid.gid, i});
 				if(rc) {
 					cout << "error occur, get fail, count: " << i << endl;
-					this_thread::sleep_for(chrono::milliseconds(1000));
+					this_thread::sleep_for(chrono::milliseconds(2000));
 				}
 			} while(rc);
 			chrono::microseconds n12 = chrono::duration_cast<chrono::microseconds>(chrono::system_clock().now().time_since_epoch());
@@ -119,7 +126,7 @@ int main() {
 					// this_thread::sleep_for(chrono::milliseconds(10));
 					break;
 				}
-				
+				this_thread::sleep_for(chrono::milliseconds(10));
 			}
 			chrono::milliseconds ns2 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
 			// char* myptr = (char*)ptr[i]->zptr;
@@ -134,8 +141,10 @@ int main() {
 	}
 
 
+errReturn:
+if(pge)
 	delete pge;
-
+if(engine)
 	delete engine;
 	
 	

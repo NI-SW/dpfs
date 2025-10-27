@@ -43,8 +43,41 @@ public:
 	std::string devdesc_str = "";
 	struct spdk_nvme_transport_id* trid;
 	struct spdk_nvme_ctrlr*	ctrlr = nullptr;
-	struct spdk_nvme_qpair* qpair = nullptr;
+
+	enum qpair_use_state : uint8_t {
+		QPAIR_NOT_INITED = 0,
+		QPAIR_PREPARE = 1,
+		QPAIR_WAIT_COMPLETE = 2,
+		QPAIR_INVALID = 3,
+		QPAIR_ERROR = 4,
+	};
+
+	struct qpair_status {
+		qpair_status() {
+		}
+		qpair_status(const qpair_status& tgt) {
+			m_reqs.store(tgt.m_reqs.load());
+			state = tgt.state;
+		}
+		qpair_status& operator=(const qpair_status& tgt) {
+			m_reqs.store(tgt.m_reqs.load());
+			state = tgt.state;
+			return *this;
+		}
+		~qpair_status() = default;
+
+		std::atomic<uint16_t> m_reqs = 0;
+		volatile nvmfDevice::qpair_use_state state = QPAIR_NOT_INITED;
+		CSpin m_lock;
+	} ;
+
+	// instead of using a single io qpair, we use multiple io qpairs to improve performance
+	std::vector<std::pair<struct spdk_nvme_qpair*, qpair_status>> ioqpairs;
 	CSpin qpLock;
+	uint8_t qpair_index = 0;
+
+
+	struct spdk_nvme_qpair* qpair = nullptr;
 	const struct spdk_nvme_ctrlr_data *cdata = nullptr;
 	// std::vector<struct spdk_nvme_ns*> ns;
 	std::vector<nvmfnsDesc*> nsfield;
@@ -53,7 +86,7 @@ public:
 	bool m_exit = false;
 	CSpin m_processLock;
 	std::thread process_complete_thd;
-	std::atomic<uint16_t> m_reqs;
+	// std::atomic<uint16_t> m_reqs;
 	std::condition_variable m_convar;
 
 	// total logic block count of this device
@@ -77,7 +110,9 @@ public:
 		@param times this io operate count
 		@param max_io_que max io queue depth
 	*/
-	inline int checkReqs(std::atomic<uint16_t>& reqs, int times, int max_io_que) noexcept;
+	// inline int checkReqs(int times, int max_io_que) noexcept;
+	inline int nextQpair() noexcept;
+
 	int clear();
 
 
@@ -105,6 +140,9 @@ public:
 	
 	// position in the namespace list for this Nvmf device
 	// size_t position = 0;
+
+	// int submit_io(void *buffer, uint64_t lba, uint32_t lba_count, spdk_nvme_cmd_cb cb_fn, void *cb_arg, uint32_t io_flags);
+
 
 	int read(size_t lbaPos, void* pBuf, size_t lbc);
 	int write(size_t lbaPos, void* pBuf, size_t lbc);

@@ -132,13 +132,6 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
 
         ++m_getCount;
         
-        // std::chrono::milliseconds ns = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch());
-        // while(!complete) {
-        //     // wait for async read complete.
-        // }
-        // std::chrono::milliseconds ns1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch());
-        // m_log.log_inf("wait time : %llu ms\n", (ns1 - ns).count());
-        
         return 0;
     }
     ++m_getCount;
