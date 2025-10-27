@@ -131,10 +131,14 @@ int main() {
 			chrono::milliseconds ns2 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
 			// char* myptr = (char*)ptr[i]->zptr;
 			// cout << myptr << endl;
-			testLog.log_inf("get %llu time : %llu\n", i, (ns2 - ns).count());
+			
+			// if(i % 1000 == 0)
+				testLog.log_inf("get %llu time : %llu\n", i, (ns2 - ns).count());
 			// cout << "get " << i << " time : " << (ns2 - ns).count() << endl;
 			ptr[i]->release();
 		}
+		chrono::milliseconds ns3 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
+		testLog.log_inf("total get finish time : %llu\n", (ns3 - ns).count());
 
 		delete[] ptr;
 		ptr = nullptr;

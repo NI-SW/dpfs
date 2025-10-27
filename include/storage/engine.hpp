@@ -23,9 +23,11 @@ struct dpfs_engine_cb_struct {
     // void* m_arg;
 
     // use std::function may bring poor performance, now just for convenient
-    dpfs_engine_cb_struct(std::function<void(void*, const struct dpfs_compeletion*)> cb, void* arg) : m_cb(cb), m_arg(arg) {}
+    // dpfs_engine_cb_struct(std::function<void(void*, const struct dpfs_compeletion*)> cb, void* arg) : m_cb(cb), m_arg(arg) {}
+    
+    // dpfs_engine_async_cb m_acb = nullptr;
     std::function<void(void*, const struct dpfs_compeletion*)> m_cb;
-    void* m_arg;
+    void* m_arg = nullptr;
 
 };
 

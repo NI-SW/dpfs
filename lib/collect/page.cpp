@@ -33,6 +33,24 @@ CPage::~CPage() {
     m_exit = 1;
 }
 
+// void page_get_cb(void* arg, const dpfs_compeletion* dcp) {
+//     cbvar* cbv = reinterpret_cast<cbvar*>((char*)arg);
+//     if(!cbv) {
+//         return;
+//     }
+//     cacheStruct* cptr = cbv->cptr;
+//     dpfs_engine_cb_struct* cbs = cbv->cbs;
+//     CPage* pge = static_cast<CPage*>(cbv->page);
+//     if(dcp->return_code) {
+//         cptr->status = cacheStruct::ERROR;
+//         pge->m_log.log_error("write fail code: %d, msg: %s\n", dcp->return_code, dcp->errMsg);
+//         pge->freecbs(cbs);
+//         return;
+//     }
+//     cptr->status = cacheStruct::VALID;
+//     pge->freecbs(cbs);
+// }
+
 int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
     if(idx.gid >= m_engine_list.size()) {
         return -ERANGE;
@@ -88,11 +106,19 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
             goto errReturn;
         }
 
+        // cbvar* cbv = reinterpret_cast<cbvar*>((char*)cbs + sizeof(dpfs_engine_cb_struct));
+        // cbv->cptr = cptr;
+        // cbv->cbs = cbs;
+        // cbv->page = this;
+        // cbs->m_acb = page_get_cb;
+        // cbs->m_arg = cbv;
+
         // use lambda to define callback func
         cbs->m_cb = [&cptr, cbs](void* arg, const dpfs_compeletion* dcp) {
 
             CPage* pge = static_cast<CPage*>(arg);
             if(!pge) {
+                // free(cbs);
                 delete cbs;
                 return;
             }
@@ -391,6 +417,8 @@ void CPage::freecbs(dpfs_engine_cb_struct* cbs) {
     if(!cbs) {
         return;
     }
+    // cbs->m_arg = nullptr;
+    // cbs->m_acb = nullptr;
     m_cbmLock.lock();
     m_cbMemList.push_back((dpfs_engine_cb_struct*)cbs);
     m_cbmLock.unlock();
@@ -400,22 +428,41 @@ void CPage::freecbs(dpfs_engine_cb_struct* cbs) {
 
 dpfs_engine_cb_struct* CPage::alloccbs() {
     dpfs_engine_cb_struct* cbs = nullptr;
+    // cbvar* cbv = nullptr;
     if(!m_cbMemList.empty()) {
         m_cbmLock.lock();
         if(m_cbMemList.empty()) {
             m_cbmLock.unlock();
-            return new dpfs_engine_cb_struct;
+            // cbs = (dpfs_engine_cb_struct*)malloc(sizeof(dpfs_engine_cb_struct) + sizeof(cbvar));
+            cbs = new dpfs_engine_cb_struct;
+            goto allocReturn;
         }
         cbs = m_cbMemList.front();
         m_cbMemList.pop_front();
         m_cbmLock.unlock();
     } else {
+        // cbs = (dpfs_engine_cb_struct*)malloc(sizeof(dpfs_engine_cb_struct) + sizeof(cbvar));
         cbs = new dpfs_engine_cb_struct;
         if(!cbs) {
-            return nullptr;
+            goto errReturn;
         }
     }
+
+allocReturn:
+    // cbs->m_acb = nullptr;
+    // cbs->m_arg = nullptr;
+
+    // cbv = reinterpret_cast<cbvar*>((char*)cbs + sizeof(dpfs_engine_cb_struct));
+
+    // cbv->cptr = nullptr;
+    // cbv->cbs = nullptr;
+    // cbv->page = nullptr;
+
+
     return cbs;
+
+errReturn:
+    return nullptr;
 }
 
 PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {

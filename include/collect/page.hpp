@@ -44,6 +44,7 @@ struct cacheStruct {
 private:
     friend class CPage;
     friend class PageClrFn;
+    // friend void page_get_cb(void* arg, const dpfs_compeletion* dcp);
     // 16B
     bidx idx = {0, 0};
     // 8B pointer to dpfsEngine::zmalloc() memory, for example if use nvmf, this pointer point to dma memory
@@ -176,6 +177,12 @@ public:
     CPage* cp;
 };
 
+// struct cbvar {
+//     cacheStruct* cptr = nullptr;
+//     dpfs_engine_cb_struct* cbs = nullptr;
+//     CPage* page = nullptr;
+// };
+
 /*
     from all dpfs engine, make cache
 */
@@ -238,6 +245,8 @@ private:
     void* alloczptr(size_t sz);
     void freecbs(dpfs_engine_cb_struct* cbs);
     dpfs_engine_cb_struct* alloccbs();
+
+    // friend void page_get_cb(void* arg, const dpfs_compeletion* dcp);
     
     // 8B
     std::vector<dpfsEngine*>& m_engine_list;
