@@ -1,6 +1,6 @@
 #include "dpfsdisk.hpp"
 #include <vector>
-#include <collect/product/product.hpp>
+#include <collect/product.hpp>
 #include <basic/dpfscache.hpp>
 /*
     data service class

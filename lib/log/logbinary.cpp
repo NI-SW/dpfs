@@ -406,13 +406,16 @@ void logrecord::log_inf(const char* str, ...) {
 		}
 		
 		// printf(str, ap);
-		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
+		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+		va_end(ap);
 		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
-			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
+			va_start(ap, str);
+			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+			va_end(ap);
 		}
-		va_end(ap);
+		
 
 		log_seq->logl = LOG_INFO;
 		log_seq->len = len;
@@ -468,12 +471,15 @@ void logrecord::log_notic(const char* str, ...) {
 			log_seq = new log_sequence;
 		}
 
-		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
+		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+		va_end(ap);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
-			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
+			va_start(ap, str);
+			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+			va_end(ap);
 		}
-		va_end(ap);
+
 		log_seq->logl = LOG_NOTIC;
 		log_seq->len = len;
 		log_seq->logfile_pos = log_files.size() - 1;
@@ -523,14 +529,14 @@ void logrecord::log_error(const char* str, ...) {
 			log_seq = new log_sequence;
 		}
 
-		// printf(str, ap);
-		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
-		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
+		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+		va_end(ap);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
-			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
+			va_start(ap, str);
+			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+			va_end(ap);
 		}
-		va_end(ap);
 
 		log_seq->logl = LOG_ERROR;
 		log_seq->len = len;
@@ -585,14 +591,14 @@ void logrecord::log_fatal(const char* str, ...) {
 		}
 		
 
-		// printf(str, ap);
-		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
-		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
+		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+		va_end(ap);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
-			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()),log_seq->log_str.size(), str, ap);
+			va_start(ap, str);
+			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+			va_end(ap);
 		}
-		va_end(ap);
 
 		log_seq->logl = LOG_FATAL;
 		log_seq->len = len;
@@ -647,14 +653,14 @@ void logrecord::log_debug(const char* str, ...) {
 		}
 		
 
-		// printf(str, ap);
 		len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
-		// printf("str1 is : %s len : %lu\n", log_seq->log_str.c_str(), len);
+		va_end(ap);
 		if(len >= log_seq->log_str.size()) {
 			log_seq->log_str.resize(len + 1);
+			va_start(ap, str);
 			len = vsnprintf(const_cast<char*>(log_seq->log_str.c_str()), log_seq->log_str.size(), str, ap);
+			va_end(ap);
 		}
-		va_end(ap);
 
 		log_seq->logl = LOG_DEBUG;
 		log_seq->len = len;

@@ -67,6 +67,15 @@ private:
     CPage* page = nullptr;
 
 public:
+
+    void* getPtr() noexcept {
+        return zptr;
+    }
+
+    uint32_t getLen() noexcept {
+        return len;
+    }
+
     enum statusEnum : uint16_t {
         VALID = 1000,              // valid data in zptr
         WRITING = 1001,            // writing to disk, zptr not change

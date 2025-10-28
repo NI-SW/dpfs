@@ -47,9 +47,8 @@ int main() {
 
 
 	
-	pge = new CPage(engList, 1, testLog);
+	pge = new CPage(engList, 1000, testLog);
 
-	
 
 	cout << "engine size = " << engList[0]->size() << endl;
 	
@@ -66,14 +65,22 @@ int main() {
 			cin >> testbid.bid;
 
 			
+			cin.clear();
+			cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 			cout << "input data: " << endl;
 			string data;
-			cin >> data;
+			std::getline(cin, data);
+			
+			data.resize(data.size() * 2);
+			memcpy(&data[data.size() / 2 - 1], data.c_str(), data.size() / 2);
 
-			char* zptr = (char*)pge->cacheMalloc(data.size() % dpfs_lba_size == 0 ? data.size() / dpfs_lba_size : data.size() / dpfs_lba_size + 1);
+
+			size_t blockNum = data.size() % dpfs_lba_size == 0 ? data.size() / dpfs_lba_size : data.size() / dpfs_lba_size + 1;
+			cout << "input data len : " << data.size() << " use block number : " << blockNum << endl;
+			char* zptr = (char*)pge->cacheMalloc(blockNum);
 			memcpy(zptr, data.c_str(), data.size());
 
-			rc = pge->put(testbid, zptr, data.size() / dpfs_lba_size + 1, true);
+			rc = pge->put(testbid, zptr, blockNum, true);
 			if(rc) {
 				cout << "put operate fail! code : " << rc << endl;
 			}
@@ -81,20 +88,27 @@ int main() {
 		} else if(testbid.gid == -2) {
 			break;
 		}
+		size_t startPos = 0;
+		size_t stepLen = 0;
+		cout << "input disk block start position: ";
+		cin >> startPos;
 
-		cout << "input disk block position: ";
+		cout << "input disk block end position: ";
 		cin >> testbid.bid;
+
+		cout << "input get block step length: ";
+		cin >> stepLen;
 
 		uint64_t ttm = 0;
 		
-		ptr = new cacheStruct*[testbid.bid + 1];
+		ptr = new cacheStruct*[(testbid.bid - startPos) / stepLen + 1];
 
 		chrono::milliseconds ns = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
-		for(uint64_t i = 0; i <= testbid.bid; ++i) {
+		for(uint64_t i = startPos, j = 0; i <= testbid.bid; i += stepLen, ++j) {
 			chrono::microseconds n11 = chrono::duration_cast<chrono::microseconds>(chrono::system_clock().now().time_since_epoch());
 			// rc = pge->get(ptr[i], {testbid.gid, i});
 			do {
-				rc = pge->get(ptr[i], {testbid.gid, i});
+				rc = pge->get(ptr[j], {testbid.gid, i}, stepLen);
 				if(rc) {
 					cout << "error occur, get fail, count: " << i << endl;
 					this_thread::sleep_for(chrono::milliseconds(2000));
@@ -106,23 +120,23 @@ int main() {
 			// char* myptr = (char*)ptr[0]->zptr;
 			// cout << myptr << endl;
 
-			// cout << "getCount : " << pge->m_getCount << endl;
-			// cout << "hitCount : " << pge->m_hitCount << endl;
+			cout << "getCount : " << pge->m_getCount << endl;
+			cout << "hitCount : " << pge->m_hitCount << endl;
 		}
 		chrono::milliseconds ns1 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
 		cout << "total get time : " << (ns1 - ns).count() << endl;
 		cout << "total add time : " << ttm << " us" << endl;
 
-		for(uint64_t i = 0; i <= testbid.bid; ++i) {
+		for(uint64_t i = startPos, j = 0; i <= testbid.bid; i += stepLen, ++j) {
 			// testLog.log_inf("waiting for %llu th block, status: %u \n", i, ptr[i]->getStatus());
-			while(ptr[i]->getStatus() != cacheStruct::VALID) {
-				if(ptr[i]->getStatus() == cacheStruct::ERROR) {
+			while(ptr[j]->getStatus() != cacheStruct::VALID) {
+				if(ptr[j]->getStatus() == cacheStruct::ERROR) {
 					cout << "block " << i << " read error!" << endl;
-					ptr[i]->release();
+					ptr[j]->release();
 					break;
-				} else if(ptr[i]->getStatus() == cacheStruct::INVALID) {
+				} else if(ptr[j]->getStatus() == cacheStruct::INVALID) {
 					cout << "block " << i << " invalid!" << endl;
-					ptr[i]->release();
+					ptr[j]->release();
 					// this_thread::sleep_for(chrono::milliseconds(10));
 					break;
 				}
@@ -133,9 +147,23 @@ int main() {
 			// cout << myptr << endl;
 			
 			// if(i % 1000 == 0)
-				testLog.log_inf("get %llu time : %llu\n", i, (ns2 - ns).count());
+			
+			testLog.log_inf("get %llu time : %llu\n", j, (ns2 - ns).count());
+			ptr[j]->read_lock();
+
+			char* myptr = (char*)(ptr[j]->getPtr());
+			testLog.log_inf("block %llu len: %u data: %s\n", i, ptr[j]->getLen(), myptr);
+			std::cout << "block " << i << " len: " << ptr[j]->getLen() << " data: " << myptr << std::endl;
+			ptr[j]->read_unlock();
+
+
+			std::cout << "after 4096 " << myptr[4096] << std::endl;
+			std::cout << "4097 " << myptr[4097] << std::endl;
+
+
+
 			// cout << "get " << i << " time : " << (ns2 - ns).count() << endl;
-			ptr[i]->release();
+			ptr[j]->release();
 		}
 		chrono::milliseconds ns3 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
 		testLog.log_inf("total get finish time : %llu\n", (ns3 - ns).count());

@@ -62,13 +62,32 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
     // cacheStruct* cs;
     // dpfsEngine memory pointer
     void* zptr = nullptr;
+    bool updateCache = false;
     // io call back struct
 
 
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* ptr = m_cache.getCache(idx);
-    if(!ptr) {
+    if(ptr) {
+        m_log.log_inf("found cache in LRU, gid=%llu bid=%llu len=%llu\n", idx.gid, idx.bid, ptr->cache->len);
 
+        if(ptr->cache->len < len) {
+            updateCache = true;
+            // update the cache
+            // cptr = ptr->cache;
+            // zptr = alloczptr(len);
+            // if(!zptr) {
+            //     // can't malloc big block, reutrn error
+            //     m_log.log_error("Can't malloc large block, size = %llu Bytes\n", dpfs_lba_size * len);
+            //     rc = -ENOMEM;
+            //     goto errReturn;
+            // }
 
+        }
+    }
+
+    
+
+    if(!ptr || updateCache) {
 
         // alloc zptr
         zptr = alloczptr(len);
@@ -80,7 +99,11 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         }
 
         // alloc cache block struct 
-        cptr = alloccs();
+        if(updateCache) {
+            cptr = ptr->cache;
+        } else {
+            cptr = alloccs();
+        }
         if(!cptr) {
             m_log.log_error("can't malloc cacheStruct, no memory\n");
             rc = -ENOMEM;
@@ -97,6 +120,13 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         
         // change status to reading
         cptr->status = cacheStruct::READING;
+
+        if(updateCache) {
+            freezptr(cptr->zptr, cptr->len);
+        }
+
+        cptr->zptr = zptr;
+        cptr->len = len;
         cptr->unlock();
 
         dpfs_engine_cb_struct* cbs = alloccbs();// new dpfs_engine_cb_struct;
@@ -143,18 +173,22 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         }
 
 
-        cptr->idx = idx;
-        cptr->len = len;
-        cptr->zptr = zptr;
-        // one for lru, one for user
-        cptr->refs += 2;
 
-        // insert to cache
-        rc = m_cache.insertCache(cptr->idx, cptr);
-        if(rc) {
-            m_log.log_error("insert to cache err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
-            goto errReturn;
+        if(updateCache) {
+            cptr->refs += 1;
+        } else {
+            cptr->idx = idx;
+            // one for lru, one for user
+            cptr->refs += 2;
+            // insert to cache
+            rc = m_cache.insertCache(cptr->idx, cptr);
+            if(rc) {
+                m_log.log_error("insert to cache err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
+                goto errReturn;
+            }
         }
+
+
 
         ++m_getCount;
         
@@ -196,6 +230,7 @@ int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
     cptr = m_cache.getCache(idx);
     // if this idx is not loaded on cache
     if(!cptr) {
+        
         // get a cache struct object.
         cs = alloccs();
         if(!cs) {
@@ -240,6 +275,12 @@ int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
 
     // if write back immediate
     if(wb) {
+        cptr = m_cache.getCache(idx);
+        if(!cptr) {
+            m_log.log_error("can't find cache before write back, gid=%llu bid=%llu len=%llu\n", idx.gid, idx.bid, len);
+            rc = -ENOENT;
+            goto errReturn;
+        }
 
         rc = cptr->cache->lock();
         if(rc) {
@@ -261,20 +302,20 @@ int CPage::put(bidx idx, void* zptr, size_t len, bool wb) {
 
         cbs->m_arg = this;
         // call back function for disk write
-        cbs->m_cb = [&cptr, cbs](void* arg, const dpfs_compeletion* dcp) {
-            PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
+        cbs->m_cb = [cptr, cbs](void* arg, const dpfs_compeletion* dcp) {
+            CPage* pge = static_cast<CPage*>(arg);
             if(dcp->return_code) {
                 cptr->cache->status = cacheStruct::ERROR;
-                pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
+                pge->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
                 // write error
                 // TODO process error
 
-                pcf->cp->freecbs(cbs);
+                pge->freecbs(cbs);
                 return;
             }
             cptr->cache->status = cacheStruct::VALID;
             cptr->cache->dirty = 0;
-            pcf->cp->freecbs(cbs);
+            pge->freecbs(cbs);
         };   
 
         rc = m_engine_list[idx.gid]->write(idx.bid, zptr, len, cbs);
