@@ -1,4 +1,5 @@
 #include <storage/engine.hpp>
+#include <storage/nvmf/nvmf.hpp>
 #include <collect/page.hpp>
 #include <cstring>
 #include <thread>
@@ -34,6 +35,9 @@ int main() {
 	logrecord testLog;
 	testLog.set_async_mode(true);
 	engine->set_async_mode(true);
+	
+	// CNvmfhost* nfe = dynamic_cast<CNvmfhost*>(engine);
+	// nfe->log.set_loglevel(logrecord::LOG_DEBUG);
 
 	// rc = engine->attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	rc = engine->attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
@@ -47,17 +51,18 @@ int main() {
 
 
 	
-	pge = new CPage(engList, 1000, testLog);
+	pge = new CPage(engList, 50000, testLog);
 
 
 	cout << "engine size = " << engList[0]->size() << endl;
 	
+
 	while(!g_exit) {
 
 		cout << "input group id: ";
 		cin >> testbid.gid;
 		
-		if(testbid.gid == -1) {
+		if(testbid.gid == (uint64_t)(-1)) {
 			cout << "please input disk idx\n" << endl;
 			cout << "input groupid: "; 
 			cin >> testbid.gid;
@@ -77,15 +82,15 @@ int main() {
 
 			size_t blockNum = data.size() % dpfs_lba_size == 0 ? data.size() / dpfs_lba_size : data.size() / dpfs_lba_size + 1;
 			cout << "input data len : " << data.size() << " use block number : " << blockNum << endl;
-			char* zptr = (char*)pge->cacheMalloc(blockNum);
+			char* zptr = (char*)pge->alloczptr(blockNum);
 			memcpy(zptr, data.c_str(), data.size());
 
-			rc = pge->put(testbid, zptr, blockNum, true);
+			rc = pge->put(testbid, zptr, nullptr, blockNum, true);
 			if(rc) {
 				cout << "put operate fail! code : " << rc << endl;
 			}
 			continue;
-		} else if(testbid.gid == -2) {
+		} else if(testbid.gid == (uint64_t)(-2)) {
 			break;
 		}
 		size_t startPos = 0;
@@ -101,9 +106,11 @@ int main() {
 
 		uint64_t ttm = 0;
 		
-		ptr = new cacheStruct*[(testbid.bid - startPos) / stepLen + 1];
+		ptr = new cacheStruct*[(testbid.bid - startPos) / stepLen + 1] { 0 };
 
 		chrono::milliseconds ns = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
+
+
 		for(uint64_t i = startPos, j = 0; i <= testbid.bid; i += stepLen, ++j) {
 			chrono::microseconds n11 = chrono::duration_cast<chrono::microseconds>(chrono::system_clock().now().time_since_epoch());
 			// rc = pge->get(ptr[i], {testbid.gid, i});
@@ -120,9 +127,10 @@ int main() {
 			// char* myptr = (char*)ptr[0]->zptr;
 			// cout << myptr << endl;
 
-			cout << "getCount : " << pge->m_getCount << endl;
-			cout << "hitCount : " << pge->m_hitCount << endl;
+			// cout << "getCount : " << pge->m_getCount << endl;
+			// cout << "hitCount : " << pge->m_hitCount << endl;
 		}
+
 		chrono::milliseconds ns1 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
 		cout << "total get time : " << (ns1 - ns).count() << endl;
 		cout << "total add time : " << ttm << " us" << endl;
@@ -146,19 +154,21 @@ int main() {
 			// char* myptr = (char*)ptr[i]->zptr;
 			// cout << myptr << endl;
 			
-			// if(i % 1000 == 0)
 			
-			testLog.log_inf("get %llu time : %llu\n", j, (ns2 - ns).count());
+			
 			ptr[j]->read_lock();
-
+			
 			char* myptr = (char*)(ptr[j]->getPtr());
-			testLog.log_inf("block %llu len: %u data: %s\n", i, ptr[j]->getLen(), myptr);
-			std::cout << "block " << i << " len: " << ptr[j]->getLen() << " data: " << myptr << std::endl;
+			// std::cout << "block " << i << " len: " << ptr[j]->getLen() << " data: " << myptr << std::endl;
+
+			if(i % 1000 == 0)
+				testLog.log_inf("get %llu time : %llu\n", j, (ns2 - ns).count());
+			// testLog.log_inf("block %llu len: %u data: %s\n", i, ptr[j]->getLen(), myptr);
 			ptr[j]->read_unlock();
 
 
-			std::cout << "after 4096 " << myptr[4096] << std::endl;
-			std::cout << "4097 " << myptr[4097] << std::endl;
+			// std::cout << "after 4096 " << myptr[4096] << std::endl;
+			// std::cout << "4097 " << myptr[4097] << std::endl;
 
 
 
@@ -174,10 +184,14 @@ int main() {
 
 
 errReturn:
-if(pge)
-	delete pge;
-if(engine)
-	delete engine;
+
+	if(pge) {
+		delete pge;
+	}
+
+	if(engine) {
+		delete engine;
+	}
 	
 	
 	return 0;

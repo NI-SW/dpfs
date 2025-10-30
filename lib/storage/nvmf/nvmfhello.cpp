@@ -20,7 +20,7 @@ static void hello_read_complete(void *arg, const struct spdk_nvme_cpl *completio
 	 * caller is aware that an error occurred.
 	 */
 	if (spdk_nvme_cpl_is_error(completion)) {
-		spdk_nvme_qpair_print_completion(sequence->dev_entry->qpair, (struct spdk_nvme_cpl *)completion);
+		spdk_nvme_qpair_print_completion(sequence->dev_entry->ioqpairs[0].first, (struct spdk_nvme_cpl *)completion);
 		fprintf(stderr, "I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
 		fprintf(stderr, "Read I/O failed, aborting run\n");
 		sequence->is_completed = 2;
@@ -53,7 +53,7 @@ static void hello_write_complete(void *arg, const struct spdk_nvme_cpl *completi
 	 * caller is aware that an error occurred.
 	 */
 	if (spdk_nvme_cpl_is_error(completion)) {
-		spdk_nvme_qpair_print_completion(sequence->dev_entry->qpair, (struct spdk_nvme_cpl *)completion);
+		spdk_nvme_qpair_print_completion(sequence->dev_entry->ioqpairs[0].first, (struct spdk_nvme_cpl *)completion);
 		fprintf(stderr, "I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
 		fprintf(stderr, "Write I/O failed, aborting run\n");
 		sequence->is_completed = 2;
@@ -71,7 +71,7 @@ static void hello_write_complete(void *arg, const struct spdk_nvme_cpl *completi
 	}
 	sequence->buf = (char *)spdk_zmalloc(0x1000, 0x1000, NULL, SPDK_ENV_NUMA_ID_ANY, SPDK_MALLOC_DMA);
 
-	rc = spdk_nvme_ns_cmd_read(sequence->dev_entry->nsfield[0]->ns, sequence->dev_entry->qpair, sequence->buf,
+	rc = spdk_nvme_ns_cmd_read(sequence->dev_entry->nsfield[0]->ns, sequence->dev_entry->ioqpairs[0].first, sequence->buf,
 				   0, /* LBA start */
 				   1, /* number of LBAs */
 				   hello_read_complete, (void *)sequence, 0);
@@ -169,7 +169,7 @@ void CNvmfhost::hello_world() {
 		 *  It is the responsibility of the application to trigger the polling
 		 *  process.
 		 */
-		rc = spdk_nvme_ns_cmd_write(dev->nsfield[0]->ns, dev->qpair, sequence.buf,
+		rc = spdk_nvme_ns_cmd_write(dev->nsfield[0]->ns, dev->ioqpairs[0].first, sequence.buf,
 					    0, /* LBA start */
 					    1, /* number of LBAs */
 					    hello_write_complete, &sequence, 0);
@@ -192,7 +192,7 @@ void CNvmfhost::hello_world() {
 		 *  break this loop and then exit the program.
 		 */
 		while (!sequence.is_completed) {
-			spdk_nvme_qpair_process_completions(dev->qpair, 0);
+			spdk_nvme_qpair_process_completions(dev->ioqpairs[0].first, 0);
 		}
 
 		/*

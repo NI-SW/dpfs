@@ -60,7 +60,7 @@ private:
     uint32_t dirty : 1;
 
     // 2B
-    volatile uint16_t status = VALID;
+    std::atomic<uint16_t> status = VALID;
     // 2B
     std::atomic<uint16_t> refs = 0;
     // 8B
@@ -86,7 +86,7 @@ public:
 
     static const std::vector<std::string> statusEnumStr;
 
-    uint16_t getStatus() noexcept {
+    inline uint16_t getStatus() const noexcept {
         return status;
     }
     
@@ -222,13 +222,13 @@ public:
         @param wb  true if need to write back to disk immediate
         @note flush data from zptr to cache, bewarn zptr will be take over by CPage
     */
-    int put(bidx idx, void* zptr, size_t len = 1, bool wb = false);
+    int put(const bidx& idx, void* zptr, int* finish_indicator = nullptr, size_t len = 1, bool wb = false);
 
     /*
         @param cache the block that you want to write back to disk
         @return 0 on success, else on failure
     */
-    int writeBack(cacheStruct* cache);
+    int writeBack(cacheStruct* cache) = delete;
 
     /*
         @return 0 on success, else on failure
@@ -240,18 +240,38 @@ public:
         @param sz size of cache block for storage, 1 block equal to dpfs_lba_size (default is 4096B)
         @return return zptr if success, nullptr on failure
     */
-    void* cacheMalloc(size_t sz);
+    void* cacheMalloc(size_t sz) = delete;
+    
+    /*
+        @note free zptr memory(alloc by dpfsEngine::zmalloc)
+        @param zptr pointer to memory
+        @param sz size of memory(unit is block, 1 block = dpfs_lba_size bytes usually 4096B)
+    */
+    void freezptr(void* zptr, size_t sz);
+
+    /*
+        @note alloc zptr memory(from dpfsEngine::zmalloc)        
+        @param sz size of cache block for storage, 1 block equal to dpfs_lba_size (default is 4096B)
+        @return return zptr if success, nullptr on failure
+    */
+    void* alloczptr(size_t sz);
 
     // 4B + 4B
     uint32_t m_hitCount;
     uint32_t m_getCount;
 
 private:
-
+    
+    /*
+        @note free cache struct memory
+    */
     void freecs(cacheStruct* cs);
+    /*
+        @note alloc cache struct memory
+    */
     cacheStruct* alloccs();
-    void freezptr(void* zptr, size_t sz);
-    void* alloczptr(size_t sz);
+
+
     void freecbs(dpfs_engine_cb_struct* cbs);
     dpfs_engine_cb_struct* alloccbs();
 
@@ -271,13 +291,15 @@ private:
 
     // map length to ptr, alloc by dpfsEngine::zmalloc length = (dpfs_lba_size * index)
     // 24B + 24B
-    std::vector<std::list<void*>> m_zptrList;
+    std::vector<std::queue<void*>> m_zptrList;
     std::vector<CSpin> m_zptrLock;
 
     // storage cacheStruct malloced by get and put
     // 24B + 24B
-    std::list<cacheStruct*> m_cacheStructMemList;
-    std::list<dpfs_engine_cb_struct*> m_cbMemList;
+    std::queue<cacheStruct*> m_cacheStructMemList;
+    // std::list<cacheStruct*> m_cacheStructMemList;
+    std::queue<dpfs_engine_cb_struct*> m_cbMemList;
+    // std::list<dpfs_engine_cb_struct*> m_cbMemList;
     // 1B + 1B
     CSpin m_csmLock;
     CSpin m_cbmLock;
@@ -290,6 +312,7 @@ private:
 //     sizeof(CDpfsCache<bidx, cacheStruct*, PageClrFn>);
 //     sizeof(CPage);
 //     sizeof(std::list<cacheStruct*>);
+//     sizeof(std::deque<cacheStruct*>);
 //     sizeof(CSpin);
 //     sizeof(std::shared_mutex);
 //     sizeof(std::atomic<uint16_t>);

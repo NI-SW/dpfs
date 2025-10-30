@@ -56,7 +56,6 @@ struct dds_field {
     }
 };
 
-// using dpfs_data_group = std::pair<CColumn*, dds_field>; // <COLNAME, <数据类型, 数据长度>>
 
 /*
 FIXED TABLE 
@@ -232,7 +231,7 @@ public:
         @param cs column info
         @param value of row data
     */
-    CItem(vector<CColumn*>& cs) : cols(cs) {
+    CItem(std::vector<CColumn*>& cs) : cols(cs) {
 
     }
     ~CItem();
@@ -411,7 +410,7 @@ public:
         @note this function will remove the col from the collection, and update the index
     */
     int removeCol(const std::string& colName){
-        for(vector<CColumn*>::iterator it = m_cols.begin(); it != m_cols.end(); ++it) {
+        for(std::vector<CColumn*>::iterator it = m_cols.begin(); it != m_cols.end(); ++it) {
             if((*it)->getNameLen() != colName.size() + 1) {
                 continue;
             }

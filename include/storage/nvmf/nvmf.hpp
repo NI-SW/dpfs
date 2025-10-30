@@ -55,11 +55,11 @@ public:
 	struct qpair_status {
 		qpair_status() {
 		}
-		qpair_status(const qpair_status& tgt) {
+		qpair_status(const qpair_status& tgt) noexcept {
 			m_reqs.store(tgt.m_reqs.load());
 			state = tgt.state;
 		}
-		qpair_status& operator=(const qpair_status& tgt) {
+		qpair_status& operator=(const qpair_status& tgt) noexcept {
 			m_reqs.store(tgt.m_reqs.load());
 			state = tgt.state;
 			return *this;
@@ -77,7 +77,7 @@ public:
 	uint8_t qpair_index = 0;
 
 
-	struct spdk_nvme_qpair* qpair = nullptr;
+	// struct spdk_nvme_qpair* qpair = nullptr;
 	const struct spdk_nvme_ctrlr_data *cdata = nullptr;
 	// std::vector<struct spdk_nvme_ns*> ns;
 	std::vector<nvmfnsDesc*> nsfield;
@@ -103,7 +103,7 @@ public:
 	int read(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg);
 	int write(size_t lbaPos, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg);
 
-	int lba_judge(size_t lba);
+	int lba_judge(size_t lba) const noexcept;
 
 	/*
 		@param reqs total request count of nvmfDevice
@@ -132,6 +132,7 @@ public:
 	uint32_t sector_size = 0; // logical block size in bytes
 	uint64_t size = 0; // in bytes
 
+	// total lba count in this namespace
 	size_t lba_count = 0;
 	// lba start position of this namespace in the nvmf device
 	size_t lba_start = 0;
@@ -181,7 +182,7 @@ public:
 	virtual const char* name() const override { return "DPFS-NVMF-ENGINE"; }
 
 	void hello_world();
-	int device_judge(size_t lba) const;
+	int device_judge(size_t lba) const noexcept;
 
 
 	void register_ns(nvmfDevice *dev, struct spdk_nvme_ns *ns);

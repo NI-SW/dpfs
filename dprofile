@@ -1,12 +1,17 @@
-dprofilePath=$(history -w /dev/stdout | awk 'END {print $2}')
-dpfsPath=$(dirname $(readlink -f $dprofilePath))
+if [ $(uname) != 'Linux' ]; then
+    echo "This script not support on $(uname) platform, please check lib path manually."
 
-echo dprofilePath=$dprofilePath
-echo dpfsPath=$dpfsPath
+else 
+    dprofilePath=$(history -w /dev/stdout | awk 'END {print $2}')
+    dpfsPath=$(dirname $(readlink -f $dprofilePath))
 
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:\
+    echo dprofilePath=$dprofilePath
+    echo dpfsPath=$dpfsPath
+
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:\
 $dpfsPath/thirdparty/spdk/build/lib:\
 $dpfsPath/thirdparty/spdk/dpdk/build/lib:\
 $dpfsPath/lib
 
+fi
 # unset LD_LIBRARY_PATH

@@ -14,7 +14,6 @@
 #include <thread>
 
 #define DPFS_IO_CHECK
-static const int restrict_one_io_qpair = 0;
 
 // 16 is almost enough for most nvmf devices
 static const int max_qpair_size = 16;
@@ -36,87 +35,8 @@ void* engineGuardFunction() {
 	return nullptr;
 }
 
-static inline int detach_single_device(nvmfDevice* dev, logrecord& log) {
-	int rc = 0;
-	dev->attached = false;
-	dev->m_exit = true;
-	if(dev->process_complete_thd.joinable()) {
-		dev->process_complete_thd.join();
-	}
-
-	if(dev->qpair) {
-		while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair) && dev->attached) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(100));
-		}
-		spdk_nvme_ctrlr_free_io_qpair(dev->qpair);
-		dev->qpair = nullptr;
-	}
-	spdk_nvme_detach_ctx *detach_ctx = nullptr;
-	rc = spdk_nvme_detach_async(dev->ctrlr, &detach_ctx);
-	if(rc) {
-		log.log_error("spdk_nvme_detach_async failed (%d)\n", rc);
-		return rc;
-	}
-	for(auto& nsdesc : dev->nsfield) {
-		delete nsdesc;
-	}
-
-	dev->nsfield.clear();
-
-	if (detach_ctx) {
-		spdk_nvme_detach_poll(detach_ctx);
-	}
-	return rc;
-
-
-}
-
-/*
-	@param reqs total request count of nvmfDevice
-	@param times this io operate count
-	@param max_io_que max io queue depth
-*/
-// static inline int checkReqs(const std::atomic<uint16_t>& reqs, int times, int max_io_que) noexcept {
-// 	std::chrono::milliseconds ms =  std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch());
-
-// 	// if no more space in queue, polling for new space
-// 	while(reqs >= max_io_que - times) {
-// 		// polling wait for some time.
-// 		if((std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch()) - ms).count() > qpair_io_wait_tm) {
-// 			// printf("wait once\n"); // about 70 ms
-// 			return -ETIMEDOUT;
-// 		}
-// 	}
-// 	return 0;
-// }
-
-// inline int nvmfDevice::checkReqs(int times, int max_io_que) noexcept {
-// 	std::chrono::milliseconds ms =  std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch());
-// 	int rc = 0;
-// 	// if no more space in queue, polling for new space
-// 	while(ioqpairs[qpair_index].second.m_reqs >= max_io_que - times) {
-// 		// if more then 1 thread entry this function, make sure there is only one thread try to get new qpair
-// 		rc = nextQpair();
-// 		if(rc) {
-// 			// if all qpairs are busy, then wait
-// 			// wait for some time.
-// 			if((std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch()) - ms).count() > qpair_io_wait_tm) {
-// 				return -ETIMEDOUT;
-// 			}
-// 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
-// 		}
-// 	}
-// 	return 0;
-// }
-
 inline int nvmfDevice::nextQpair() noexcept {
 	int rc = -ENODEV;
-
-
-
-	// if(ioqpairs[qpair_index].second.state == qpair_use_state::QPAIR_PREPARE) {
-	// 	ioqpairs[qpair_index].second.state = qpair_use_state::QPAIR_WAIT_COMPLETE;
-	// }
 
 	// find next available qpair
 	size_t next_avail_qpair_index = qpair_index;
@@ -154,13 +74,13 @@ int nvmfDevice::clear() {
 	nfhost.log.log_notic("clr func called, Detaching controller %s\n", trid->traddr);
 	m_processLock.lock();
 	
-	if(qpair) {
-		rc = spdk_nvme_ctrlr_free_io_qpair(qpair);
+	for(auto qp : ioqpairs) {
+		qp.second.state = QPAIR_INVALID;
+		rc = spdk_nvme_ctrlr_free_io_qpair(qp.first);
 		if(rc) {
 			nfhost.log.log_error("spdk_nvme_ctrlr_free_io_qpair failed (%d)\n", rc);
-			
 		}
-		qpair = nullptr;
+		qp.first = nullptr;
 	}
 
 
@@ -250,8 +170,8 @@ static void read_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	if (spdk_nvme_cpl_is_error(completion)) {
 		ns->dev.nfhost.log.log_error("I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
 		ns->dev.nfhost.log.log_error("Read I/O failed, aborting run\n");
-		spdk_nvme_qpair_print_completion(ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
-		// exit(1);
+		// spdk_nvme_qpair_print_completion(ns->dev.ioqpairs[ns->dev.qpair_index].first, (struct spdk_nvme_cpl *)completion);
+		
 	}
 	
 
@@ -270,9 +190,9 @@ static void write_complete(void *arg, const struct spdk_nvme_cpl *completion) {
 	if (spdk_nvme_cpl_is_error(completion)) {
 		ns->dev.nfhost.log.log_error("I/O error status: %s\n", spdk_nvme_cpl_get_status_string(&completion->status));
 		ns->dev.nfhost.log.log_error("Write I/O failed, aborting run\n");
-		abort();
-		spdk_nvme_qpair_print_completion(ns->dev.qpair, (struct spdk_nvme_cpl *)completion);
-		// exit(1);
+		// abort();
+		// spdk_nvme_qpair_print_completion(ns->dev.ioqpairs[ns->dev.qpair_index].first, (struct spdk_nvme_cpl *)completion);
+
 	}
 	/*
 	 * The write I/O has completed.  Free the buffer associated with
@@ -312,7 +232,8 @@ nvmfnsDesc::~nvmfnsDesc() {
 
 int submit_io(nvmfnsDesc* ns, void *buffer, uint64_t lba, uint32_t lba_count, spdk_nvme_cmd_cb cb_fn, void *cb_arg, uint32_t io_flags, int isRead) {
 	int rc = 0;
-	
+	// std::chrono::microseconds usb;
+	// std::chrono::microseconds us;
 	if(ns->dev.ioqpairs[ns->dev.qpair_index].second.state != nvmfDevice::qpair_use_state::QPAIR_PREPARE) {
 		ns->dev.nfhost.log.log_error("Current qpair is not ready for new io submission, index: %d state: %d\n", ns->dev.qpair_index, ns->dev.ioqpairs[ns->dev.qpair_index].second.state);
 		rc = -EBUSY;
@@ -341,9 +262,9 @@ int submit_io(nvmfnsDesc* ns, void *buffer, uint64_t lba, uint32_t lba_count, sp
 	}
 
 	if(isRead) {
-		rc = spdk_nvme_ns_cmd_read(ns->ns, ns->dev.ioqpairs[ns->dev.qpair_index].first, buffer, lba, lba_count, (spdk_nvme_cmd_cb)cb_fn, cb_arg, io_flags);
+		rc = spdk_nvme_ns_cmd_read(ns->ns, ns->dev.ioqpairs[ns->dev.qpair_index].first, buffer, lba, lba_count, cb_fn, cb_arg, io_flags);
 	} else {
-		rc = spdk_nvme_ns_cmd_write(ns->ns, ns->dev.ioqpairs[ns->dev.qpair_index].first, buffer, lba, lba_count, (spdk_nvme_cmd_cb)cb_fn, cb_arg, io_flags);
+		rc = spdk_nvme_ns_cmd_write(ns->ns, ns->dev.ioqpairs[ns->dev.qpair_index].first, buffer, lba, lba_count, cb_fn, cb_arg, io_flags);
 	}
 	if(rc) {
 		ns->dev.ioqpairs[ns->dev.qpair_index].second.m_lock.unlock();
@@ -351,40 +272,34 @@ int submit_io(nvmfnsDesc* ns, void *buffer, uint64_t lba, uint32_t lba_count, sp
 		goto errReturn;
 	}
 	++ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs;
+	// usb = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
+	// us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
+	// ns->dev.nfhost.log.log_debug("wakeup io : bef %llu us aft %llu us qpair index %d reqs %u\n", usb.count(), us.count(), ns->dev.qpair_index, ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs.load());	
 
 	
 	if(ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs >= max_qpair_io_queue) {
-		if(restrict_one_io_qpair) {
-			ns->dev.ioqpairs[ns->dev.qpair_index].second.m_lock.unlock();
 
-			while(ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs >= max_qpair_io_queue) {
-				
+		size_t exchange_qpair_index = ns->dev.qpair_index;
+		ns->dev.ioqpairs[ns->dev.qpair_index].second.state = nvmfDevice::qpair_use_state::QPAIR_WAIT_COMPLETE;
+		ns->dev.ioqpairs[exchange_qpair_index].second.m_lock.unlock();
+		
+		do {
+			rc = ns->dev.nextQpair();
+			if(rc == -EBUSY) {
+				// ns->dev.ioqpairs[exchange_qpair_index].second.m_lock.unlock();
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				// ns->dev.ioqpairs[exchange_qpair_index].second.m_lock.lock();
 			}
-			ns->dev.m_convar.notify_one();
+		} while (rc == -EBUSY);
+		
+		// ns->dev.ioqpairs[exchange_qpair_index].second.m_lock.unlock();
+		
+		if(rc) {
 			ns->dev.qpLock.unlock();
-
-		} else {
-			size_t exchange_qpair_index = ns->dev.qpair_index;
-			ns->dev.ioqpairs[ns->dev.qpair_index].second.state = nvmfDevice::qpair_use_state::QPAIR_WAIT_COMPLETE;
-			ns->dev.ioqpairs[exchange_qpair_index].second.m_lock.unlock();
-			
-			do {
-				rc = ns->dev.nextQpair();
-				if(rc == -EBUSY) {
-					ns->dev.ioqpairs[exchange_qpair_index].second.m_lock.unlock();
-					std::this_thread::sleep_for(std::chrono::milliseconds(10));
-					ns->dev.ioqpairs[exchange_qpair_index].second.m_lock.lock();
-				}
-			} while (rc == -EBUSY);
-			
-			ns->dev.ioqpairs[exchange_qpair_index].second.m_lock.unlock();
-			
-			if(rc) {
-				ns->dev.qpLock.unlock();
-				ns->dev.nfhost.log.log_error("Failed to switch to next qpair after io submission, rc: %d\n", rc);
-				goto errReturn;
-			}
+			ns->dev.nfhost.log.log_error("Failed to switch to next qpair after io submission, rc: %d\n", rc);
+			goto errReturn;
 		}
+		
 	} else {
 		ns->dev.ioqpairs[ns->dev.qpair_index].second.m_lock.unlock();
 	}
@@ -405,7 +320,7 @@ int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc) {
 	*/
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
 	size_t lba_ns_count = lba_bundle * lbc;
-	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Reading from LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
+	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Reading from LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.ioqpairs[dev.qpair_index].first, sequence, lba_device, lba_ns, lbc, lba_ns_count);
 	
 
 	// int rc = spdk_nvme_ns_cmd_read(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, read_complete, this, 0);
@@ -419,7 +334,7 @@ int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc) {
 int nvmfnsDesc::write(size_t lba_device, void* pBuf, size_t lbc) {
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
 	size_t lba_ns_count = lba_bundle * lbc;
-	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
+	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.ioqpairs[dev.qpair_index].first, sequence, lba_device, lba_ns, lbc, lba_ns_count);
 	
 	// dev.qpLock.lock();
 	// int rc = spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, write_complete, this, 0);
@@ -447,7 +362,7 @@ static void async_compelete(void *arg, const struct spdk_nvme_cpl *completion) {
 int nvmfnsDesc::write(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) {
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
 	size_t lba_ns_count = lba_bundle * lbc;
-	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
+	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Writing to LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.ioqpairs[dev.qpair_index].first, sequence, lba_device, lba_ns, lbc, lba_ns_count);
 	// dev.qpLock.lock();
 	// int rc = spdk_nvme_ns_cmd_write(ns, dev.qpair, pBuf, lba_ns, lba_ns_count, async_compelete, arg, 0);
 	// dev.qpLock.unlock();
@@ -463,7 +378,7 @@ int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_s
 	*/
 	size_t lba_ns = (lba_device - lba_start) * lba_bundle;
 	size_t lba_ns_count = lba_bundle * lbc;
-	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Reading from LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.qpair, sequence, lba_device, lba_ns, lbc, lba_ns_count);
+	dev.nfhost.log.log_debug("ns: %p qpair: %p sequence: %p Reading from LBA %zu, lba_ns %zu, lbc size %zu, lba_count: %zu\n", ns, dev.ioqpairs[dev.qpair_index].first, sequence, lba_device, lba_ns, lbc, lba_ns_count);
 	
 	// dev.qpLock.lock();
 	// int rc = spdk_nvme_ns_cmd_read(ns, dev.ioqpairs[dev.qpair_index].first, pBuf, lba_ns, lba_ns_count, async_compelete, arg, 0);
@@ -475,6 +390,131 @@ int nvmfnsDesc::read(size_t lba_device, void* pBuf, size_t lbc, dpfs_engine_cb_s
 
 }
 
+static void device_guard(void* arg) {
+	nvmfDevice* dev = (nvmfDevice*)arg;
+	// process complete lock
+	std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
+	std::mutex pclck;
+	std::unique_lock<std::mutex> lk(pclck);
+
+	// uint32_t n = 0;
+	int32_t rc = 0;
+	uint8_t current_qpair_index = 0;
+
+	while(!dev->m_exit) {
+		current_qpair_index = 0;
+		while(dev->attached) {
+
+			std::atomic<uint16_t>& m_reqs = dev->ioqpairs[current_qpair_index].second.m_reqs;
+			volatile nvmfDevice::qpair_use_state& qp_state = dev->ioqpairs[current_qpair_index].second.state;
+			CSpin& qp_lock = dev->ioqpairs[current_qpair_index].second.m_lock;
+			spdk_nvme_qpair*& qpair = dev->ioqpairs[current_qpair_index].first;
+
+			// for fast respond, when qpair not full, wait for some time then process this qpair.
+			while(m_reqs || (qp_state == nvmfDevice::qpair_use_state::QPAIR_PREPARE)) {
+				
+				if(m_reqs <= 0 && qp_state == nvmfDevice::qpair_use_state::QPAIR_PREPARE) {
+					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d no requests, wait for new requests\n",dev->devdesc_str.c_str(), current_qpair_index);
+					// continue;
+					dev->m_convar.wait(lk);
+					// std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
+					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d wake up from wait at %llu us\n", dev->devdesc_str.c_str(), current_qpair_index, us.count());
+					// nfhost.log.log_inf("nvmfDevice %s qpair index %d wake up from wait\n", devdesc_str.c_str(), current_qpair_index);
+				}
+
+
+				dev->m_processLock.lock();
+				if(qpair == nullptr) {
+					dev->m_processLock.unlock();
+					break;
+				}
+				
+				// size_t otstdreqs = spdk_nvme_qpair_get_num_outstanding_reqs(ioqpairs[current_qpair_index].first);
+				// nfhost.log.log_inf("nvmfDevice %s qpair index %d outstanding requests : %zu, unfinished requests : %d\n", devdesc_str.c_str(), current_qpair_index, otstdreqs, m_reqs.load());
+				
+				// std::chrono::microseconds ms = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
+				// lock for qpair use
+				qp_lock.lock();
+				rc = spdk_nvme_qpair_process_completions(qpair, 0);
+				qp_lock.unlock();
+
+				// std::chrono::microseconds diff =  std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()) - ms;
+
+				if(rc > 0) {
+					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, use time: %llu us, qpStatus: %u\n", dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, diff.count(), qp_state);
+					// std::chrono::microseconds us_now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
+					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, time: %llu us, qpStatus: %u\n", dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, us_now.count(), qp_state);
+					m_reqs -= rc;
+				} else if(rc == 0) {
+
+					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, use time: %llu, qpStatus: \n", dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load(), 1, qp_state);
+					// std::this_thread::sleep_for(std::chrono::milliseconds(50));
+				} else {
+					// TODO process error
+					dev->nfhost.log.log_error("process completions fail! code : %d, unfinished requests : %d, reattaching device...\n", rc, m_reqs.load());
+					dev->attached = false;
+					dev->m_processLock.unlock();
+					dev->need_reattach = true;
+					goto outLoop;
+
+					// // realloc io queue pair
+					// rc = spdk_nvme_ctrlr_free_io_qpair(qpair);
+					// if(rc) {
+					// 	nfhost.log.log_error("spdk_nvme_ctrlr_free_io_qpair() failed (%d)\n", rc);
+					// }
+
+					// qpair = nullptr;
+
+					// spdk_nvme_io_qpair_opts qpopts;
+					// spdk_nvme_ctrlr_get_default_io_qpair_opts(ctrlr, &qpopts, sizeof(qpopts));
+					// qpopts.io_queue_size = max_qpair_io_queue;
+					// this->nfhost.log.log_inf("realloc qpair, get qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
+					
+					// qpair = spdk_nvme_ctrlr_alloc_io_qpair(ctrlr, &qpopts, sizeof(qpopts));
+					// if (qpair == nullptr) {
+					// 	this->nfhost.log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
+					// }
+					// m_reqs = 0;
+				}
+				
+				dev->m_processLock.unlock();
+
+				// if(ioqpairs[current_qpair_index].second.state == nvmfDevice::qpair_use_state::QPAIR_PREPARE) {
+				// 	std::this_thread::sleep_for(std::chrono::milliseconds(15));
+				// }
+
+			}
+			
+			dev->nfhost.log.log_inf("nvmfDevice %s finish qpair index %d\n", dev->devdesc_str.c_str(), current_qpair_index);
+
+			// finish all requests on this qpair, set it to PREPARE state
+			dev->ioqpairs[current_qpair_index].second.state = nvmfDevice::qpair_use_state::QPAIR_PREPARE;
+
+			// find next valid qpair which is PREPARE or WAIT_COMPLETE state
+			size_t next_wait_qpair = current_qpair_index;
+			// check all qpairs
+			for(size_t i = 0; i < dev->ioqpairs.size(); ++i) {
+				++next_wait_qpair;
+				if(next_wait_qpair >= dev->ioqpairs.size()) {
+					next_wait_qpair = 0;
+				}
+				// if found a valid qpair, switch to it
+				if(dev->ioqpairs[next_wait_qpair].second.state == nvmfDevice::qpair_use_state::QPAIR_PREPARE || // no more requests
+				dev->ioqpairs[next_wait_qpair].second.state == nvmfDevice::qpair_use_state::QPAIR_WAIT_COMPLETE) { // has requests to process
+					current_qpair_index = next_wait_qpair;
+					break;
+				}
+			}
+			dev->nfhost.log.log_inf("nvmfDevice %s switch to qpair index %d\n", dev->devdesc_str.c_str(), current_qpair_index);
+
+			// if not found any valid qpair, stay on current qpair
+			
+		}
+	outLoop:
+		// waiting for attach
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+}
 
 nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 	attached = false;
@@ -484,131 +524,7 @@ nvmfDevice::nvmfDevice(CNvmfhost& host) : nfhost(host) {
 	trid = new spdk_nvme_transport_id;
 	// m_reqs.store(0);
 
-	process_complete_thd = std::thread([this](){
-		// process complete lock
-		std::mutex pclck;
-		std::unique_lock lk(pclck);
-
-		// uint32_t n = 0;
-		int32_t rc = 0;
-		uint8_t current_qpair_index = 0;
-
-		while(!m_exit) {
-			current_qpair_index = 0;
-			while(attached) {
-
-				std::atomic<uint16_t>& m_reqs = ioqpairs[current_qpair_index].second.m_reqs;
-				volatile nvmfDevice::qpair_use_state& qp_state = ioqpairs[current_qpair_index].second.state;
-				CSpin& qp_lock = ioqpairs[current_qpair_index].second.m_lock;
-				spdk_nvme_qpair*& qpair = ioqpairs[current_qpair_index].first;
-
-				// for fast respond, when qpair not full, wait for some time then process this qpair.
-				while(m_reqs || (qp_state == nvmfDevice::qpair_use_state::QPAIR_PREPARE)) {
-					
-					if(m_reqs <= 0 && qp_state == nvmfDevice::qpair_use_state::QPAIR_PREPARE) {
-						// nfhost.log.log_inf("nvmfDevice %s qpair index %d no requests, wait for new requests\n", devdesc_str.c_str(), current_qpair_index);
-						
-						m_convar.wait(lk);
-
-						// nfhost.log.log_inf("nvmfDevice %s qpair index %d wake up from wait\n", devdesc_str.c_str(), current_qpair_index);
-					}
-
-
-					// std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
-					m_processLock.lock();
-					if(qpair == nullptr) {
-						m_processLock.unlock();
-						break;
-					}
-
-					// size_t otstdreqs = spdk_nvme_qpair_get_num_outstanding_reqs(ioqpairs[current_qpair_index].first);
-					// nfhost.log.log_inf("nvmfDevice %s qpair index %d outstanding requests : %zu, unfinished requests : %d\n", devdesc_str.c_str(), current_qpair_index, otstdreqs, m_reqs.load());
-
-					// lock for qpair use
-					qp_lock.lock();
-					rc = spdk_nvme_qpair_process_completions(qpair, 0);
-					qp_lock.unlock();
-
-					// std::chrono::milliseconds diff =  std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()) - ms;
-
-					if(rc > 0) {
-						// nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, use time: %llu, qpStatus: %u\n", devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, diff.count(), qp_state);
-						m_reqs -= rc;
-					} else if(rc == 0) {
-
-						// nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, use time: %llu, qpStatus: \n", devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load(), diff.count(), qp_state);
-						// std::this_thread::sleep_for(std::chrono::milliseconds(50));
-					} else {
-						// TODO process error
-						nfhost.log.log_error("process completions fail! code : %d, unfinished requests : %d, reattaching device...\n", rc, m_reqs.load());
-						attached = false;
-						m_processLock.unlock();
-						need_reattach = true;
-						goto outLoop;
-
-						// // realloc io queue pair
-						// rc = spdk_nvme_ctrlr_free_io_qpair(qpair);
-						// if(rc) {
-						// 	nfhost.log.log_error("spdk_nvme_ctrlr_free_io_qpair() failed (%d)\n", rc);
-						// }
-
-						// qpair = nullptr;
-
-						// spdk_nvme_io_qpair_opts qpopts;
-						// spdk_nvme_ctrlr_get_default_io_qpair_opts(ctrlr, &qpopts, sizeof(qpopts));
-						// qpopts.io_queue_size = max_qpair_io_queue;
-						// this->nfhost.log.log_inf("realloc qpair, get qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
-						
-						// qpair = spdk_nvme_ctrlr_alloc_io_qpair(ctrlr, &qpopts, sizeof(qpopts));
-						// if (qpair == nullptr) {
-						// 	this->nfhost.log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
-						// }
-						// m_reqs = 0;
-					}
-					
-					m_processLock.unlock();
-
-					// if(ioqpairs[current_qpair_index].second.state == nvmfDevice::qpair_use_state::QPAIR_PREPARE) {
-					// 	std::this_thread::sleep_for(std::chrono::milliseconds(15));
-					// }
-
-				}
-				
-				if(restrict_one_io_qpair) {
-					continue;
-				}
-				
-				nfhost.log.log_inf("nvmfDevice %s finish qpair index %d\n", devdesc_str.c_str(), current_qpair_index);
-
-				// finish all requests on this qpair, set it to PREPARE state
-				ioqpairs[current_qpair_index].second.state = nvmfDevice::qpair_use_state::QPAIR_PREPARE;
-
-				// find next valid qpair which is PREPARE or WAIT_COMPLETE state
-				size_t next_wait_qpair = current_qpair_index;
-				// check all qpairs
-				for(size_t i = 0; i < ioqpairs.size(); ++i) {
-					++next_wait_qpair;
-					if(next_wait_qpair >= ioqpairs.size()) {
-						next_wait_qpair = 0;
-					}
-					// if found a valid qpair, switch to it
-					if(ioqpairs[next_wait_qpair].second.state == nvmfDevice::qpair_use_state::QPAIR_PREPARE || // no more requests
-					ioqpairs[next_wait_qpair].second.state == nvmfDevice::qpair_use_state::QPAIR_WAIT_COMPLETE) { // has requests to process
-						current_qpair_index = next_wait_qpair;
-						break;
-					}
-				}
-				nfhost.log.log_inf("nvmfDevice %s switch to qpair index %d\n", devdesc_str.c_str(), current_qpair_index);
-
-				// if not found any valid qpair, stay on current qpair
-				
-			}
-		outLoop:
-			// waiting for attach
-			std::this_thread::sleep_for(std::chrono::milliseconds(100));
-		}
-
-	});
+	process_complete_thd = std::thread(device_guard, this);
 
 }
 
@@ -622,7 +538,7 @@ nvmfDevice::~nvmfDevice() {
 	delete trid;
 }
 
-int nvmfDevice::lba_judge(size_t lba) {
+int nvmfDevice::lba_judge(size_t lba) const noexcept {
 	/*
 	* judge lba in which namespace
 	*/
@@ -646,7 +562,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		return -EPERM;
 	}
 
-	m_convar.notify_one();
 
 	size_t lba_device = lba_host - lba_start;
 	size_t nsPos = lba_judge(lba_device);
@@ -755,7 +670,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 		return -EPERM;
 	}
 
-	m_convar.notify_one();
 
 	size_t lba_device = lba_host - lba_start;
 	size_t nsPos = lba_judge(lba_device);
@@ -866,7 +780,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_str
 		return -EPERM;
 	}
 
-	m_convar.notify_one();
 
 	size_t lba_device = lba_host - lba_start;
 	size_t nsPos = lba_judge(lba_device);
@@ -949,7 +862,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_st
 		return -EPERM;
 	}
 
-	m_convar.notify_one();
 
 	size_t lba_device = lba_host - lba_start;
 	size_t nsPos = lba_judge(lba_device);
@@ -1117,7 +1029,7 @@ static void remove_cb(void *cb_ctx, struct spdk_nvme_ctrlr *ctrlr) {
 
 }
 
-CNvmfhost::CNvmfhost() : async_mode(false) {
+CNvmfhost::CNvmfhost() : async_mode(true) {
 	init_mutex.lock();
 	++hostCount;
 	if(initialized) {
@@ -1249,9 +1161,9 @@ void CNvmfhost::cleanup() {
 				dev->process_complete_thd.join();
 			}
 
-			if(dev->qpair) {
-				spdk_nvme_ctrlr_free_io_qpair(dev->qpair);
-				dev->qpair = nullptr;
+			if(dev->ioqpairs[dev->qpair_index].first) {
+				spdk_nvme_ctrlr_free_io_qpair(dev->ioqpairs[dev->qpair_index].first);
+				dev->ioqpairs[dev->qpair_index].first = nullptr;
 			}
 
 			rc = spdk_nvme_detach_async(dev->ctrlr, &detach_ctx[i++]);
@@ -1374,7 +1286,7 @@ int CNvmfhost::attach_device(const std::string& devdesc_str) {
 	// 	return -ENOMEM;
 	// }
 
-	log.log_inf("Controller %s attached with qpair %p\n", ndev->trid->traddr, ndev->qpair);
+	log.log_inf("Controller %s attached with qpair %p\n", ndev->trid->traddr, ndev->ioqpairs[ndev->qpair_index].first);
 	log.log_inf("qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 
 	devices.emplace_back(ndev);
@@ -1393,13 +1305,14 @@ int CNvmfhost::detach_device(const std::string& devdesc_str) {
 					(*dev)->process_complete_thd.join();
 				}
 
-				if((*dev)->qpair) {
-					while(spdk_nvme_qpair_get_num_outstanding_reqs((*dev)->qpair)) {
-						spdk_nvme_qpair_process_completions((*dev)->qpair, 0);
+				if((*dev)->ioqpairs[(*dev)->qpair_index].first) {
+					while(spdk_nvme_qpair_get_num_outstanding_reqs((*dev)->ioqpairs[(*dev)->qpair_index].first)) {
+						spdk_nvme_qpair_process_completions((*dev)->ioqpairs[(*dev)->qpair_index].first, 0);
 						// std::this_thread::sleep_for(std::chrono::milliseconds(10));
 					}
-					spdk_nvme_ctrlr_free_io_qpair((*dev)->qpair);
-					(*dev)->qpair = nullptr;
+					(*dev)->ioqpairs[(*dev)->qpair_index].second.state = nvmfDevice::qpair_use_state::QPAIR_INVALID;
+					spdk_nvme_ctrlr_free_io_qpair((*dev)->ioqpairs[(*dev)->qpair_index].first);
+					(*dev)->ioqpairs[(*dev)->qpair_index].first = nullptr;
 				}
 				spdk_nvme_detach_ctx *detach_ctx = nullptr;
 				rc = spdk_nvme_detach_async((*dev)->ctrlr, &detach_ctx);
@@ -1432,7 +1345,7 @@ int CNvmfhost::detach_device(const std::string& devdesc_str) {
 	return rc;
 }
 
-int CNvmfhost::device_judge(size_t lba) const {
+int CNvmfhost::device_judge(size_t lba) const noexcept {
 	int rc = 0;
 	for(auto& dev : devices) {
 		if(dev->lba_start <= lba) {
@@ -1666,7 +1579,7 @@ int CNvmfhost::sync() {
 	for(const auto& dev : devices) {
 		if(dev->attached) {
 			log.log_debug("Waiting for outstanding requests on device %s\n", dev->devdesc_str.c_str());
-			while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->qpair)) {
+			while(spdk_nvme_qpair_get_num_outstanding_reqs(dev->ioqpairs[dev->qpair_index].first)) {
 				// log.log_debug("Waiting for %d outstanding requests to complete on device %s\n", num, dev->devdesc_str.c_str());
 			}
 		}
@@ -1745,15 +1658,18 @@ int CNvmfhost::reattach_device(nvmfDevice* dev) {
 	qpopts.io_queue_size = max_qpair_io_queue;
 	log.log_inf("get qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 
-	
-	dev->qpair = spdk_nvme_ctrlr_alloc_io_qpair(dev->ctrlr, &qpopts, sizeof(qpopts));
-	if (dev->qpair == nullptr) {
-		log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed\n");
-		return -ENOMEM;
+	for(size_t i = 0; i < dev->ioqpairs.size(); ++i) {
+		dev->ioqpairs[i].first = spdk_nvme_ctrlr_alloc_io_qpair(dev->ctrlr, &qpopts, sizeof(qpopts));
+		if (dev->ioqpairs[i].first == nullptr) {
+			log.log_error("spdk_nvme_ctrlr_alloc_io_qpair() failed, index : %llu\n", i);
+			rc = -ENOMEM;
+			break;
+		}
+
+		log.log_inf("Controller %s attached with qpair %p\n", dev->trid->traddr, dev->ioqpairs[i].first);
+		log.log_inf("qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 	}
 
-	log.log_inf("Controller %s attached with qpair %p\n", dev->trid->traddr, dev->qpair);
-	log.log_inf("qpair opts: io_queue_size %u\n", qpopts.io_queue_size);
 
 	return rc;
 	// spdk_nvme_ns_is_active(ns)
