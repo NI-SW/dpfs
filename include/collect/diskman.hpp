@@ -1,11 +1,12 @@
-#include <storage/engine.hpp>
+#include <collect/page.hpp>
 /*
     manage dpfs engine space
 */
+extern uint64_t nodeId;
 class CDiskMan {
 public:
     CDiskMan() = delete;
-    CDiskMan(dpfsEngine* engine) : eng(engine) {};
+    CDiskMan(CPage* pge) : m_page(pge) {};
     ~CDiskMan() = default;
 
     /*
@@ -29,6 +30,6 @@ public:
     */
     int init();
 
-    dpfsEngine* eng;
+    CPage* m_page;
     
 };

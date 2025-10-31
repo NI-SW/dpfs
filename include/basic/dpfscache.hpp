@@ -210,9 +210,12 @@ public:
     */
     int flush() {
         m_lock.lock();
-        for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
-            clrfunc.flush((*cacheIt).second->cache);
-        }
+        // for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
+        //     clrfunc.flush((*cacheIt).second->cache);
+        // }
+
+        clrfunc.flush(&m_cacheMap);
+
         m_lock.unlock();
         return 0;
     }

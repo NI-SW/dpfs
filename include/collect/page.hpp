@@ -11,7 +11,7 @@ extern const size_t maxMemBlockLimit;
 class CPage;
 class PageClrFn;
 
-// index for a block
+// block index
 struct bidx {
     // disk group id
     uint64_t gid;
@@ -182,9 +182,11 @@ public:
     PageClrFn(void* clrFnArg);
     ~PageClrFn() {}
     void operator()(cacheStruct*& p);
-    void flush(cacheStruct*& p);
+    // void flush(std::list<CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter*> p);
+    void flush(const std::list<void*>& cacheList);
     CPage* cp;
 };
+
 
 // struct cbvar {
 //     cacheStruct* cptr = nullptr;

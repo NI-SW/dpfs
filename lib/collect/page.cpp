@@ -203,8 +203,13 @@ errReturn:
 }
 
 int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, bool wb) {
-    if(idx.gid >= m_engine_list.size()) {
-        return -ERANGE;
+    // if(idx.gid >= m_engine_list.size()) {
+    //     return -ERANGE;
+    // }
+
+    if(idx.gid != 0) {
+        // write is only allowed on gid 0
+        return -EPERM;
     }
 
     int rc = 0;
@@ -509,6 +514,12 @@ PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
 
 // write back only
 void PageClrFn::operator()(cacheStruct*& p) {
+    if(p->idx.gid != 0) {
+        // write is only allowed on gid 0
+        p->release();
+        return;
+    }
+
     int rc = 0;
     // find disk group by gid, find block on disk by bid, write p, block number = blkNum
     // p->p must by alloc by engine_list->zmalloc
@@ -574,6 +585,80 @@ void PageClrFn::operator()(cacheStruct*& p) {
 
 }
 
+void PageClrFn::flush(const std::list<void*>& cacheList) {
+
+    // reinterpret_cast<CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter*>(cacheList.back());
+
+    cacheStruct* p = nullptr;
+    for(auto& it : cacheList) {
+        p = reinterpret_cast<CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter*>(it)->cache;
+        
+        if(p->idx.gid != 0 || p->dirty == 0) {
+            // write is only allowed on gid 0
+            continue;
+        }
+        int rc = 0;
+        void* zptr = p->zptr;
+        dpfs_engine_cb_struct* cbs = this->cp->alloccbs(); //new dpfs_engine_cb_struct;
+        if(!cbs) {
+            cp->m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory, write back fail!, gid: %llu, bid: %llu\n", p->idx.gid, p->idx.bid);
+            return;
+        }
+
+        // lock and change status to writing
+        rc = p->lock();
+        if(rc) {
+            cp->m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+            return;
+        }
+        p->status = cacheStruct::WRITING;
+        p->unlock();
+
+        cbs->m_arg = this;
+
+        // call back function for disk write
+        cbs->m_cb = [&p, cbs](void* arg, const dpfs_compeletion* dcp) {
+
+            PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
+            
+            if(dcp->return_code) {
+                pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
+                // write error
+                // TODO process error
+                p->status = cacheStruct::VALID;
+                pcf->cp->freecbs(cbs);
+                return;
+            }
+            p->status = cacheStruct::VALID;
+            p->dirty = 0;
+            pcf->cp->freecbs(cbs);
+        };
+
+        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
+        if(rc < 0) {
+
+            cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+            // write error
+            // TODO
+
+
+        }
+
+    }
+
+    if(!p) {
+        return;
+    }
+
+    // wait for last one write back finish
+    while(p->status == cacheStruct::WRITING) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    return;
+}
+
+/*
 void PageClrFn::flush(cacheStruct*& p) {
     int rc = 0;
     // find disk group by gid, find block on disk by bid, write p, block number = blkNum
@@ -631,3 +716,4 @@ void PageClrFn::flush(cacheStruct*& p) {
     }
 
 }
+*/

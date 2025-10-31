@@ -409,7 +409,7 @@ public:
         @return 0 on success, else on failure
         @note this function will remove the col from the collection, and update the index
     */
-    int removeCol(const std::string& colName){
+    int removeCol(const std::string& colName) {
         for(std::vector<CColumn*>::iterator it = m_cols.begin(); it != m_cols.end(); ++it) {
             if((*it)->getNameLen() != colName.size() + 1) {
                 continue;
@@ -430,49 +430,29 @@ public:
     /*
         @param item: CItem pointer to add
         @return 0 on success, else on failure
-        @note this function will add the item to the collection, and update the index
+        @note this function will add the item to the collection, and update the index, while not commit, storage the change to temporary disk block
     */
-    virtual int addItem(CItem* item) { 
-        // TODO
-
-        return 0;
-    };
+    int addItem(CItem* item);
 
     /*
         @param item: CItem pointer to add
         @return 0 on success, else on failure
         @note this function will add the item to the collection, and update the index
     */
-    virtual int addItems(std::vector<CItem*>& items) { 
-        // TODO
-
-        return 0; 
-    };
+    int addItems(std::vector<CItem*>& items);
     
-    virtual int deleteItem(int pos) { 
-        // TODO
-
-        return 0; 
-    };
+    int deleteItem(int pos);
 
     /*
         @param pos: position of the row in the row list
         @return CValue pointer on success, else nullptr
     */
-    virtual const CValue* const getRow(size_t pos) { 
-        // TODO 
-
-        return nullptr;
-    };
+    CValue* getRow(size_t index);
 
     /*
         @return total items in the collection
     */
-    virtual int getItemCount() { 
-        // TODO 
-
-        return 0; 
-    };
+    int getItemCount();
 
     /*
         @return 0 on success, else on failure
@@ -481,10 +461,7 @@ public:
         need to do : 
         write commit log, and then write data, finally update the index
     */
-    virtual int commit() { 
-
-        return 0;
-    };
+    int commit();
 
     // permission of operations
     bool m_select : 1;
@@ -498,19 +475,23 @@ public:
     bool m_needreorg : 1;
     // not used
     bool reserve : 1;
-    // inner locker
+    //above 1B
+
+    // inner locker 1B
     CSpin m_lock;
-    // ccid: CCollection ID, used to identify the collection info
+    // ccid: CCollection ID, used to identify the collection info 4B
     uint32_t m_ccid;
 
     // the product that owns this collection
     CProduct* m_owner;
+
     // name of the collection
     std::string m_name;
     // columns in the collection
     std::vector<CColumn*> m_cols;
 
-    
+    // b plus tree head pointer
+    bidx bphead;
 
 };
 

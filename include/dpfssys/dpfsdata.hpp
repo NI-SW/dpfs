@@ -1,4 +1,4 @@
-#include "dpfsdisk.hpp"
+#include "collect/diskman.hpp"
 #include <vector>
 #include <collect/product.hpp>
 #include <basic/dpfscache.hpp>
@@ -13,9 +13,20 @@ class CDatasvc {
 public:
     CDatasvc() = default;
     ~CDatasvc() = default;
+    /*
+        @return 0 on success, else on failure
+        @note init the data service, create super block, system tables and some necessary structures on disk
+    */
+    int init();
+
+    /*
+        @return 0 on success, else on failure
+        @note load super block to boot dpfs system.
+    */
+    int load();
 
     // engines managed by this service
-    std::vector<CDiskMan> engines; 
+    CDiskMan m_diskMan;
 
     // // product list, should storage on disk but not vector
     // std::vector<std::pair<bidx, std::string>> pdl;
