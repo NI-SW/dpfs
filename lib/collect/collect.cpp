@@ -118,6 +118,7 @@ int CItem::updateValueByKey(CColumn* col, CValue* value) noexcept {
     write commit log, and then write data, finally update the index
 */
 int CItem::commit(bool writeBack) { 
+    // TODO
 
     return 0;
 };
@@ -169,4 +170,15 @@ CItem::CItem(const CItem& other) : cols(other.cols) {
 
 CItem::~CItem() {
 
+}
+
+
+int CCollection::addItem(const CItem& item) {
+
+    // save item to storage and update index
+    // search where the item should be in storage, use b plus tree to storage the data
+    
+    // bpt.insert(key, value);
+
+    return 0;
 }
