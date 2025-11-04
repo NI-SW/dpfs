@@ -1,6 +1,7 @@
 /*
     define cache and storage exchange method for collect.
 */
+#pragma once
 #include <basic/dpfscache.hpp>
 #include <storage/engine.hpp>
 #include <log/logbinary.h>

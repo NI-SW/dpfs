@@ -1,3 +1,4 @@
+#pragma once
 #include <cstddef>
 #include <list>
 #include <unordered_map>
@@ -9,20 +10,21 @@
 #include <cstring>
 #include <iostream>
 using namespace std;
-#endif
 
 template<class T>
 class CClearFunc {
-public:
+    public:
     CClearFunc(void* initArg){}
     void operator()(T& p) {
-
+        
     }
-
+    
     void flush(T& p) {
-
+        
     }
 };
+
+#endif
 
 // for quick range compare
 /*
@@ -33,7 +35,7 @@ public:
 #ifdef __DPFS_CACHE_DEBUG__
 template<class IDX = string, class T = int, class CLEARFUNC = CClearFunc<T>>
 #else 
-template<class IDX, class T, class CLEARFUNC = CClearFunc<T>>
+template<class IDX, class T, class CLEARFUNC>
 #endif
 class CDpfsCache {
 public:

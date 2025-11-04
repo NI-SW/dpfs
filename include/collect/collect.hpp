@@ -2,7 +2,8 @@
  *  Copyright (C) 2025 LBR.
  *  All rights reserved.
  */
-#include <dpfsdebug.hpp>
+// #include <dpfsdebug.hpp>
+#pragma once
 #include <dpendian.hpp>
 #include <string>
 #include <cstring>
@@ -44,6 +45,10 @@ enum class dpfs_datatype_t : uint8_t {
     TYPE_BLOB,
     MAX_TYPE
 };
+
+inline bool isVariableType(const dpfs_datatype_t& type) noexcept {
+    return (type == dpfs_datatype_t::TYPE_VARCHAR || type == dpfs_datatype_t::TYPE_BLOB);
+}
 
 
 // data describe struct size = 8
@@ -96,6 +101,7 @@ public:
         k->type = dataType;
         k->len = dataLen;
         k->scale = scale;
+        k->offSet = 0;
         return k;
     }
 
@@ -115,6 +121,7 @@ public:
         k->type = other.type;
         k->len = other.len;
         k->scale = other.scale;
+        k->offSet = 0;
         return k;
     }
 
@@ -162,7 +169,11 @@ private:
 
     // size = sizeof(dds) + sizeof(nameLen)
     // dds_field dds;
-
+    friend class CValue;
+    friend class CCollection;
+    friend class CItem;
+    // offset of the first row.
+    uint32_t offSet;
     // for string or binary type
     uint32_t len;
     // for decimal
@@ -183,23 +194,28 @@ public:
         @param other: CValue to copy from
         @return copied bytes on success, else on failure
     */
-    size_t copy(const CValue& other) noexcept {
-        len = other.len;
-        // std::copy(other.data, other.data + *len, data);
-        memcpy(data, other.data, len);
-        return len;
-    }
+    // size_t copy(const CValue& other) noexcept {
+    //     len = other.len;
+    //     // std::copy(other.data, other.data + *len, data);
+    //     memcpy(data, other.data, len);
+    //     return len;
+    // }
 
+    int setData(const void* data, uint32_t size) noexcept {
+        len = size;
+        memcpy(this->data, data, size);
+        return 0;
+    }
     
     // need to process big or little endian
-    size_t len = 0;
+    uint32_t len = 0;
 
     // one row data
     //
     // row in lba1
     //                   <lba1>
     //                   rowlock        col1    col2    col3
-    //  CItem[0].data = |locked|reserve|CValue*|CValue*|CValue*|
+    //  CItem[0].data = |locked|reserve|char*|char*|char*|
     //                                  |
     //                             CValue->data
     //
@@ -213,11 +229,11 @@ public:
     //                                                            |
     // can use REORG to rebuild the table ::                      |
     //                   <lba>                                    ↓
-    //                   rowlock        col1   col2   col3   col4
-    //  CItem[0].data = |locked|reserve|CValue|CValue|CValue|CVAlue|
+    //                   rowlock        col1  col2  col3  col4
+    //  CItem[0].data = |locked|reserve|char*|char*|char*|char*|
     //                                  |
     //                             CValue->data
-    char data[];
+    char* data = nullptr;
 
 };
 
@@ -227,64 +243,34 @@ like a row
 class CItem {
 public:
 
-    /*
-        @param cs column info
-        @param value of row data
-    */
-    CItem(std::vector<CColumn*>& cs) : cols(cs) {
-
-    }
-    ~CItem();
 
     /*
         @param pos: position of the item in the item list
         @return CValue pointer on success, else nullptr
     */
-    virtual const CValue* getValue(int pos) const noexcept {
-        return &values[pos];
-    }
+    CValue getValue(size_t pos) const noexcept;
 
     /*
         @param col: column of the item, maybe column name
         @return CValue pointer on success, else nullptr
         @note this function will search the item list for the column, and possible low performance
     */
-    virtual const CValue* getValueByKey(CColumn* col) const noexcept {
-        for(size_t i = 0; i < cols.size(); ++i) {
-            if (*cols[i] == *col) {
-                return &values[i];
-            }
-        }
-        return nullptr;
-    }
-
+    CValue getValueByKey(CColumn* col) const noexcept;
+   
     /*
         @param pos: position of the item in the item list
         @param value: CValue pointer to update
         @return bytes updated on success, else on failure
     */
-    virtual int updateValue(int pos, CValue* value) noexcept {
-        if(cols[pos]->getLen() < value->len) {
-            return -E2BIG;
-        }
-        return values[pos].copy(*value);
-    }
-
+    int updateValue(size_t pos, CValue* value) noexcept;
+    
     /*
         @param col: col of the item, maybe column name
         @param value: CValue pointer to update
         @return CValue pointer on success, else nullptr
     */
-    virtual int updateValueByKey(CColumn* col, CValue* value) noexcept {
-        for(size_t i = 0; i < cols.size(); ++i) {
-            if (*cols[i] == *col) {
-                return values[i].copy(*value);
-            }
-        }
-        // values not found
-        return -ENXIO;
-    }
-
+    int updateValueByKey(CColumn* col, CValue* value) noexcept;
+    
     /*
         @param writeBack write to storage immediate if true
         @return 0 on success, else on failure
@@ -292,19 +278,55 @@ public:
         need to do : 
         write commit log, and then write data, finally update the index
     */
-    virtual int commit(bool writeBack = false) { 
+    int commit(bool writeBack = false);
+    
+    /*
+        @param cs: column info
+        @return CItem pointer on success, else nullptr
+        @note this function will create a new CItem with the given column info
+    */
+    static CItem* newItem(const std::vector<CColumn*>& cs) noexcept;
 
-        return 0;
-    };
+    static void delItem(CItem*& item) noexcept;
 
-    std::vector<CColumn*>& cols;
+    // private:
+
+    /*
+        @param cs column info
+        @param value of row data
+    */
+    CItem(const std::vector<CColumn*>& cs);
+    CItem(const CItem& other);
+    ~CItem();
+    int dataCopy(size_t pos, const CValue* value) noexcept;
+    int resetOffset(size_t begPos) noexcept;
+
+    const std::vector<CColumn*>& cols;
 
     // row lock, if row is update but not committed, the row is locked
-    bool* locked;
+    bool locked : 1;
+    bool error : 1;
+    bool : 6;
 
-    // pointer to the value started in the caches
-    CValue* values = nullptr;
+    // when lock a row, lock page first, then lock the row
+
+
+    size_t rowLen = 0;
+    char data[];
+    // CValue* values = nullptr;
     
+};
+
+/*
+    process where clause
+*/
+class CWhere {
+public:
+    CWhere() {};
+    ~CWhere() {};
+private:
+    // condition tree
+
 };
 
 /*
@@ -397,8 +419,16 @@ public:
             return -ENOMEM;
         }
         m_lock.lock();
-        m_cols.emplace_back(col);
+        if(m_cols.empty()) {
+            m_cols.emplace_back(col);
+        } else {
+            col->offSet += m_cols.back()->offSet + m_cols.back()->getLen();
+            isVariableType(m_cols.back()->type) ? col->offSet += 4 : 0;
+
+            m_cols.emplace_back(col);
+        }
         m_lock.unlock();
+        
         m_dirty = true;
         m_needreorg = true;
         return 0;
@@ -432,7 +462,7 @@ public:
         @return 0 on success, else on failure
         @note this function will add the item to the collection, and update the index, while not commit, storage the change to temporary disk block
     */
-    int addItem(CItem* item);
+    int addItem(const CItem& item);
 
     /*
         @param item: CItem pointer to add
@@ -447,12 +477,27 @@ public:
         @param pos: position of the row in the row list
         @return CValue pointer on success, else nullptr
     */
-    CValue* getRow(size_t index);
+    CItem* getRow(size_t index);
 
     /*
         @return total items in the collection
     */
     int getItemCount();
+
+    /*
+        @param colName: column name to search
+        @param value: CValue reference to search
+        @return number of items found on success, else on failure
+    */
+    int searchItem(const std::string& colName, CValue& value);// conditions
+
+    /*
+        @param results: vector of CItem pointers to store the results
+        @param number: number of items to get
+        @return number of item on success, 0 on no more items, else on failure
+        @note this function will get the result items from the collection
+    */
+    int getResults(std::vector<CItem*>& results, size_t number);
 
     /*
         @return 0 on success, else on failure
@@ -494,4 +539,5 @@ public:
     bidx bphead;
 
 };
+
 

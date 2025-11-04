@@ -2,7 +2,10 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := dpfsmodule basic log storage collect dpfsnet dpfssys client 
+
+DPFS_ROOT_DIR := $(abspath $(CURDIR)/..)
+
+SUBDIRS := dpfsmodule basic log storage collect dpfsnet dpfssys client $(DPFS_ROOT_DIR)/include/parser
 
 all clean::
 	@for subdir in $(SUBDIRS); \

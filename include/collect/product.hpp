@@ -1,3 +1,4 @@
+#pragma once
 #include <collect/collect.hpp>
 #include <vector>
 #include <cstdint>
@@ -12,15 +13,32 @@
 * 5. 支持查看全部产品列表，支持产品模糊查询
 */
 
+struct CTraceBack {
+    // bidx of the trace back
+    bidx idx;
+    // length of the trace back info
+    size_t len = 0;
+    // trace back info
+    void* info = nullptr;
+};
 
 
 class CProduct {
 public:
-    CProduct();
-    ~CProduct();
+    CProduct() {};
+    ~CProduct() {};
     
     // product id for system product is {nodeId, 0}
     bidx pid;
+
+    /*
+        @param info: pointer to the trace back info
+        @param len: length of the info
+        @param idx: bidx of the trace back
+        @return 0 on success, else on failure
+        @note store the trace back info in the product trace back structure
+    */
+    int traceBack(CTraceBack*& info, const bidx& idx);
     // fixed info for product
     CCollection fixedInfo;
 
