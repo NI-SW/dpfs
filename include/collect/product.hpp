@@ -40,31 +40,33 @@ public:
     */
     int traceBack(CTraceBack*& info, const bidx& idx);
     // fixed info for product
+    
+    uint32_t collectionCount = 0;
+    CCollection* collections = nullptr;
+
     CCollection fixedInfo;
+    CCollection products;
+
+    int save() {
+        // TODO save product info to disk
+        /*
+            struct :
+            |PID(8B)
+            |fixedInfo(defined when save, data is sequential storaged)
+            |varCollectionCount(4B)
+            |varCollectionInfo(use B+ Tree to storage data, 16B for b+ tree head pointer)
+            |productsInfo|
+        */
+        return 0;
+    }
+
+    int load() {
+        // TODO load product info from disk
+        return 0;
+    }
 
     //
     int addCollection(const std::string& name);
-
-    struct collectStatus{
-        // block address of the collection
-        uint64_t blockAddr = 0;
-        // pointer to the collection in memory
-        CCollection* tab = nullptr;
-        // whether the collection is loaded in memory
-        bool loaded = false;
-        // whether the collection is modified
-        bool dirty = false;
-    };
-
-    // load from disk
-    struct tableInfo {
-        // status of the collection
-        collectStatus status;
-        // length of the collection name
-        uint8_t nameLen = 0;
-        // name of the collection
-        char* name = nullptr;
-    };
 
     /* 
         pointer to the collection in disk

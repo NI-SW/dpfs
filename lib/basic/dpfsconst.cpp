@@ -8,6 +8,8 @@
 #include <string>
 #include <cstring>
 
+
+
 uint32_t bswap32(uint32_t x) noexcept {
     uint8_t tmp[4];
     uint8_t* p = (uint8_t*)&x;
@@ -75,4 +77,29 @@ int parse_string(const char* str, const char* key, char* value, size_t size) {
     value[len] = '\0'; // Null-terminate the string
     return 0; // Success
 
+}
+
+const char* ull2str(unsigned long long int l) noexcept {
+    
+    if(l == 0) {
+        return "0";
+    }
+
+    char buf[20];
+    /*
+        max = 18446744073709551614
+    */
+
+    char* p = buf + sizeof(buf) - 1;
+
+    while(l != 0) {
+        --p;
+        *p = '0' + (l % 10);
+        l /= 10;
+    }
+
+
+    return p;
+
+    
 }

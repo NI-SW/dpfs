@@ -19,6 +19,11 @@ void sigfun(int sig) {
 
 int main() {
 
+    /**
+     * 
+     * 
+     * super block的保存和读取
+     */
     int rc = 0;
     // TODO
     bidx sysBidx = {0, 0};
@@ -32,11 +37,14 @@ int main() {
     // sysdpfs->fixedInfo.addCol("CODESET", dpfs_datatype_t::TYPE_VARCHAR, 16);
     // sysdpfs->fixedInfo.addCol("DPFS_NODE_ID", dpfs_datatype_t::TYPE_BIGINT);
 
-    sysdpfs->fixedInfo.addCol("KEY", dpfs_datatype_t::TYPE_VARCHAR, 32);
-    sysdpfs->fixedInfo.addCol("VALUE", dpfs_datatype_t::TYPE_VARCHAR, 32);
+    sysdpfs->pid = sysBidx;
+    sysdpfs->fixedInfo.m_btreeIndex = false;
+
+    sysdpfs->fixedInfo.addCol("KEY", dpfs_datatype_t::TYPE_CHAR, 32);
+    sysdpfs->fixedInfo.addCol("VALUE", dpfs_datatype_t::TYPE_CHAR, 32);
 
 
-    itm = CItem::newItem(sysdpfs->fixedInfo.m_cols);
+    itm = CItem::newItems(sysdpfs->fixedInfo.m_cols, 10);
     if(!itm) {
         rc = -ENOMEM;
         return 1;
@@ -50,14 +58,20 @@ int main() {
     // set system version
 
     val->setData("VERSION", sizeof("VERSION"));
-    itm->updateValue(0, val); 
+    rc = itm->updateValue(0, val); 
+    cout << "Update rc: " << rc << endl;
 
-    val->setData(dpfsVersion, sizeof(dpfsVersion));
-    itm->updateValue(1, val); 
-
-    printMemory(itm->data, itm->rowLen);
+    char version[4] = {dpfsVersion[0] + 0x30, dpfsVersion[1] + 0x30, dpfsVersion[2] + 0x30, dpfsVersion[3] + 0x30};
+    val->setData(version, sizeof(version));
+    rc = itm->updateValue(1, val); 
+    cout << "Update rc: " << rc << endl;
+    printMemory(itm->data, 128);
     printf("\n");
-    // sysdpfs->fixedInfo.addItem(*itm);
+    itm->nextRow();
+
+    printMemory(itm->data, 128);
+    printf("\n");
+    
 
     // set system codeset
     val->setData("CODESET", sizeof("CODESET"));
@@ -66,8 +80,11 @@ int main() {
     val->setData("UTF-8", sizeof("UTF-8"));
     itm->updateValue(1, val); 
 
-    printMemory(itm->data, itm->rowLen);
+    itm->nextRow();
+
+    printMemory(itm->data, 128);
     printf("\n");
+
 
     // set system node id
     val->setData("DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));
@@ -76,12 +93,28 @@ int main() {
     val->setData("50", sizeof("50"));
     itm->updateValue(1, val);
 
-	printMemory(itm->data, itm->rowLen);
+	printMemory(itm->data, 256);
     printf("\n");
+
+    for(auto it : *itm) {
+        cout << "Col 0: " << string(it[0].data, it[0].len) << endl;
+        cout << "Col 1: " << string(it[1].data, it[1].len) << endl;
+    }
     
+    sysdpfs->fixedInfo.addItem(*itm);
+
+    // itm->resetScan();
+    // print inserted data:
+    // CValue nval;
+    // do {
+    //     nval = itm->getValue(0);
+    //     cout << "Col 0: " << string(nval.data, nval.len) << endl;
+    //     nval = itm->getValue(1);
+    //     cout << "Col 1: " << string(nval.data, nval.len) << endl;
+    // } while(itm->nextRow() == 0);
 	
     // printMemory(itm->data, itm->rowLen);
-    // printf("\n");
+    printf("done \n");
 
 	return 0;
 }

@@ -101,7 +101,7 @@ public:
         k->type = dataType;
         k->len = dataLen;
         k->scale = scale;
-        k->offSet = 0;
+        // k->offSet = 0;
         return k;
     }
 
@@ -121,7 +121,7 @@ public:
         k->type = other.type;
         k->len = other.len;
         k->scale = other.scale;
-        k->offSet = 0;
+ 
         return k;
     }
 
@@ -165,6 +165,32 @@ public:
 
     void* operator new(size_t size) = delete;
     ~CColumn() = delete;
+
+    /*
+        @param k: the key of the data
+        @return 0 on success, else on failure
+        @note return the key that used in b+ tree
+    */
+    size_t getKey(size_t& k) const noexcept {
+        switch (type)
+        {
+        case dpfs_datatype_t::TYPE_INT:
+            k = *((int32_t*)(colName.data));
+            break;
+        case dpfs_datatype_t::TYPE_BIGINT:
+            k = *((int64_t*)(colName.data));
+            break;
+        // not support now
+        case dpfs_datatype_t::TYPE_FLOAT:
+        case dpfs_datatype_t::TYPE_DOUBLE:
+            return -EINVAL;
+            // k = *((float*)(colName.data));
+            // k = *((double*)(colName.data));
+        default:
+            break;
+        }
+        return 0;
+    }
 private:
 
     // size = sizeof(dds) + sizeof(nameLen)
@@ -173,8 +199,8 @@ private:
     friend class CCollection;
     friend class CItem;
     // offset of the first row.
-    uint32_t offSet;
-    // for string or binary type
+    // uint32_t offSet;
+    // for string or binary type(max len)
     uint32_t len;
     // for decimal
     uint16_t scale;
@@ -189,6 +215,23 @@ class CValue {
 public:
     CValue(){};
     ~CValue(){};
+    CValue(const CValue& other) noexcept {
+        len = other.len;
+        data = other.data;
+    }
+
+    CValue(CValue&& other) noexcept {
+        len = other.len;
+        data = other.data;
+    }
+
+    CValue& operator=(const CValue& other) noexcept {
+        if (this != &other) {
+            len = other.len;
+            data = other.data;
+        }
+        return *this;
+    }
 
     /*
         @param other: CValue to copy from
@@ -245,8 +288,8 @@ public:
 
 
     /*
-        @param pos: position of the item in the item list
-        @return CValue pointer on success, else nullptr
+        @param pos: position of the col in one item list
+        @return valid CValue on success, else failure
     */
     CValue getValue(size_t pos) const noexcept;
 
@@ -286,8 +329,119 @@ public:
         @note this function will create a new CItem with the given column info
     */
     static CItem* newItem(const std::vector<CColumn*>& cs) noexcept;
-
+    
+    /*
+        @param cs: column info
+        @param maxRowNumber: maximum number of rows in the CItem
+        @return CItem pointer on success, else nullptr
+        @note this function will create a new CItem with the given column info
+    */
+    static CItem* newItems(const std::vector<CColumn*>& cs, size_t maxRowNumber) noexcept;
     static void delItem(CItem*& item) noexcept;
+
+    /*
+        @note switch to next row
+        @return 0 on success, else on failure
+    */
+    int nextRow() noexcept;
+
+    int resetScan() noexcept;
+    
+    class rowIter {
+    public:
+        rowIter(CItem* item) : m_item(item) {
+            m_ptr = item->data;
+        }
+
+        rowIter(const rowIter& other) {
+            m_item = other.m_item;
+            m_ptr = other.m_ptr;
+            m_pos = other.m_pos;
+        }
+
+        rowIter& operator=(const rowIter& other) {
+            if (this != &other) {
+                m_item = other.m_item;
+                m_ptr = other.m_ptr;
+                m_pos = other.m_pos;
+            }
+            return *this;
+        }
+
+        rowIter& operator++() {
+            
+            for(auto& pos : m_item->cols) {
+                if(isVariableType(pos->type)) {
+                    // first 4 bytes is actual length
+                    uint32_t vallEN = *(uint32_t*)((char*)m_ptr);
+                    m_ptr += sizeof(uint32_t) + vallEN;
+                } else {
+                    m_ptr += pos->getLen();
+                }
+            }
+
+            ++m_pos;
+            return *this;
+        }
+
+        bool operator!=(const rowIter& other) const {
+            return (m_pos != other.m_pos);
+        }
+
+        rowIter& operator*() noexcept {
+            // CValue val;
+            // if(m_item->cols[m_pos]->type == dpfs_datatype_t::TYPE_VARCHAR) {
+            //     // first 4 bytes is actual length
+            //     val.len = *(uint32_t*)((char*)m_ptr);
+            //     val.data = (char*)m_ptr + sizeof(uint32_t);
+            // } else {
+            //     val.len = m_item->cols[m_pos]->len;
+            //     val.data = (char*)m_ptr;
+            // }
+            // return val;
+            return *this;
+        }
+
+        CValue operator[](size_t index) const noexcept {
+            CValue val;
+            size_t offSet = 0;
+            for(size_t i = 0; i < index; ++i) {
+                if(isVariableType(m_item->cols[i]->type)) {
+                    offSet += sizeof(uint32_t) + (*(uint32_t*)((char*)m_ptr + offSet));
+                } else {
+                    offSet += m_item->cols[i]->len;
+                }
+            }
+
+            if(m_item->cols[index]->type == dpfs_datatype_t::TYPE_VARCHAR) {
+                // first 4 bytes is actual length
+                val.len = *(uint32_t*)((char*)m_ptr + offSet);
+                val.data = (char*)m_ptr + offSet + sizeof(uint32_t);
+            } else {
+                val.len = m_item->cols[index]->len;
+                val.data = (char*)m_ptr + offSet;
+            }
+            return val;
+        }
+
+    private:
+        friend class CItem;
+        CItem* m_item = nullptr; 
+        char* m_ptr = nullptr;
+        size_t m_pos = 0;
+    };
+
+    rowIter beginIter;
+    rowIter endIter;
+
+    const rowIter& begin() const noexcept {
+        return beginIter;
+    }
+
+    const rowIter& end() const noexcept {
+        return endIter;
+    }
+    
 
     // private:
 
@@ -296,10 +450,11 @@ public:
         @param value of row data
     */
     CItem(const std::vector<CColumn*>& cs);
-    CItem(const CItem& other);
+    CItem(const CItem& other) = delete;
     ~CItem();
     int dataCopy(size_t pos, const CValue* value) noexcept;
-    int resetOffset(size_t begPos) noexcept;
+    size_t getDataOffset(size_t pos) const noexcept;
+    // int resetOffset(size_t begPos) noexcept;
 
     const std::vector<CColumn*>& cols;
 
@@ -310,8 +465,10 @@ public:
 
     // when lock a row, lock page first, then lock the row
 
-
+    size_t maxRowNumber = 1;
+    size_t rowNumber = 0;
     size_t rowLen = 0;
+    char* rowPtr = nullptr;
     char data[];
     // CValue* values = nullptr;
     
@@ -326,6 +483,55 @@ public:
     ~CWhere() {};
 private:
     // condition tree
+
+};
+
+/*
+    class to manage Sequential Storaged data
+    variable length data is not allowed.
+*/
+class CSeqStorage {
+public:
+    CSeqStorage(bidx h, std::vector<CColumn*>& cls, CPage& pge) : head(h), cols(cls), m_page(pge) {
+        count = 0;
+        rowLen = 0;
+        for (auto& col : cols) {
+            rowLen += col->getLen();
+            if(isVariableType(col->getType())) {
+                // variable length type not allowed
+                throw std::invalid_argument("Variable length type not allowed in CSeqStorage");
+            }
+        }
+    };
+    ~CSeqStorage() {};
+
+    // ||||
+    int getItem(size_t pos) {
+        // calculate the bidx
+        bidx idx = head;
+        idx.bid += (pos * rowLen) / 4096;
+        size_t offset = (pos * rowLen) % 4096;
+
+        cacheStruct* cache = nullptr;
+        int rc = m_page.get(cache, idx, 1);
+        if (rc != 0) {
+            return rc;
+        }
+
+        // process offset
+        // TODO
+        return 0;
+    }
+
+
+private:
+    // storage type
+    bidx head = {0, 0};
+    uint32_t count = 0;
+    uint32_t rowLen = 0;
+    std::vector<CColumn*>& cols;
+    CPage& m_page;
+
 
 };
 
@@ -351,6 +557,7 @@ public:
         m_insertable = false;
         m_detelable = false;
         m_dirty = false;
+        m_btreeIndex = true;
         m_name = "dpfs_dummy";
         m_cols.clear();
         m_cols.reserve(16);
@@ -419,14 +626,14 @@ public:
             return -ENOMEM;
         }
         m_lock.lock();
-        if(m_cols.empty()) {
-            m_cols.emplace_back(col);
-        } else {
-            col->offSet += m_cols.back()->offSet + m_cols.back()->getLen();
-            isVariableType(m_cols.back()->type) ? col->offSet += 4 : 0;
-
-            m_cols.emplace_back(col);
-        }
+        m_cols.emplace_back(col);
+        // if(m_cols.empty()) {
+        //     m_cols.emplace_back(col);
+        // } else {
+        //     // col->offSet += m_cols.back()->offSet + m_cols.back()->getLen();
+        //     // isVariableType(m_cols.back()->type) ? col->offSet += 4 : 0;
+        //     m_cols.emplace_back(col);
+        // }
         m_lock.unlock();
         
         m_dirty = true;
@@ -469,7 +676,7 @@ public:
         @return 0 on success, else on failure
         @note this function will add the item to the collection, and update the index
     */
-    int addItems(std::vector<CItem*>& items);
+    int addItems(std::vector<CItem*>& items) = delete;
     
     int deleteItem(int pos);
 
@@ -518,8 +725,8 @@ public:
     bool m_dirty : 1;
     // if data struct is changed, need a restore to reorganize data in storage
     bool m_needreorg : 1;
-    // not used
-    bool reserve : 1;
+    // wether use b+ tree index
+    bool m_btreeIndex : 1;
     //above 1B
 
     // inner locker 1B
@@ -528,6 +735,7 @@ public:
     uint32_t m_ccid;
 
     // the product that owns this collection
+    // bidx m_ownerBid;
     CProduct* m_owner;
 
     // name of the collection
@@ -535,9 +743,22 @@ public:
     // columns in the collection
     std::vector<CColumn*> m_cols;
 
-    // b plus tree head pointer
-    bidx bphead;
+
+    // b plus tree head pointer or head block of seq storage
+    bidx m_dataRoot;
+
+
 
 };
 
+/*
 
+    BLOCK 1 |basic info| include collections info, etc.
+    BLOCK 2 |fixed info| change is not allowed
+*/
+
+
+
+// void qqqwwweee() {
+//     sizeof(CItem::rowIter);
+// }

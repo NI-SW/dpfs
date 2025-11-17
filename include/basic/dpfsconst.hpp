@@ -119,6 +119,10 @@ bool is_valid_rsp(dpfsrsp rsp) noexcept;
 */
 int parse_string(const char* str, const char* key, char* value, size_t size);
 
+/*
+    @note convert long long int to string
+*/
+const char* ull2str(long long int l) noexcept;
 
 
 // using msgCallback = dpfs_rsp* (*)(const dpfs_cmd* cmd);

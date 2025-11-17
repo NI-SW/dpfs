@@ -1,5 +1,6 @@
 #include <dpfssys/dpfsdata.hpp>
-
+#include <basic/dpfsconst.hpp>
+#include <dpfsdebug.hpp>
 /*
     basic system table :
     "sysdpfs" : "sysproducts", "systables", "syscolumns", "sysindexes"
@@ -19,8 +20,9 @@ int CDatasvc::init() {
     bidx sysBidx = {nodeId, 0};
     std::string data = "";
     CProduct* sysdpfs = new CProduct();
-    CItem* tim = nullptr;
+    CItem* itm = nullptr;
     CValue* val;
+    char version[4] = {dpfsVersion[0] + 0x30, dpfsVersion[1] + 0x30, dpfsVersion[2] + 0x30, dpfsVersion[3] + 0x30};
 
     if(!sysdpfs) {
         rc = -ENOMEM;
@@ -34,42 +36,65 @@ int CDatasvc::init() {
         goto errReturn;
     }
     
-    sysdpfs->fixedInfo.addCol("VERSION", dpfs_datatype_t::TYPE_BIGINT);
-    sysdpfs->fixedInfo.addCol("CODESET", dpfs_datatype_t::TYPE_CHAR, 16);
-    sysdpfs->fixedInfo.addCol("DPFS_NODE_ID", dpfs_datatype_t::TYPE_BIGINT);
+    sysdpfs->fixedInfo.addCol("KEY", dpfs_datatype_t::TYPE_CHAR, 32);
+    sysdpfs->fixedInfo.addCol("VALUE", dpfs_datatype_t::TYPE_CHAR, 32);
 
-    tim = CItem::newItem(sysdpfs->fixedInfo.m_cols);
-    if(!tim) {
+    itm = CItem::newItems(sysdpfs->fixedInfo.m_cols, 10);
+    if(!itm) {
         rc = -ENOMEM;
         goto errReturn;
     }
 
-    val = (CValue*)malloc(sizeof(CValue) + 128);
+    val = (CValue*)malloc(sizeof(CValue) + 64);
     if(!val) {
         rc = -ENOMEM;
         goto errReturn;
     }
     // set system version
-    val->len = 8;
-    *(int64_t*)val->data = 1;
-    tim->updateValue(0, val); // version
+
+    val->setData("VERSION", sizeof("VERSION"));
+    rc = itm->updateValue(0, val); 
+
+
+    
+    val->setData(version, sizeof(version));
+    rc = itm->updateValue(1, val); 
+
+    printMemory(itm->data, 128);
+    printf("\n");
+    itm->nextRow();
+
+    printMemory(itm->data, 128);
+    printf("\n");
+    
 
     // set system codeset
-    val->len = 16;
-    memcpy(val->data, "UTF-8", 6);
-    tim->updateValue(1, val); // codeset
+    val->setData("CODESET", sizeof("CODESET"));
+    itm->updateValue(0, val);
+
+    val->setData("UTF-8", sizeof("UTF-8"));
+    itm->updateValue(1, val); 
+
+    itm->nextRow();
+
+    printMemory(itm->data, 128);
+    printf("\n");
+
 
     // set system node id
-    val->len = 8;
-    *(int64_t*)val->data = nodeId;
-    tim->updateValue(2, val); // node id
+    val->setData("DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));
+    itm->updateValue(0, val);
+    
+    data = ull2str(nodeId);
+    val->setData(data.c_str(), data.size());
+    itm->updateValue(1, val);
 
+	printMemory(itm->data, 256);
+    printf("\n");
 
     
-    // memcpy(tim->getValue(0)->data, "wuhudasima", sizeof("wuhudasima")); );
-    
-    
-    sysdpfs->fixedInfo.addItem(*tim);
+    sysdpfs->fixedInfo.addItem(*itm);
+
 
     sysdpfs->addCollection("sysproducts");
     sysdpfs->addCollection("systables");
@@ -81,8 +106,8 @@ int CDatasvc::init() {
 
     return 0;
 errReturn:
-    if(tim) {
-        CItem::delItem(tim);
+    if(itm) {
+        CItem::delItem(itm);
     }
     if(sysdpfs) {
         delete sysdpfs;
