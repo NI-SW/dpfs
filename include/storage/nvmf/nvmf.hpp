@@ -113,6 +113,9 @@ public:
 	// inline int checkReqs(int times, int max_io_que) noexcept;
 	inline int nextQpair() noexcept;
 
+	/*
+		@note clear all resources of nvmfDevice, ioqpairs and namespaces
+	*/
 	int clear();
 
 

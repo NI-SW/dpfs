@@ -71,24 +71,34 @@ int nvmfDevice::clear() {
 		attached = false;
 	}
 
-	nfhost.log.log_notic("clr func called, Detaching controller %s\n", trid->traddr);
+	// nfhost.log.log_inf("clr func called, Detaching controller %s\n", trid->traddr);
 	m_processLock.lock();
 	
-	for(auto qp : ioqpairs) {
+	// free all ioqpair
+	for(auto& qp : ioqpairs) {
+		if(qp.second.state == QPAIR_INVALID || qp.second.state == QPAIR_NOT_INITED) {
+			continue;
+		}
+		qp.second.m_lock.lock();
 		qp.second.state = QPAIR_INVALID;
 		rc = spdk_nvme_ctrlr_free_io_qpair(qp.first);
 		if(rc) {
 			nfhost.log.log_error("spdk_nvme_ctrlr_free_io_qpair failed (%d)\n", rc);
 		}
+		nfhost.log.log_notic("IO qpair freed %p\n", qp.first);
 		qp.first = nullptr;
+		qp.second.m_lock.unlock();
 	}
+
+	ioqpairs.clear();
 
 
 	m_processLock.unlock();
 
 	// free all ns
 	for(auto& ns : nsfield) {
-		spdk_nvme_ctrlr_detach_ns(ctrlr, ns->nsid, nullptr);
+		// no need to detach ns
+		// spdk_nvme_ctrlr_detach_ns(ctrlr, ns->nsid, nullptr);
 		delete ns;
 	}
 
@@ -97,6 +107,7 @@ int nvmfDevice::clear() {
 	
 	struct spdk_nvme_detach_ctx* detach_ctx = nullptr;
 
+	// detach the device
 	rc = spdk_nvme_detach_async(ctrlr, &detach_ctx);
 	if (rc) {
 		nfhost.log.log_inf("spdk_nvme_detach_async failed (%d)\n", rc);
@@ -416,7 +427,19 @@ static void device_guard(void* arg) {
 				if(m_reqs <= 0 && qp_state == nvmfDevice::qpair_use_state::QPAIR_PREPARE) {
 					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d no requests, wait for new requests\n",dev->devdesc_str.c_str(), current_qpair_index);
 					// continue;
-					dev->m_convar.wait(lk);
+
+					dev->m_convar.wait_for(lk, std::chrono::milliseconds(qpair_io_wait_tm));
+					if(!dev->attached) {
+						goto outLoop;
+					}
+					if(m_reqs <= 0 && qp_state == nvmfDevice::qpair_use_state::QPAIR_PREPARE) {
+						continue;
+					}
+
+
+					// dev->m_convar.wait_until(lk, std::chrono::system_clock::now() + std::chrono::milliseconds(qpair_io_wait_tm));
+					// dev->m_convar.wait(lk);
+
 					// std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
 					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d wake up from wait at %llu us\n", dev->devdesc_str.c_str(), current_qpair_index, us.count());
 					// nfhost.log.log_inf("nvmfDevice %s qpair index %d wake up from wait\n", devdesc_str.c_str(), current_qpair_index);
@@ -1097,12 +1120,14 @@ CNvmfhost::CNvmfhost() : async_mode(true) {
 }
 
 CNvmfhost::~CNvmfhost() {
+	cleanup();
+
 	m_exit = true;
     // Cleanup all controllers and namespaces
+
 	if(nf_guard.joinable())
 		nf_guard.join();
 		
-	cleanup();
     log.log_notic("CNvmfhost destroyed\n");
 
 	init_mutex.lock();
@@ -1155,27 +1180,29 @@ void CNvmfhost::cleanup() {
 	// remove all namespaces and controllers
 	for(auto& dev : devices) {
 		if (dev->attached) {
+
 			dev->attached = false;
 			dev->m_exit = true;
 			if(dev->process_complete_thd.joinable()) {
 				dev->process_complete_thd.join();
 			}
+			dev->clear();
+			
+			// if(dev->ioqpairs[dev->qpair_index].first) {
+			// 	spdk_nvme_ctrlr_free_io_qpair(dev->ioqpairs[dev->qpair_index].first);
+			// 	dev->ioqpairs[dev->qpair_index].first = nullptr;
+			// }
 
-			if(dev->ioqpairs[dev->qpair_index].first) {
-				spdk_nvme_ctrlr_free_io_qpair(dev->ioqpairs[dev->qpair_index].first);
-				dev->ioqpairs[dev->qpair_index].first = nullptr;
-			}
-
-			rc = spdk_nvme_detach_async(dev->ctrlr, &detach_ctx[i++]);
-			if (rc) {
-				log.log_inf("spdk_nvme_detach_async failed (%d)\n", rc);
-				continue;
-			}
-			for(auto& nsdesc : dev->nsfield) {
-				delete nsdesc;
-			}
-			dev->nsfield.clear();
-			log.log_inf("Controller %s detached\n", dev->trid->traddr);
+			// rc = spdk_nvme_detach_async(dev->ctrlr, &detach_ctx[i++]);
+			// if (rc) {
+			// 	log.log_inf("spdk_nvme_detach_async failed (%d)\n", rc);
+			// 	continue;
+			// }
+			// for(auto& nsdesc : dev->nsfield) {
+			// 	delete nsdesc;
+			// }
+			// dev->nsfield.clear();
+			// log.log_inf("Controller %s detached\n", dev->trid->traddr);
 
 			// lock for nsguard thread
 			devices_lock.lock();
@@ -1299,36 +1326,39 @@ int CNvmfhost::detach_device(const std::string& devdesc_str) {
 	for(auto dev = devices.begin(); dev != devices.end(); ++dev) {
 		if((*dev)->devdesc_str == devdesc_str) {
 			if((*dev)->attached) {
-				(*dev)->attached = false;
-				(*dev)->m_exit = true;
-				if((*dev)->process_complete_thd.joinable()) {
-					(*dev)->process_complete_thd.join();
-				}
+				// (*dev)->attached = false;
+				// (*dev)->m_exit = true;
+				(*dev)->clear();
 
-				if((*dev)->ioqpairs[(*dev)->qpair_index].first) {
-					while(spdk_nvme_qpair_get_num_outstanding_reqs((*dev)->ioqpairs[(*dev)->qpair_index].first)) {
-						spdk_nvme_qpair_process_completions((*dev)->ioqpairs[(*dev)->qpair_index].first, 0);
-						// std::this_thread::sleep_for(std::chrono::milliseconds(10));
-					}
-					(*dev)->ioqpairs[(*dev)->qpair_index].second.state = nvmfDevice::qpair_use_state::QPAIR_INVALID;
-					spdk_nvme_ctrlr_free_io_qpair((*dev)->ioqpairs[(*dev)->qpair_index].first);
-					(*dev)->ioqpairs[(*dev)->qpair_index].first = nullptr;
-				}
-				spdk_nvme_detach_ctx *detach_ctx = nullptr;
-				rc = spdk_nvme_detach_async((*dev)->ctrlr, &detach_ctx);
-				if(rc) {
-					log.log_error("spdk_nvme_detach_async failed (%d)\n", rc);
-					return rc;
-				}
-				for(auto& nsdesc : (*dev)->nsfield) {
-					delete nsdesc;
-				}
+				// if((*dev)->process_complete_thd.joinable()) {
+				// 	(*dev)->process_complete_thd.join();
+				// }
 
-				(*dev)->nsfield.clear();
+				// free ioqpair
+				// if((*dev)->ioqpairs[(*dev)->qpair_index].first) {
+				// 	while(spdk_nvme_qpair_get_num_outstanding_reqs((*dev)->ioqpairs[(*dev)->qpair_index].first)) {
+				// 		spdk_nvme_qpair_process_completions((*dev)->ioqpairs[(*dev)->qpair_index].first, 0);
+				// 		// std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				// 	}
+				// 	(*dev)->ioqpairs[(*dev)->qpair_index].second.state = nvmfDevice::qpair_use_state::QPAIR_INVALID;
+				// 	spdk_nvme_ctrlr_free_io_qpair((*dev)->ioqpairs[(*dev)->qpair_index].first);
+				// 	(*dev)->ioqpairs[(*dev)->qpair_index].first = nullptr;
+				// }
+				// spdk_nvme_detach_ctx *detach_ctx = nullptr;
+				// rc = spdk_nvme_detach_async((*dev)->ctrlr, &detach_ctx);
+				// if(rc) {
+				// 	log.log_error("spdk_nvme_detach_async failed (%d)\n", rc);
+				// 	return rc;
+				// }
+				// for(auto& nsdesc : (*dev)->nsfield) {
+				// 	delete nsdesc;
+				// }
 
-				if (detach_ctx) {
-					spdk_nvme_detach_poll(detach_ctx);
-				}
+				// (*dev)->nsfield.clear();
+
+				// if (detach_ctx) {
+				// 	spdk_nvme_detach_poll(detach_ctx);
+				// }
 
 
 				log.log_inf("Device %s detached\n", (*dev)->devdesc_str.c_str());

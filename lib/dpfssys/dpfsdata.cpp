@@ -19,7 +19,7 @@ int CDatasvc::init() {
     // TODO
     bidx sysBidx = {nodeId, 0};
     std::string data = "";
-    CProduct* sysdpfs = new CProduct();
+    CProduct* sysdpfs = new CProduct(m_page, m_diskMan, m_log);
     CItem* itm = nullptr;
     CValue* val;
     char version[4] = {dpfsVersion[0] + 0x30, dpfsVersion[1] + 0x30, dpfsVersion[2] + 0x30, dpfsVersion[3] + 0x30};

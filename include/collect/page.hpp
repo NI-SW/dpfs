@@ -14,6 +14,11 @@ class PageClrFn;
 
 // block index
 struct bidx {
+    bidx() : gid(0), bid(0) {}
+    bidx(uint64_t g, uint64_t b) : gid(g), bid(b) {}
+    bidx(const bidx& b) { gid = b.gid; bid = b.bid; }
+    bidx(bidx&& b) { gid = b.gid; bid = b.bid; }
+    
     // disk group id
     uint64_t gid;
     // block id in the disk group
@@ -21,6 +26,11 @@ struct bidx {
     bool operator==(const bidx& target) const noexcept {
         return (target.gid == gid && target.bid == bid);
     }
+    
+    bool operator!=(const bidx& target) const noexcept {
+        return !(*this == target);
+    }
+
     bidx& operator=(const bidx& other) noexcept {
         gid = other.gid;
         bid = other.bid;
@@ -69,10 +79,16 @@ private:
 
 public:
 
+    /*
+        @note return pointer to the data block
+    */
     void* getPtr() noexcept {
         return zptr;
     }
 
+    /*
+        @note return lba length of the cache block
+    */
     uint32_t getLen() noexcept {
         return len;
     }
@@ -96,7 +112,7 @@ public:
     
     // if need change zptr, you must lock first
     /*
-        @note this func will make sure status is VALID
+        @note this func will make sure status is VALID, and change memory status to dirty
         @return 0 on success, else on failure
     */
     int lock() noexcept {
@@ -115,6 +131,9 @@ public:
             csLock.unlock();
             goto begin;
         }
+
+        // always consider change zptr, set dirty flag
+        dirty = true;
 
         return 0;
     }
@@ -213,7 +232,7 @@ public:
         @param ptr this func is an async func, when ptr is not null, the callback is done
         @param idx index of the block
         @param len number of blocks, 1 block is 4096B
-        @return return the pointer to the block struct in the memory
+        @return 0 on success, else on failure
         @note unless there is a large object that need be storaged by multiple blocks, len should be set to 1
     */
     int get(cacheStruct*& ptr, const bidx& idx, size_t len = 1);
@@ -221,17 +240,21 @@ public:
     /*
         @param idx the storage index, indicate which disk group and disk block
         @param zptr the pointer to the data that will be insert into cache system or write to the storage
+        @param finish_indicator pointer to an integer, if not null, when write back is finished, *finish_indicator will be set to 1 if success, set to -1 if error occur
         @param len length of the data blocks, 1 block is 4096B
         @param wb  true if need to write back to disk immediate
+        @param pCache if not null, will return the cacheStruct pointer of the stored block
+        @return 0 on success, else on failure
         @note flush data from zptr to cache, bewarn zptr will be take over by CPage
     */
-    int put(const bidx& idx, void* zptr, int* finish_indicator = nullptr, size_t len = 1, bool wb = false);
+    int put(const bidx& idx, void* zptr, int* finish_indicator = nullptr, size_t len = 1, bool wb = false, cacheStruct** pCache = nullptr);
 
     /*
         @param cache the block that you want to write back to disk
+        @param finish_indicator pointer to an integer, if not null, when write back is finished, *finish_indicator will be set to 1 if success, set to -1 if error occur
         @return 0 on success, else on failure
     */
-    int writeBack(cacheStruct* cache) = delete;
+    int writeBack(cacheStruct* cache, int* finish_indicator = nullptr);
 
     /*
         @return 0 on success, else on failure
@@ -283,9 +306,7 @@ private:
     // 8B
     std::vector<dpfsEngine*>& m_engine_list;
 
-    // 104B
-    // search data by disk group id and disk block id
-    CDpfsCache<bidx, cacheStruct*, PageClrFn> m_cache;
+
 
     // 8B
     logrecord& m_log;
@@ -297,6 +318,7 @@ private:
     std::vector<std::queue<void*>> m_zptrList;
     std::vector<CSpin> m_zptrLock;
 
+
     // storage cacheStruct malloced by get and put
     // 24B + 24B
     std::queue<cacheStruct*> m_cacheStructMemList;
@@ -307,6 +329,12 @@ private:
     CSpin m_csmLock;
     CSpin m_cbmLock;
     bool m_exit;
+    
+    // 104B
+    // search data by disk group id and disk block id, deconstruct first, or may cause crash(PageClrFn use some func of CPage)
+    CDpfsCache<bidx, cacheStruct*, PageClrFn> m_cache;
+
+
 
 };
 

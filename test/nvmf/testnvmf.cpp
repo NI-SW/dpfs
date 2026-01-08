@@ -116,7 +116,8 @@ int testnfhost(void* arg = nullptr) {
 				};
 				int j = i;
 				nfhost.log.log_inf("count : %d, load.\n", j);
-				dpfs_engine_cb_struct* cbs = new dpfs_engine_cb_struct(my_cb, 0);
+				dpfs_engine_cb_struct* cbs = new dpfs_engine_cb_struct();
+				cbs->m_cb = my_cb;
 				cbs->m_arg = cbs;
 
 

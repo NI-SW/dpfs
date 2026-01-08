@@ -1,5 +1,5 @@
 #include <collect/page.hpp>
-
+#include <memory.h>
 // max block len, manage memory block alloced by dpfsEngine::zmalloc
 const size_t maxBlockLen = 20;
 // ?
@@ -68,9 +68,9 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
     if(ptr) {
         m_log.log_inf("found cache in LRU, gid=%llu bid=%llu len=%llu\n", idx.gid, idx.bid, ptr->cache->len);
 
+        // if len is not match, need update cache, reload from disk
         if(ptr->cache->len < len) {
             updateCache = true;
-
         }
     }
 
@@ -202,7 +202,7 @@ errReturn:
     return rc;
 }
 
-int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, bool wb) {
+int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, bool wb, cacheStruct** pCache) {
     // if(idx.gid >= m_engine_list.size()) {
     //     return -ERANGE;
     // }
@@ -245,6 +245,11 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
             goto errReturn;
         }
 
+        if(pCache) {
+            *pCache = cs;
+        }
+        
+
     } else {
         // if loaded on cache, update it
         // write lock
@@ -262,6 +267,10 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
         cptr->cache->len = len;
         cptr->cache->dirty = 1;
         cptr->cache->unlock();
+
+        if(pCache) {
+            *pCache = cptr->cache;
+        }
     }
 
 
@@ -284,7 +293,7 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
         cptr->cache->status = cacheStruct::WRITING;
         cptr->cache->unlock();
 
-        if(finish_indicator) {
+        if(1) {
             dpfs_engine_cb_struct* cbs = alloccbs();// new dpfs_engine_cb_struct;
             if(!cbs) {
                 m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory\n");
@@ -316,8 +325,6 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
             };   
 
             rc = m_engine_list[idx.gid]->write(idx.bid, zptr, len, cbs);
-        } else {
-            rc = m_engine_list[idx.gid]->write(idx.bid, zptr, len);
         }
 
         if(rc < 0) {
@@ -330,7 +337,15 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
         
 
     } else {
-        cptr->cache->dirty = 1;
+        if(cs){
+            cs->dirty = 1;
+        } else if(cptr) {
+            cptr->cache->dirty = 1;
+        } else {
+            rc = -EFAULT;
+            goto errReturn;
+            // should not reach here
+        }
     }
 
     return 0;
@@ -342,10 +357,67 @@ errReturn:
     return rc;
 }
 
-// int CPage::writeBack(cacheStruct *cache) {
-//     // TODO 
-//     return 0;
-// }
+int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
+    // TODO 
+    int rc = 0;
+
+    dpfs_engine_cb_struct* cbs = alloccbs();// new dpfs_engine_cb_struct;
+    if(!cbs) {
+        m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory\n");
+        rc = -ENOMEM;
+        goto errReturn;
+    }
+
+    cbs->m_arg = this;
+    // call back function for disk write
+    cbs->m_cb = [cache, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
+        CPage* pge = static_cast<CPage*>(arg);
+        if(dcp->return_code) {
+            cache->status = cacheStruct::ERROR;
+            pge->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
+            // write error
+            // TODO process error
+            if(finish_indicator) {
+                *finish_indicator = -1;
+            }
+            pge->freecbs(cbs);
+            return;
+        }
+        if(finish_indicator) {
+            *finish_indicator = 1;
+        }
+        cache->status = cacheStruct::VALID;
+        cache->dirty = 0;
+        pge->freecbs(cbs);
+    };   
+
+    rc = cache->lock();
+    if(rc) {
+        // TODO process error
+
+        m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
+        goto errReturn;
+    }
+    cache->status = cacheStruct::WRITING;
+    cache->unlock();
+    rc = m_engine_list[cache->idx.gid]->write(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
+    
+    
+
+    if(rc < 0) {
+        // if error, unlock immediately, else unlock in callback
+        m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
+        // write error
+        // TODO
+        // write error bug memory is valid
+        cache->status = cacheStruct::VALID;
+        goto errReturn;
+    }
+
+    return 0;
+errReturn:
+    return rc;
+}
 
 int CPage::flush() {
     // TODO 
@@ -447,6 +519,7 @@ void* CPage::alloczptr(size_t sz) {
             zptr = m_zptrList[sz].front();
             m_zptrList[sz].pop();
             m_zptrLock[sz].unlock();
+            memset(zptr, 0, (sz + 1) * dpfs_lba_size);
         } else {
             zptr = m_engine_list[0]->zmalloc((sz + 1) * dpfs_lba_size);
         }

@@ -25,7 +25,7 @@ struct CTraceBack {
 
 class CProduct {
 public:
-    CProduct() {};
+    CProduct(CPage& pge, CDiskMan& dskman, logrecord& log) : m_page(pge), m_diskMan(dskman), fixedInfo(*this, dskman, pge), products(*this, dskman, pge), m_log(log) {};
     ~CProduct() {};
     
     // product id for system product is {nodeId, 0}
@@ -46,6 +46,9 @@ public:
 
     CCollection fixedInfo;
     CCollection products;
+
+    CPage& m_page;
+    CDiskMan& m_diskMan;
 
     int save() {
         // TODO save product info to disk
@@ -71,15 +74,16 @@ public:
     /* 
         pointer to the collection in disk
         user defined methods for product management, in system, find in memory first, if not, load from disk
-        may use unordered_map or bitmap to manage the collections in memory?
+        may use unordered_map or bitmap to manage the collections in memory? 
     */
     std::vector<uint64_t> tabBlockAddrsses;
+    logrecord& m_log;
 
 };
 
 
-void qwertest() {
+// void qwertest() {
 
-    sizeof(CProduct);
-    return;
-}
+//     sizeof(CProduct);
+//     return;
+// }

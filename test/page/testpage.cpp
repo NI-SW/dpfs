@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <iostream>
 #include <csignal>
+#include <dpfsdebug.hpp>
 using namespace std;
 std::thread test;
 
@@ -38,6 +39,7 @@ int main() {
 	
 	// CNvmfhost* nfe = dynamic_cast<CNvmfhost*>(engine);
 	// nfe->log.set_loglevel(logrecord::LOG_DEBUG);
+	testLog.set_loglevel(logrecord::LOG_DEBUG);
 
 	// rc = engine->attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	rc = engine->attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
@@ -163,8 +165,17 @@ int main() {
 
 			if(i % 1000 == 0)
 				testLog.log_inf("get %llu time : %llu\n", j, (ns2 - ns).count());
-			// testLog.log_inf("block %llu len: %u data: %s\n", i, ptr[j]->getLen(), myptr);
+			testLog.log_inf("block %llu len: %u data: %s\n", i, ptr[j]->getLen(), myptr);
 			ptr[j]->read_unlock();
+
+			printMemory(myptr, 512);
+			cout << endl;
+			// for(int j = 0; j < 512; ++j) {
+			// 	printf("%02x ", (unsigned char)myptr[j]);
+			// 	if((j + 1) % 16 == 0) {
+			// 		printf("\n");
+			// 	}
+			// }
 
 
 			// std::cout << "after 4096 " << myptr[4096] << std::endl;

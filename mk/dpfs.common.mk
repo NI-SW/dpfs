@@ -4,7 +4,7 @@
 #
 CXXHEADER := -I$(DPFS_ROOT_DIR)/include
 CXXLIB := -L$(DPFS_ROOT_DIR)/lib
-CXXFLAG := -O2 -Wall -Wextra -Werror=return-type -finline-functions -pthread
+CXXFLAG := -O0 -Wall -Wextra -Werror=return-type -finline-functions -pthread
 EXTRCLEAN := 
 OSNAME := $(shell uname)
 GCCVERSION := $(shell g++ -dumpversion)

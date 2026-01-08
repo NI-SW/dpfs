@@ -11,7 +11,10 @@
 */
 class CDatasvc {
 public:
-    CDatasvc() = default;
+    CDatasvc(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : m_diskMan(nullptr), m_page(engine_list, cacheSize, log) {
+        m_diskMan.m_page = &m_page;
+
+    }
     ~CDatasvc() = default;
     /*
         @return 0 on success, else on failure
@@ -27,6 +30,8 @@ public:
 
     // engines managed by this service
     CDiskMan m_diskMan;
+    CPage m_page;
+    logrecord m_log;
 
     // // product list, should storage on disk but not vector
     // std::vector<std::pair<bidx, std::string>> pdl;

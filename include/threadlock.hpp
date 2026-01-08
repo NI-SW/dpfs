@@ -68,6 +68,43 @@ private:
     std::atomic_flag m_lock;
 };
 
+template<typename T>
+class CTemplateGuard {
+public:
+    CTemplateGuard(T& lock) : m_lock(lock) {
+        m_error_code = m_lock.lock();
+    }
+    ~CTemplateGuard() {
+        if(m_error_code == 0) {
+            m_lock.unlock();
+        }
+    }
+    int returnCode() const noexcept {
+        return m_error_code;
+    }
+private:
+    T& m_lock;
+    int m_error_code = 0;
+};
+
+template<typename T>
+class CTemplateReadGuard {
+public:
+    CTemplateReadGuard(T& lock) : m_lock(lock) {
+        error_code = m_lock.read_lock();
+    }
+    ~CTemplateReadGuard() {
+        if(error_code == 0) {
+            m_lock.read_unlock();
+        }
+    }
+    int returnCode() const noexcept {
+        return error_code;
+    }
+private:
+    T& m_lock;
+    int error_code = 0;
+};
 
 class CMutexGuard {
 public:
