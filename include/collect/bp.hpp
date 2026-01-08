@@ -1156,6 +1156,7 @@ address         0 1 2 3 4 5 6 7 8
 
     int split_internal(NodeData& left, NodeData& right, KEY_T& upKey) {
 
+        // problem :: cause node split error
         int rc = 0;
         rc = right.initNode(false, m_indexOrder);
         if (rc != 0) {

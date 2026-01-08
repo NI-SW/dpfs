@@ -12,6 +12,7 @@
 #include <spdk/log.h>
 #include <mutex>
 #include <thread>
+#include <stdexcept>
 
 #define DPFS_IO_CHECK
 

@@ -1,6 +1,7 @@
 #include <dpfsclient/dpfsclient.hpp>
 #include <basic/dpfsconst.hpp>
 #include <cstring>
+#include <stdexcept>
 
 
 CDpfsSysCli::CDpfsSysCli(const char* netType) {

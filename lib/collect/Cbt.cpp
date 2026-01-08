@@ -1,4 +1,5 @@
 #include <collect/Cbt.hpp>
+#include <algorithm>
 extern uint64_t nodeId;
 
 CbtItem::CbtItem(int64_t offset, int64_t size) {

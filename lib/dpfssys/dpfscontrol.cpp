@@ -1,5 +1,6 @@
 #include <dpfssys/dpfscontrol.hpp>
 #include <cstring>
+#include <cstdlib>
 
 static dpfs_rsp invalid_rsp = {dpfsrsp::DPFS_RSP_INVALID, 0, {}};
 static dpfs_rsp notsupport_rsp = {dpfsrsp::DPFS_RSP_NOTSUPPORT, 0, {}};
