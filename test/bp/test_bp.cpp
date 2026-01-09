@@ -65,9 +65,12 @@ int main() {
 
 
     try {
-        expect_insert(bpt, 1, 1001);
-        expect_insert(bpt, 2, 1002);
-        expect_insert(bpt, 3, 1003);
+        for(int i = 1; i < 23; ++i) {
+            if(i == 13) {
+                continue;
+            }
+            expect_insert(bpt, i, 1000 + i);
+        }
     } catch (const std::exception& ex) {
         threw = true;
         std::cerr << "insert threw exception: " << ex.what() << std::endl;
@@ -120,6 +123,23 @@ int main() {
         expect_insert(bpt, keyVal, keyVal + 1000);
 
         bpt.printTree();    
+    }
+
+
+    cout << " test remove " << endl;
+    while(1) {
+        cout << " remove key val (0 to exit): ";
+        uint64_t keyVal = 0;
+        cin >> keyVal;
+        if(keyVal == 0) {
+            break;
+        }
+        auto key = make_key(keyVal);
+        rc = bpt.remove(key);
+        if(rc != 0) {
+            cout << " remove key " << keyVal << " fail, rc=" << rc << endl;
+        }
+        bpt.printTree();
     }
 
 

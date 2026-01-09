@@ -19,8 +19,8 @@
 #include <iostream>
 #include <string>
 using namespace std;
-constexpr int indOrder = 4;
-constexpr int rowOrder = 4;
+constexpr int indOrder = 5;
+constexpr int rowOrder = 5;
 
 static int myabort() {
     return -ERANGE;
@@ -246,6 +246,8 @@ using child_t = uint64_t;
         int popFrontChild();
         int popBackChild();
 
+        int printNode() const noexcept;
+
         bidx self{ 0, 0 };
         // key start position
         KEY_T* keys = nullptr;
@@ -336,11 +338,12 @@ using child_t = uint64_t;
                 uint64_t prev = 0;   // leaf prev bid
                 uint64_t next = 0;   // leaf next bid
                 uint16_t count = 0;
+                uint16_t secondCount = 0; // childVec or rowVec count 
                 uint8_t leaf = true;
                 // if host is big endian, use it as a flag to indicate data is converted in memory
                 uint8_t isConverted = 0;
                 uint8_t childIsLeaf = 0;
-                char reserve[3];
+                char reserve[1];
             }* hdr;
             #pragma pack(pop)
             // point to dma ptr, mange by outside
@@ -501,7 +504,7 @@ using child_t = uint64_t;
             @return position of the key on success, -ENOENT if not found
             @note search key in the vector
         */
-        int search(const KEY_T& key) const {
+        int search(const KEY_T& key) const noexcept {
             auto pos = std::lower_bound(keys, keys + vecSize, key);
             // if (pos == keys + vecSize || !(*pos == key)) {
             //     return -ENOENT;
@@ -548,7 +551,7 @@ using child_t = uint64_t;
     class CChildVec {
     public:
         
-        CChildVec(NodeData& nd) : vecSize(nd.nodeData->hdr->count),  child(reinterpret_cast<child_t*>(nd.children)) {
+        CChildVec(NodeData& nd) : vecSize(nd.nodeData->hdr->secondCount),  child(reinterpret_cast<child_t*>(nd.children)) {
             maxSize = nd.maxKeySize + 1;
         }
         ~CChildVec() = default;
@@ -616,6 +619,7 @@ using child_t = uint64_t;
             */
             std::memmove(&child[pos + 1], &child[pos], (vecSize - pos) * sizeof(child_t));
             child[pos] = val;
+            ++vecSize;
             return 0;
         }
 
@@ -652,6 +656,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ERANGE;
             }
             std::memcpy(child, begin, newSize * sizeof(child_t));
+            vecSize = static_cast<uint16_t>(newSize);
             return 0;
         }
 
@@ -671,6 +676,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ENOENT;
             }
             std::memmove(&child[begin], &child[end], (this->size() - end) * sizeof(child_t));
+            vecSize -= static_cast<uint16_t>(end - begin);
             return 0;
         }
 
@@ -679,6 +685,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ENOENT;
             }
             memset(&child[this->size() - 1], 0, sizeof(child_t));
+            --vecSize;
             return 0;
         }
 
@@ -688,6 +695,7 @@ address         0 1 2 3 4 5 6 7 8
             }
             std::memmove(&child[0], &child[1], (this->size() - 1) * sizeof(child_t));
             memset(&child[this->size() - 1], 0, sizeof(child_t));
+            --vecSize;
             return 0;
         }
 
@@ -697,6 +705,7 @@ address         0 1 2 3 4 5 6 7 8
             }
             std::memmove(&child[1], &child[0], this->size() * sizeof(child_t));
             child[0] = val;
+            ++vecSize;
             return 0;
         }
 
@@ -706,6 +715,7 @@ address         0 1 2 3 4 5 6 7 8
             }
             std::memmove(&child[fromVec.size()], &child[0], this->size() * sizeof(child_t));
             std::memcpy(&child[0], fromVec.child, fromVec.size() * sizeof(child_t));
+            vecSize += fromVec.size();
             return 0;
         }
         
@@ -714,6 +724,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ERANGE;
             }
             child[this->size()] = val;
+            ++vecSize;
             return 0;
         }
 
@@ -722,6 +733,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ERANGE;
             }
             std::memcpy(&child[this->size()], fromVec.child, fromVec.size() * sizeof(child_t));
+            vecSize += fromVec.size();
             return 0;
         }
 
@@ -730,12 +742,12 @@ address         0 1 2 3 4 5 6 7 8
         }
 
         uint32_t size() const noexcept {
-            return vecSize + 1;
+            return vecSize;
         }
 
     private:
         // vecSize is change by keyVec
-        decltype(NodeData::nd::hdr_t::count)& vecSize;
+        decltype(NodeData::nd::hdr_t::secondCount)& vecSize;
         // first key pointer
         child_t* const child;
         uint32_t maxSize = 0; // = ((PAGESIZE * 4096 - sizeof(NodeData::nd::hdr_t)) - sizeof(uint64_t)) / (KEYLEN + sizeof(uint64_t)) + 1;
@@ -781,7 +793,7 @@ address         0 1 2 3 4 5 6 7 8
 
     class CRowVec {
     public:
-        CRowVec(NodeData& nd, size_t rowLen) : vecSize(nd.nodeData->hdr->count) {
+        CRowVec(NodeData& nd, size_t rowLen) : vecSize(nd.nodeData->hdr->secondCount) {
             maxKeySize = nd.maxKeySize;
             row = reinterpret_cast<uint8_t*>(nd.nodeData->data + sizeof(NodeData::nd::hdr_t) + (KEYLEN * maxKeySize));
         }
@@ -805,6 +817,7 @@ address         0 1 2 3 4 5 6 7 8
 
             memmove(&row[(pos + 1) * ROWLEN], &row[pos * ROWLEN], (vecSize - pos) * ROWLEN);
             std::memcpy(&row[pos * ROWLEN], data, dataLen);
+            ++vecSize;
             return 0;
         }
 
@@ -814,6 +827,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ENOBUFS;
             }
             std::memcpy(&row[vecSize * ROWLEN], data, dataLen);
+            ++vecSize;
             return 0;
         }
 
@@ -822,6 +836,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ENOENT;
             }
             memset(&row[(vecSize - 1) * ROWLEN], 0, ROWLEN);
+            --vecSize;
             return 0;
         }
 
@@ -830,6 +845,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ERANGE;
             }
             std::memcpy(&row[vecSize * ROWLEN], fromVec.row, fromVec.vecSize * ROWLEN);
+            vecSize += fromVec.vecSize;
             return 0;
         }
 
@@ -840,6 +856,7 @@ address         0 1 2 3 4 5 6 7 8
             }
             memmove(&row[ROWLEN * 1], &row[0], vecSize * ROWLEN);
             std::memcpy(&row[0], data, dataLen);
+            ++vecSize;
             return 0;
         }
 
@@ -849,6 +866,7 @@ address         0 1 2 3 4 5 6 7 8
             }
             memmove(&row[0], &row[ROWLEN * 1], (vecSize - 1) * ROWLEN);
             memset(&row[(vecSize - 1) * ROWLEN], 0, ROWLEN);
+            --vecSize;
             return 0;
         }
 
@@ -858,6 +876,7 @@ address         0 1 2 3 4 5 6 7 8
             }
             memmove(&row[fromVec.vecSize * ROWLEN], &row[0], vecSize * ROWLEN);
             std::memcpy(&row[0], fromVec.row, fromVec.vecSize * ROWLEN);
+            vecSize += fromVec.vecSize;
             return 0;
         }
 
@@ -867,6 +886,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ERANGE;
             }
             std::memcpy(row, begin, newSize * ROWLEN);
+            vecSize = static_cast<uint16_t>(newSize);
             return 0;
         }
 
@@ -880,6 +900,7 @@ address         0 1 2 3 4 5 6 7 8
                 return -ENOENT;
             }
             memmove(&row[pos * ROWLEN], &row[(pos + 1) * ROWLEN], (vecSize - pos - 1) * ROWLEN);
+            --vecSize;
             return 0;
         }
 
@@ -893,6 +914,7 @@ address         0 1 2 3 4 5 6 7 8
             }
             
             memmove(&row[begin * ROWLEN], &row[end * ROWLEN], (vecSize - end) * ROWLEN);
+            vecSize -= static_cast<uint16_t>(end - begin);
             return 0;
         }
 
@@ -947,8 +969,8 @@ address         0 1 2 3 4 5 6 7 8
         /*
             @return max size of the row vector
         */
-        uint32_t msize() const noexcept {
-            return maxKeySize;
+        uint32_t size() const noexcept {
+            return vecSize;
         }
 
         uint8_t* data() {
@@ -957,7 +979,7 @@ address         0 1 2 3 4 5 6 7 8
 
     private:
         friend class NodeData;
-        const decltype(NodeData::nodeData->hdr->count)& vecSize;
+        decltype(NodeData::nodeData->hdr->secondCount)& vecSize;
         // first key pointer
         uint8_t* row = nullptr;
         uint32_t maxKeySize = 0;
@@ -1313,10 +1335,10 @@ address         0 1 2 3 4 5 6 7 8
 private:
     enum InsertResult { 
         OK = 0, 
-        SPLIT = 1,      // split node
-        COMBINE = 2,    // combine two nodes, or borrow from sibling
-        LEFT = 3,       // remove the left of child, need update the index key
-        EMPTY = 4,      // node is empty after delete
+        SPLIT = 1 << 0,      // split node
+        COMBINE = 1 << 1,    // combine two nodes, or borrow from sibling
+        UPDATEKEY = 1 << 2,  // remove the left of child, need update the index key
+        EMPTY = 1 << 3,      // node is empty after delete
     };
 
     /*
@@ -1334,6 +1356,7 @@ private:
             uint64_t prev = 0;   // leaf prev bid
             uint64_t next = 0;   // leaf next bid
             uint16_t count = 0;
+            uint16_t secondCount = 0; // childVec or rowVec count 
             uint8_t leaf = true;
             uint8_t isConverted = 0;
             uint8_t childIsLeaf = 0;

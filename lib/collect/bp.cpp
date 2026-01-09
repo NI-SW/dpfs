@@ -255,7 +255,7 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
     CBPlusTree::NodeData node(m_page);
     int32_t rc = load_node(idx, node, isLeaf);
     if (rc != 0) return rc;
-
+    int updateType = 0;
 
     // leaf node founded, inster the data
     if (isLeaf) {
@@ -265,19 +265,34 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
             return g.returnCode();
         }
 
-        rc = node.erase(key);
-        if(rc != 0) return rc;
+        KEY_T* foundKey = nullptr;
+        rc = node.keyVec->at(0, foundKey);
+        if(rc == 0 && *foundKey == key) {
+            // key not found, no need to delete
+            node.keyVec->pop_front();
+            node.rowVec->pop_front();
+            if(node.keyVec->size() > 0) {
+                upKey = (*node.keyVec)[0];
+                updateType |= UPDATEKEY;
+            }
+        } else {
+            rc = node.erase(key);
+            if(rc != 0) return rc;
+        }
 
         
         // check if need to combine
-        if(node.size() < m_rowOrder / 2 && node.self.bid != m_root.bid) {
+        if(node.size() < (m_rowOrder / 2) && node.self.bid != m_root.bid) {
             // need to combine or borrow from sibling
             rc = store_node(node);
             if(rc != 0) return rc;
-            return COMBINE;
+            updateType |= COMBINE;
+            return updateType;
         }
+        rc = store_node(node);
+        if (rc != 0) return rc;
 
-        return store_node(node);
+        return updateType;
     }
 
     KEY_T childUp{};
@@ -290,18 +305,39 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
     // TODO CREATE NEW NODE?
     if(idxChild == -ERANGE) {
         // key not found, no need to delete
+        node.pCache->read_unlock();
         return 0;
     }
-
     bidx nextNode = {nodeId, node.childVec->at(idxChild)};
-
-    rc = remove_recursive(nextNode, key, childUp, childNew, node.nodeData->hdr->childIsLeaf ? true : false);
+    bool nextIsLeaf = node.nodeData->hdr->childIsLeaf ? true : false;
     node.pCache->read_unlock();
+
+    rc = remove_recursive(nextNode, key, childUp, childNew, nextIsLeaf);
     if (rc < 0) {
         return rc;
     }
 
-    if (rc == COMBINE) {
+    if (rc & UPDATEKEY) {
+        // need to update the index key
+        CTemplateGuard g(*node.pCache);
+        if(g.returnCode() != 0) {
+            return g.returnCode();
+        }
+        int pos = 0;
+        pos = node.keyVec->search(key);
+        if(pos >= node.keyVec->size()) {
+          
+        } else if((*node.keyVec)[pos] == key) {
+            // update key, and pass the key to parent
+            (*node.keyVec)[pos] = childUp;
+        }
+
+        updateType |= UPDATEKEY;
+        upKey = childUp;
+
+    } 
+
+    if (rc & COMBINE) {
         // need combine two sibling child nodes, or borrow from sibling
 
         CTemplateGuard g(*node.pCache);
@@ -313,22 +349,17 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
         rc = combine_child(node, idxChild, childUp, childNew);
         if (rc != 0) return rc;
 
-
-
         // check if need to combine current node
         if(node.size() < m_indexOrder / 2 && node.self.bid != m_root.bid) {
-            rc = store_node(node);
-            if(rc != 0) return rc;
-            return COMBINE;
+            updateType |= COMBINE;
         }
-
-        rc = store_node(node);
-        if(rc != 0) return rc;
     } 
-
+    
+    rc = store_node(node);
+    if(rc != 0) return rc;
     
 
-    return 0;
+    return updateType;
 }
 
 int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild, KEY_T& childUp, bidx& childNew) {
@@ -411,8 +442,15 @@ int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild, KEY_T& child
     }
 
     // if sibling has enough keys, borrow from sibling, else merge two nodes
-    if(borrowNode->size() > (isLeaf ? m_rowOrder : m_indexOrder) / 2) {
+    if(borrowNode->size() > (isLeaf ? (m_rowOrder / 2) : (m_indexOrder / 2))) {
         ct = BORROW;
+        #ifdef __DEBUG__
+        // std::cout << "BORROW from " << (fromLeft ? "LEFT" : "RIGHT") << " sibling node." << std::endl;
+        // std::cout << "  Target Node before borrow: ";
+        // target.printNode();
+        // std::cout << "  Borrow Node before borrow: ";
+        // borrowNode->printNode();
+        #endif
     } else {
         ct = MERGE;
     }
@@ -502,10 +540,15 @@ RIGHT
             *parentKey = *fromKey;
             fromNode.popBackRow();
         } else {
+            // may cause 2 parent key change
+            
             rc = toNode.pushBackRow(*fromKey, rowData, rowLen);
             if(rc != 0) return rc;
             // right borrow use second key
             *parentKey = *(fromKey + 1);
+            // cout << "frontkeyidx = " << fromKeyIdx << endl;
+            // cout << "parentKeyIdx = " << parentKeyIdx << endl;
+            // fromNode.printNode();
             fromNode.popFrontRow();
         }
 
@@ -863,12 +906,27 @@ int CBPlusTree::NodeData::insertChild(const KEY_T& key, uint64_t lchild, uint64_
                 |
             [-1,0,1]
     */
-    if(lchild) childVec->at(pos) = lchild;
-    
-    rc = childVec->insert(pos + 1, rchild);
-    if (rc < 0) {
-        keyVec->erase(pos, pos + 1);
-        return rc;
+    if(lchild) {
+        if (pos == childVec->size()) {
+            // insert at the end
+            childVec->push_back(lchild);
+        } else if(pos < childVec->size()) {
+            childVec->insert(pos, lchild);
+        } else {
+            return -EFAULT;
+        }
+        
+        // childVec->at(pos) = lchild;
+
+    }
+
+    if (pos + 1 == childVec->size()) {
+        // insert at the end
+        childVec->push_back(rchild);
+    } else if(pos + 1 < childVec->size()) {
+        childVec->insert(pos + 1, rchild);
+    } else {
+        return -EFAULT;
     }
 
     return 0;
@@ -1006,10 +1064,6 @@ int CBPlusTree::NodeData::pushFrontChilds(const NodeData& fromNode, const KEY_T&
         keyVec->pop_front();
         return rc;
     }
-
-
-
-
     return 0;
 }
 
@@ -1318,5 +1372,56 @@ int CBPlusTree::NodeData::erase(const KEY_T& key) noexcept {
     if (rc < 0) {
         return rc;
     }
+    return 0;
+}
+
+
+int CBPlusTree::NodeData::printNode() const noexcept {
+
+    #ifdef __DEBUG__
+    std::cout << "Node Bid: " << self.bid << ", Keys: \n";
+    std::cout << "node header : " << " leaf: " << (int)nodeData->hdr->leaf 
+              << " childIsLeaf: " << (int)nodeData->hdr->childIsLeaf 
+              << " key count: " << nodeData->hdr->count << endl;
+    if(nodeData->hdr->leaf) {
+        cout << " prev leaf bid: " << nodeData->hdr->prev
+              << " next leaf bid: " << nodeData->hdr->next << std::endl; 
+    }
+    for (size_t i = 0; i < keyVec->size(); ++i) {
+        KEY_T* key = nullptr;
+        int rc = keyVec->at(i, key);
+        if (rc == 0) {
+            std::string keyStr;
+            for(int i = 0; i < KEYLEN; ++i) {
+                
+                keyStr.push_back(hex_chars[((*key).data[i] >> 4) & 0x0F]);
+                keyStr.push_back(hex_chars[(*key).data[i] & 0x0F]);
+                keyStr.push_back(' ');
+            }
+
+            std::cout << keyStr << " ";
+        }
+
+        // print left child if index node
+        if(!nodeData->hdr->leaf) {
+            std::cout << " | Child Bid: " << childVec->at(i) << endl;
+        } else {
+            char rowDataPreview[33] = {0};
+            uint8_t* rowData = nullptr;
+            uint32_t rowLen = 0;
+            rc = rowVec->reference_at(i, rowData, &rowLen);
+            if (rc == 0) {
+                size_t previewLen = rowLen < 16 ? rowLen : 16;
+                for (size_t j = 0; j < previewLen; ++j) {
+                    rowDataPreview[j * 2] = hex_chars[(rowData[j] >> 4) & 0x0F];
+                    rowDataPreview[j * 2 + 1] = hex_chars[rowData[j] & 0x0F];
+                }
+                rowDataPreview[previewLen * 2] = '\0';
+                std::cout << " | Row Data (len " << rowLen << "): " << rowDataPreview << endl;
+            }
+        }
+    }
+    #endif
+
     return 0;
 }
