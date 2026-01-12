@@ -17,12 +17,12 @@ CValue CItem::getValue(size_t pos) const noexcept {
 
     size_t offSet = getDataOffset(pos);
 
-    if(cols[pos]->type == dpfs_datatype_t::TYPE_VARCHAR) {
+    if(cols[pos].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
         // first 4 bytes is actual length
         val.len = *(uint32_t*)((char*)rowPtr + offSet);
         val.data = (char*)rowPtr + offSet + sizeof(uint32_t);
     } else {
-        val.len = cols[pos]->len;
+        val.len = cols[pos].dds.colAttrs.len;
         val.data = (char*)rowPtr + offSet;
     }
 
@@ -40,10 +40,10 @@ CValue CItem::getValue(size_t pos) const noexcept {
 size_t CItem::getDataOffset(size_t pos) const noexcept {
     size_t offSet = 0;
     for(size_t i = 0; i < pos; ++i) {
-        if(isVariableType(cols[i]->type)) {
+        if(isVariableType(cols[i].dds.colAttrs.type)) {
             offSet += sizeof(uint32_t) + (*(uint32_t*)(rowPtr + offSet));
         } else {
-            offSet += cols[i]->len;
+            offSet += cols[i].dds.colAttrs.len;
         }
     }
     return offSet;
@@ -53,10 +53,10 @@ int CItem::dataCopy(size_t pos, const CValue* value) noexcept {
     // data offset in row
     size_t offSet = getDataOffset(pos);
 
-    if(isVariableType(cols[pos]->type)) {
+    if(isVariableType(cols[pos].dds.colAttrs.type)) {
         // first 4 bytes is actual length
         uint32_t actualLen = value->len;
-        if(actualLen > cols[pos]->len) {
+        if(actualLen > cols[pos].dds.colAttrs.len) {
             return -E2BIG;
         }
         // use col offset of row to find the pointer and copy data
@@ -65,8 +65,8 @@ int CItem::dataCopy(size_t pos, const CValue* value) noexcept {
     } else {
 
         memcpy(((char*)rowPtr + offSet), value->data, value->len);
-        if(value->len < cols[pos]->len) {
-            memset(((char*)rowPtr + offSet + value->len), 0, cols[pos]->len - value->len);
+        if(value->len < cols[pos].dds.colAttrs.len) {
+            memset(((char*)rowPtr + offSet + value->len), 0, cols[pos].dds.colAttrs.len - value->len);
         }
     }
 
@@ -78,18 +78,18 @@ int CItem::dataCopy(size_t pos, const CValue* value) noexcept {
     @return CValue pointer on success, else nullptr
     @note this function will search the item list for the column, and possible low performance
 */
-CValue CItem::getValueByKey(CColumn* col) const noexcept {
+CValue CItem::getValueByKey(const CColumn& col) const noexcept {
     CValue val;
 
     for(size_t i = 0; i < cols.size(); ++i) {
-        if (*cols[i] == *col) {
+        if (cols[i] == col) {
             size_t offSet = getDataOffset(i);
-            if(cols[i]->type == dpfs_datatype_t::TYPE_VARCHAR) {
+            if(cols[i].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
                 // first 4 bytes is actual length
                 val.len = *(uint32_t*)((char*)rowPtr + offSet);
                 val.data = (char*)rowPtr + offSet + 4;
             } else {
-                val.len = cols[i]->len;
+                val.len = cols[i].dds.colAttrs.len;
                 val.data = (char*)rowPtr + offSet;
             }
             break;
@@ -108,7 +108,7 @@ int CItem::updateValue(size_t pos, CValue* value) noexcept {
     if(pos < 0 || pos >= cols.size()) {
         return -EINVAL;
     }
-    if(cols[pos]->getLen() < value->len) {
+    if(cols[pos].getLen() < value->len) {
         return -E2BIG;
     }
     return dataCopy(pos, value);
@@ -119,9 +119,9 @@ int CItem::updateValue(size_t pos, CValue* value) noexcept {
     @param value: CValue pointer to update
     @return CValue pointer on success, else nullptr
 */
-int CItem::updateValueByKey(CColumn* col, CValue* value) noexcept {
+int CItem::updateValueByKey(const CColumn& col, CValue* value) noexcept {
     for(size_t i = 0; i < cols.size(); ++i) {
-        if (*cols[i] == *col) {
+        if (cols[i] == col) {
             return dataCopy(i, value);
         }
     }
@@ -140,21 +140,21 @@ int CItem::updateValueByKey(CColumn* col, CValue* value) noexcept {
 int CCollection::commit() { 
     // TODO
     int rc = 0;
-    if(!m_perms.perm.m_dirty) {
+    if(!m_collectionStruct->ds->m_perms.perm.m_dirty) {
         return 0;
     }
 
     void* zptr = nullptr;
     // lba length
     size_t zptrLen = 0;
-    bidx tmpDataRoot = m_dataRoot;
+    bidx tmpDataRoot = m_collectionStruct->ds->m_dataRoot;
     // len for root block
     size_t rootBlockLen = 0;
 
 
-    if(!m_perms.perm.m_btreeIndex) {
+    if(!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         // not b+ tree index, all data can be save to storage only once
-        if(m_dataRoot != bidx({0, 0})) {
+        if(m_collectionStruct->ds->m_dataRoot != bidx({0, 0})) {
             // save to storage root block
             rc = -EOPNOTSUPP;
             message = "commit to a fixed Collection index is not allow.";
@@ -163,39 +163,34 @@ int CCollection::commit() {
 
         // total data block info structs in m_tempStorage
         size_t totalDataBlocks = m_tempStorage.size();
-        if(totalDataBlocks == 0  && curTmpDataLen == 0) {
+        if(totalDataBlocks == 0 && curTmpDataLen == 0) {
             // no data to commit
-            m_perms.perm.m_dirty = false;
+            m_collectionStruct->ds->m_perms.perm.m_dirty = false;
             return 0;
         }
-
-
-        // lba size
-        zptrLen = curTmpDataLen % dpfs_lba_size == 0 ? curTmpDataLen / dpfs_lba_size : (curTmpDataLen / dpfs_lba_size + 1);
-        zptr = m_page.alloczptr(zptrLen);
-        if(!zptr) {
-            zptrLen = 0;
-            rc = -ENOMEM;
-            goto errReturn;
-        }
+        totalDataBlocks += curTmpDataLen % dpfs_lba_size == 0 ? curTmpDataLen / dpfs_lba_size : (curTmpDataLen / dpfs_lba_size + 1);
 
         // total root block length, including temp storage and remaining tmp data
-        rootBlockLen = m_tempStorage.size() + (curTmpDataLen % dpfs_lba_size == 0 ? curTmpDataLen / dpfs_lba_size : curTmpDataLen / dpfs_lba_size + 1);
+        rootBlockLen = totalDataBlocks;
 
-        m_dataRoot = {nodeId, m_diskMan.balloc(rootBlockLen)};
-        if(m_dataRoot.bid == 0) {
+        uint64_t bid = m_diskMan.balloc(rootBlockLen);
+        if(bid == 0) {
             rc = -ENOSPC;
             message = "no space left in the disk group.";
             goto errReturn;
         }
 
-
+        m_collectionStruct->ds->m_dataRoot = {nodeId, bid};
         // return by m_tempstorage, indicate actual lba length got
         size_t real_lba_len = 0;
 
         // indicator for write complete
         int indicator = 0;
         for(size_t pos = 0; pos < totalDataBlocks; ) {
+            if(m_tempStorage.size() <= 0) {
+                break;
+            }
+
             size_t write_lba_len = std::min(tmpBlockLbaLen, totalDataBlocks);
             // get data from temp storage
             zptrLen = write_lba_len;
@@ -206,11 +201,13 @@ int CCollection::commit() {
                 goto errReturn;
             }
 
+
             // from temp storage get data, save to zptr, then put to root of the collection
             rc = m_tempStorage.getData(pos, zptr, write_lba_len, real_lba_len);            
             if(rc < 0) {
                 goto errReturn;
             }
+
             
             // write data to storage immediately
             if(pos == totalDataBlocks - 1 && curTmpDataLen == 0) {
@@ -255,7 +252,7 @@ int CCollection::commit() {
             curTmpDataLen = 0;
             memset(tmpData, 0, tmpBlockLen);
 
-            m_dataEndPos = tmpDataRoot;
+            m_collectionStruct->ds->m_dataEndPos = tmpDataRoot;
         }
 
         // wait for last write complete
@@ -279,7 +276,7 @@ int CCollection::commit() {
     }
 
 
-    m_perms.perm.m_dirty = false;
+    m_collectionStruct->ds->m_perms.perm.m_dirty = false;
 
     return rc;
 errReturn:
@@ -296,11 +293,11 @@ errReturn:
     @return CItem pointer on success, else nullptr
     @note this function will create a new CItem with the given column info
 */
-CItem* CItem::newItem(const std::vector<CColumn*>& cs) noexcept {
+CItem* CItem::newItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs) noexcept {
     size_t len = 0;
     for(size_t i = 0; i < cs.size(); ++i) {
-        len += cs[i]->getLen();
-        isVariableType(cs[i]->type) ? len += 4 : 0;
+        len += cs[i].getLen();
+        isVariableType(cs[i].dds.colAttrs.type) ? len += 4 : 0;
     }
 
     // row data in data[]
@@ -321,11 +318,11 @@ CItem* CItem::newItem(const std::vector<CColumn*>& cs) noexcept {
     @return CItem pointer on success, else nullptr
     @note this function will create a new CItem with the given column info
 */
-CItem* CItem::newItems(const std::vector<CColumn*>& cs, size_t maxRowNumber) noexcept {
+CItem* CItem::newItems(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber) noexcept {
     size_t len = 0;
     for(size_t i = 0; i < cs.size(); ++i) {
-        len += cs[i]->getLen();
-        isVariableType(cs[i]->type) ? len += 4 : 0;
+        len += cs[i].getLen();
+        isVariableType(cs[i].dds.colAttrs.type) ? len += 4 : 0;
     }
 
     // row data in data[]
@@ -354,7 +351,7 @@ void CItem::delItem(CItem*& item) noexcept {
     @param cs column info
     @param value of row data
 */
-CItem::CItem(const std::vector<CColumn*>& cs) : cols(cs), beginIter(this), endIter(this) {
+CItem::CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs) : cols(cs), beginIter(this), endIter(this) {
     locked = false;
     error = false;
     beginIter.m_pos = 0;
@@ -371,14 +368,14 @@ int CItem::nextRow() noexcept {
     endIter.m_pos = rowNumber + 1;
 
     for(auto& pos : cols) {
-        if(isVariableType(pos->type)) {
+        if(isVariableType(pos.dds.colAttrs.type)) {
             // first 4 bytes is actual length
             uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
             rowPtr += sizeof(uint32_t) + vallEN;
             validLen += sizeof(uint32_t) + vallEN;
         } else {
-            rowPtr += pos->getLen();
-            validLen += pos->getLen();
+            rowPtr += pos.getLen();
+            validLen += pos.getLen();
         }
     }
 
@@ -401,21 +398,11 @@ CItem::~CItem() {
     @param ccid: CCollection ID, used to identify the collection info, 0 for new collection
     @note this constructor will create a new collection with the given engine and ccid
 */
-CCollection::CCollection(CProduct& owner, CDiskMan& dskman, CPage& pge, uint32_t id) : 
+CCollection::CCollection(CProduct& owner, CDiskMan& dskman, CPage& pge) : 
 m_owner(owner), 
-m_ccid(id), 
 m_diskMan(dskman), 
 m_page(pge), 
 m_tempStorage(m_page, m_diskMan) { 
-    
-    m_perms.perm.m_updatable = false;
-    m_perms.perm.m_insertable = false;
-    m_perms.perm.m_detelable = false;
-    m_perms.perm.m_dirty = false;
-    m_perms.perm.m_btreeIndex = true;
-    m_name = "dpfs_dummy";
-    m_cols.clear();
-    m_cols.reserve(16);
     
 };
 
@@ -462,7 +449,7 @@ int CCollection::addItem(const CItem& item) {
     
     // bpt.insert(key, value);
     int rc = 0;
-    if(m_perms.perm.m_btreeIndex) {
+    if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         
         // use b plus tree to index the item
     }
@@ -473,15 +460,15 @@ int CCollection::addItem(const CItem& item) {
     char* rowPtr = item.rowPtr;
     for(size_t i = 0; i < item.rowNumber; ++i){
         for(auto& pos : item.cols) {
-            if(isVariableType(pos->type)) {
+            if(isVariableType(pos.dds.colAttrs.type)) {
                 // first 4 bytes is actual length
                 //last row ptr
                 uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
                 rowPtr += sizeof(uint32_t) + vallEN;
                 validLen += sizeof(uint32_t) + vallEN;
             } else {
-                rowPtr += pos->getLen();
-                validLen += pos->getLen();
+                rowPtr += pos.getLen();
+                validLen += pos.getLen();
             }
         }
     }

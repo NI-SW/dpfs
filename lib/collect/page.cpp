@@ -1,5 +1,13 @@
 #include <collect/page.hpp>
 #include <memory.h>
+
+// #define __DEBUG__
+
+#ifdef __DEBUG__
+#include <iostream>
+using namespace std;
+#endif
+
 // max block len, manage memory block alloced by dpfsEngine::zmalloc
 const size_t maxBlockLen = 20;
 // ?
@@ -69,7 +77,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         m_log.log_inf("found cache in LRU, gid=%llu bid=%llu len=%llu\n", idx.gid, idx.bid, ptr->cache->len);
 
         // if len is not match, need update cache, reload from disk
-        if(ptr->cache->len < len) {
+        if(ptr->cache->len < len || ptr->cache->status == cacheStruct::ERROR || ptr->cache->status == cacheStruct::INVALID) {
             updateCache = true;
         }
     }
@@ -401,9 +409,6 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
     cache->status = cacheStruct::WRITING;
     cache->unlock();
     rc = m_engine_list[cache->idx.gid]->write(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
-    
-    
-
     if(rc < 0) {
         // if error, unlock immediately, else unlock in callback
         m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
@@ -586,7 +591,7 @@ PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
 }
 
 // write back only
-void PageClrFn::operator()(cacheStruct*& p) {
+void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
     if(p->idx.gid != 0) {
         // write is only allowed on gid 0
         p->release();
@@ -602,7 +607,7 @@ void PageClrFn::operator()(cacheStruct*& p) {
 
 
     // some problem, need to considerate call back method
-    if(p->dirty) {
+    if(p->dirty || finish_indicator) {
 
         // change status to writing
         rc = p->lock();
@@ -622,18 +627,27 @@ void PageClrFn::operator()(cacheStruct*& p) {
 
         cbs->m_arg = this;
         // call back function for disk write
-        cbs->m_cb = [&p, cbs](void* arg, const dpfs_compeletion* dcp) {
+        cbs->m_cb = [&p, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
             PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
 
+            #ifdef __DEBUG__
+            cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
+            #endif
+            
             if(dcp->return_code) {
                 pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
                 // write error
                 // TODO process error
-                
+                if(finish_indicator) {
+                    *finish_indicator = -1;
+                }
                 // p->status = cacheStruct::ERROR;
                 p->release();
                 pcf->cp->freecbs(cbs);
                 return;
+            }
+            if(finish_indicator) {
+                *finish_indicator = 1;
             }
             p->release();
             pcf->cp->freecbs(cbs);

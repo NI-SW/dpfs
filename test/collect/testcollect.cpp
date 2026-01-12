@@ -99,16 +99,18 @@ int main() {
         }
         cout << "System product loaded from disk." << endl;
 
-        cout << sysdpfs->fixedInfo.m_cols.size() << " cols loaded." << endl;
-        for(auto col : sysdpfs->fixedInfo.m_cols) {
-            cout << "Col name: " << col->getName() << ", type: " << (int)col->getType() << ", len: " << col->getLen() << endl;
+        cout << sysdpfs->fixedInfo.m_collectionStruct->m_cols.size() << " cols loaded." << endl;
+        for(auto col : sysdpfs->fixedInfo.m_collectionStruct->m_cols) {
+            cout << "Col name: " << col.getName() << ", type: " << (int)col.getType() << ", len: " << col.getLen() << endl;
         }
 
         goto __DONE;
     }
+    sysdpfs->fixedInfo.initialize(0);
+
 
     sysdpfs->pid = sysBidx;
-    sysdpfs->fixedInfo.m_perms.perm.m_btreeIndex = false;
+    sysdpfs->fixedInfo.m_collectionStruct->ds->m_perms.perm.m_btreeIndex = false;
 
     sysdpfs->fixedInfo.addCol("KEY", dpfs_datatype_t::TYPE_CHAR, 32, 0, CColumn::constraint_flags::PRIMARY_KEY | CColumn::constraint_flags::NOT_NULL);
     sysdpfs->fixedInfo.addCol("VALUE", dpfs_datatype_t::TYPE_CHAR, 32, 0, CColumn::constraint_flags::NOT_NULL);
@@ -117,7 +119,7 @@ int main() {
 
     
 
-    itm = CItem::newItems(sysdpfs->fixedInfo.m_cols, 10);
+    itm = CItem::newItems(sysdpfs->fixedInfo.m_collectionStruct->m_cols, 10);
     if(!itm) {
         rc = -ENOMEM;
         goto errReturn;

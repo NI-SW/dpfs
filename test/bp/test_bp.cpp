@@ -11,6 +11,7 @@
 #include <iostream>
 #include <vector>
 
+#define __LOAD__ 1
 
 static CBPlusTree::KEY_T make_key(uint64_t v) {
     CBPlusTree::KEY_T k{};
@@ -21,7 +22,7 @@ static CBPlusTree::KEY_T make_key(uint64_t v) {
 
 static void expect_insert(CBPlusTree& bpt, uint64_t keyVal, uint64_t payload) {
     auto key = make_key(keyVal);
-    uint64_t row[2] = {keyVal, payload};
+    uint64_t row[3] = {keyVal, payload, payload + 50};
     int rc = bpt.insert(key, row, sizeof(row));
     if(rc != 0) {
         cout << rc << endl;
@@ -53,17 +54,34 @@ int main() {
     CPage* page = new CPage(engines, 128, log);
     CDiskMan dman(page);
     CProduct owner(*page, dman, log);
-    CCollection coll(owner, dman, *page, 0);
-
-    rc = coll.addCol("pk", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t), 0, static_cast<uint8_t>(CColumn::constraint_flags::PRIMARY_KEY));
-    assert(rc == 0);
-    rc = coll.addCol("val", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t));
-    assert(rc == 0);
-
-    CBPlusTree bpt(coll, *page, dman, 4);
+    CCollection* coll = new CCollection(owner, dman, *page);
 
 
+    if(__LOAD__) {
+        rc = coll->loadFrom({0, 0});
+        if(rc != 0) {
+            cout << " load collection fail, rc=" << rc << endl;
+        }
+        
+    } else {
+        rc = coll->initialize(0);
+        if(rc != 0) {
+            cout << " load collection fail, rc=" << rc << endl;
+        }
+        rc = coll->addCol("pk", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t), 0, static_cast<uint8_t>(CColumn::constraint_flags::PRIMARY_KEY));
+        assert(rc == 0);
+        rc = coll->addCol("val", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t));
+        assert(rc == 0);
+        rc = coll->addCol("val2", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t));
+        assert(rc == 0);
+    }
+    
+    CBPlusTree bpt(*coll, *page, dman, 4);
 
+
+#if __LOAD__ == 1
+
+#else
     try {
         for(int i = 1; i < 23; ++i) {
             if(i == 13) {
@@ -93,25 +111,10 @@ int main() {
     assert(leafWithKeys > 0);
 
     std::cout << "insert smoke test passed" << std::endl;
-
-    char out[1024] { 0 };
-    uint32_t actureLen = 0;
-
-    bpt.search(make_key(2), out, sizeof(out), &actureLen);
-
-    cout << "search result: " << endl;
-    for(int i = 0;i < 128; ++i) {
-        printf("%02X ", (unsigned char)out[i]);
-        if(i % 16 == 15) {
-            printf("\n");
-        }
-
-    }
-    cout << "search result len: " << actureLen << endl;
-
-    
+#endif
     bpt.printTree();
 
+    cout << " test insert " << endl;
     while(1) {
         cout << " insert key val (0 to exit): ";
         uint64_t keyVal = 0;
@@ -142,24 +145,77 @@ int main() {
         bpt.printTree();
     }
 
+    cout << " test search " << endl;
 
+    while(1) {
+        cout << " search key val (0 to exit): ";
+        uint64_t keyVal = 0;
+        cin >> keyVal;
+        if(keyVal == 0) {
+            break;
+        }
+
+        char out[1024] { 0 };
+        uint32_t actureLen = 0;
+
+        rc = bpt.search(make_key(keyVal), out, sizeof(out), &actureLen);
+        if(rc != 0) {
+            if(rc == -2) {
+                cout << " search key " << keyVal << " not found " << endl;
+                continue;
+            }
+            cout << " search key " << keyVal << " fail, rc=" << rc << endl;
+            continue;
+        }
+
+        cout << "search result: | Row Data (len " << actureLen << "): " << endl;
+        for(int i = 0;i < 32; ++i) {
+            printf("%02X", (unsigned char)out[i]);
+        }
+        printf("\n");
+    }
+
+    rc = bpt.commit();
+    if(rc != 0) {
+        cout << " commit b+ tree fail, rc=" << rc << endl;
+        goto errReturn;
+    }
+
+    //TODO TEST SAVE AND LOAD TREE FROM DISK
+    rc = coll->saveTo({0, 0});
+    if(rc != 0) {
+        cout << " save collection fail, rc=" << rc << endl;
+        goto errReturn;
+    }
+    
+
+    cout << " test finished " << endl;
+
+    if(coll) {
+        delete coll;
+    }
     if(page) {
         delete page;
     }
+    // maybe some unfinished async work that cause core dump
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if(engine) {
 		delete engine;
 	}
 
     return 0;
 
-errReturn:
+errReturn:    
+    if(coll) {
+        delete coll;
+    }
     if(page) {
         delete page;
     }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 	if(engine) {
 		delete engine;
 	}
-	
 	
 	return 0;
 }

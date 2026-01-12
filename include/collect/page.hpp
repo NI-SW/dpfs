@@ -106,6 +106,10 @@ public:
     inline uint16_t getStatus() const noexcept {
         return status;
     }
+
+    inline void setStatus(uint16_t st) noexcept {
+        status = st;
+    }
     
     // after use, you must call release to recycle the memory
     void release();
@@ -201,7 +205,7 @@ public:
     // PageClrFn(void* clrFnArg) : engine_list(*static_cast<std::vector<dpfsEngine*>*>(clrFnArg)) {}
     PageClrFn(void* clrFnArg);
     ~PageClrFn() {}
-    void operator()(cacheStruct*& p);
+    void operator()(cacheStruct*& p, int* finish_indicator = nullptr);
     // void flush(std::list<CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter*> p);
     void flush(const std::list<void*>& cacheList);
     CPage* cp;

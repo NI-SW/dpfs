@@ -353,6 +353,7 @@ using child_t = uint64_t;
         uint32_t maxKeySize = 0; 
         bool inited = false;
         bool isRef = false;
+        bool needDelete = false;
     };
 
     // max key count in one node
@@ -985,7 +986,7 @@ address         0 1 2 3 4 5 6 7 8
         uint32_t maxKeySize = 0;
     };
     
-    CBPlusTree(const CCollection& collection, CPage& pge, CDiskMan& cdm, size_t pageSize = 4);
+    CBPlusTree(CCollection& collection, CPage& pge, CDiskMan& cdm, size_t pageSize = 4);
     ~CBPlusTree();
 
     /*
@@ -1401,6 +1402,12 @@ private:
             return rc;
         }
 
+        #ifdef __DEBUG__
+
+        cout << "Loaded node gid: " << idx.gid << " bid: " << idx.bid << endl;
+        cout << "  isLeaf: " << (int)(out.nodeData->hdr->leaf) << " keyCount: " << out.nodeData->hdr->count << " secondCount: " << out.nodeData->hdr->secondCount << endl;
+        
+        #endif
 
         if(B_END) {
             // TODO convert keys and values to host endian if needed
@@ -1474,7 +1481,12 @@ private:
             // fetch the cache struct
             if(rc != 0) return rc;
         }
+        #ifdef __DEBUG__
+
+        cout << "store node gid: " << node.self.gid << " bid: " << node.self.bid << endl;
+        cout << "  isLeaf: " << (int)(node.nodeData->hdr->leaf) << " keyCount: " << node.nodeData->hdr->count << " secondCount: " << node.nodeData->hdr->secondCount << endl;
         
+        #endif
         m_commitCache.emplace(node.self, std::move(node));
         return 0;
     }
@@ -1483,14 +1495,46 @@ private:
         int lastIndicator = 0;
         int rc = 0;
 
+        if(m_commitCache.empty()) {
+            return 0;
+        }
+
+        for(auto it = m_commitCache.begin(); it != m_commitCache.end(); ) {
+            if(it->second.needDelete) {
+                it->second.pCache->lock();
+                it->second.pCache->setStatus(cacheStruct::INVALID);
+                it->second.pCache->unlock();
+                rc = free_node(it->first, it->second.nodeData->hdr->leaf);
+                if(rc != 0) {
+                    return rc;
+                }
+                it->second.pCache->release();
+                it = m_commitCache.erase(it);
+            } else {
+                ++it;
+            }
+
+        }
+
+        if(m_commitCache.empty()) {
+            return 0;
+        }
+
         size_t sz = m_commitCache.size();
         for(auto& node : m_commitCache) {
+
+
+
             if(B_END) {
                 // TODO convert back to little endian if needed
 
                 // before storing, convert back to little endian
-                node.second.nodeData->hdr->isConverted = 0;
+                // node.second.nodeData->hdr->isConverted = 0;
             }
+
+            #ifdef __DEBUG__
+            cout << "Committing node gid: " << node.first.gid << " bid: " << node.first.bid << endl;
+            #endif
 
             if(sz <= 1) {            
                 rc = m_page.writeBack(node.second.pCache, &lastIndicator);
@@ -1510,20 +1554,6 @@ private:
         return 0;
     }
 
-    /*
-        change the child node's parent link
-        @param child: child node index
-        @param parentBid: new parent bid
-    */
-    // void update_parent(const bidx& child, uint64_t parentBid) {
-    //     NodeData n(m_page);
-    //     if (child.bid == 0) return;
-    //     if (load_node(child, n, false) == 0) {
-    //         n.nodeData->hdr->parent = parentBid;
-    //         store_node(n);
-    //     }
-    // }
-
     void printTree();
 
     void printTreeRecursive(const bidx& idx, bool isLeaf, int level);
@@ -1540,7 +1570,7 @@ private:
 
 
 private:
-    bidx m_root;
+    bidx& m_root;
     size_t m_indexOrder = 0;
     size_t m_rowOrder = 0;
 
@@ -1559,7 +1589,7 @@ private:
     bool m_colVariable = false;
     uint32_t m_rowLen = 0;
     // if high == 1, root is leaf node
-    uint32_t high = 0;
+    uint8_t& high;
     std::unordered_map<bidx, NodeData> m_commitCache;
     CSpin m_lock;
 

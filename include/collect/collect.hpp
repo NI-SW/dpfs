@@ -10,14 +10,17 @@
 #include <vector>
 #include <collect/page.hpp>
 #include <collect/diskman.hpp>
+#include <basic/dpfsvec.hpp>
 
 class CBPlusTree;
 class CProduct;
 class CCollection;
 class CColumn;
-constexpr size_t MAX_COL_NAME_LEN = 128;
-constexpr size_t MAX_NAME_LEN = 256;
+constexpr size_t MAX_COL_NAME_LEN = 64;
+constexpr size_t MAX_NAME_LEN = 128;
 constexpr size_t MAX_COL_NUM = 128;
+
+constexpr size_t MAX_COLLECTION_INFO_LBA_SIZE = 4;
 
 /*
 COLCOUNT : 4B
@@ -105,56 +108,74 @@ ITEM : |COL1DATA|COL2DATA|COL3DATA|...
 */
 class CColumn {
 public:
-    CColumn() = delete;
+    CColumn(const std::string& colName, dpfs_datatype_t dataType, size_t dataLen = 0, size_t scale = 0, uint8_t constraint = 0) {
+        if (colName.size() == 0 || colName.size() > MAX_COL_NAME_LEN) {
+            throw std::invalid_argument("Invalid column name length");
+        }
+
+        memcpy(dds.colAttrs.colName, colName.c_str(), colName.size() + 1);
+        dds.colAttrs.colNameLen = colName.size() + 1;
+        dds.colAttrs.type = dataType;
+        dds.colAttrs.len = dataLen;
+        dds.colAttrs.scale = scale;
+        dds.colAttrs.constraints.unionData = constraint;
+    }
+
+    CColumn(const CColumn& other) noexcept {
+
+        memcpy(dds.colAttrs.colName, other.dds.colAttrs.colName, other.dds.colAttrs.colNameLen);
+        dds.colAttrs.colNameLen = other.dds.colAttrs.colNameLen;
+        dds.colAttrs.type = other.dds.colAttrs.type;
+        dds.colAttrs.len = other.dds.colAttrs.len;
+        dds.colAttrs.scale = other.dds.colAttrs.scale;
+        dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
+    }
+
+    CColumn(CColumn&& other) noexcept {
+
+        memcpy(dds.colAttrs.colName, other.dds.colAttrs.colName, other.dds.colAttrs.colNameLen);
+        dds.colAttrs.colNameLen = other.dds.colAttrs.colNameLen;
+        dds.colAttrs.type = other.dds.colAttrs.type;
+        dds.colAttrs.len = other.dds.colAttrs.len;
+        dds.colAttrs.scale = other.dds.colAttrs.scale;
+        dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
+    }
+
+    CColumn& operator=(const CColumn& other) noexcept {
+        
+        memcpy(dds.colAttrs.colName, other.dds.colAttrs.colName, other.dds.colAttrs.colNameLen);
+        dds.colAttrs.colNameLen = other.dds.colAttrs.colNameLen;
+        dds.colAttrs.type = other.dds.colAttrs.type;
+        dds.colAttrs.len = other.dds.colAttrs.len;
+        dds.colAttrs.scale = other.dds.colAttrs.scale;
+        dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
+
+        return *this;
+    }
+
+    CColumn& operator=(CColumn&& other) noexcept {
+        
+        memcpy(dds.colAttrs.colName, other.dds.colAttrs.colName, other.dds.colAttrs.colNameLen);
+        dds.colAttrs.colNameLen = other.dds.colAttrs.colNameLen;
+        dds.colAttrs.type = other.dds.colAttrs.type;
+        dds.colAttrs.len = other.dds.colAttrs.len;
+        dds.colAttrs.scale = other.dds.colAttrs.scale;
+        dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
+
+        return *this;
+    }
+
+    void* operator new(size_t size) = delete;
+    ~CColumn() {
+
+    }
 
     bool operator==(const CColumn& other) const noexcept {
-        if (colName.size != other.colName.size)
+        if (dds.colAttrs.colNameLen != other.dds.colAttrs.colNameLen)
             return false;
 
-        return (!strncmp((const char*)colName.data, (const char*)other.colName.data, colName.size) && 
-            (type == other.type && scale == other.scale && len == other.len));
-    }
-
-    // generate a dpfs column
-    static CColumn* newCol(const std::string& colName, dpfs_datatype_t dataType, size_t dataLen = 0, size_t scale = 0, uint8_t constraint = 0) noexcept {
-        if (colName.size() == 0 || colName.size() > MAX_COL_NAME_LEN) {
-            return nullptr;
-        }
-        CColumn* k = (CColumn*)malloc(sizeof(CColumn) + colName.size() + 1);
-        if(!k) {
-            return nullptr;
-        }
-        memcpy(k->colName.data, colName.c_str(), colName.size() + 1);
-        // k->colName.data[colName.size()] = '\0';
-        k->colName.size = colName.size() + 1;
-        k->type = dataType;
-        k->len = dataLen;
-        k->scale = scale;
-        k->constraints.unionData = constraint;
-
-        // k->offSet = 0;
-        return k;
-    }
-
-    static CColumn* newCol(const CColumn& other) noexcept {
-        if (other.colName.size == 0) {
-            return nullptr;
-        }
-
-        CColumn* k = (CColumn*)malloc(sizeof(CColumn) + other.colName.size);
-        if(!k) {
-            return nullptr;
-        }
-        memcpy(k->colName.data, other.colName.data, other.colName.size);
-        // k->colName.data[other.colName.size] = '\0';
-        k->colName.size = other.colName.size;
-
-        k->type = other.type;
-        k->len = other.len;
-        k->scale = other.scale;
-        k->constraints.unionData = other.constraints.unionData;
- 
-        return k;
+        return (!strncmp((const char*)dds.colAttrs.colName, (const char*)other.dds.colAttrs.colName, dds.colAttrs.colNameLen) && 
+            (dds.colAttrs.type == other.dds.colAttrs.type && dds.colAttrs.scale == other.dds.colAttrs.scale && dds.colAttrs.len == other.dds.colAttrs.len));
     }
 
     // delete a dpfs column and push the pointer to nullptr
@@ -166,65 +187,36 @@ public:
     }
 
     uint8_t getNameLen() const noexcept {
-        return colName.size;
+        return dds.colAttrs.colNameLen;
     }
 
     const char* getName() const noexcept {
-        return (const char*)colName.data;
+        return (const char*)dds.colAttrs.colName;
     }
 
     /*
         @return length of the column data(indicate max length, if is variable string type)
     */
     uint32_t getLen() const noexcept {
-        return len;
+        return dds.colAttrs.len;
     }
 
     uint16_t getScale() const noexcept {
-        return scale;
+        return dds.colAttrs.scale;
     }
 
     dpfs_datatype_t getType() const noexcept {
-        return type;
+        return dds.colAttrs.type;
     }
 
     // return data describe struct
     dds_field getDds() const noexcept{
-        dds_field dds = {this->len, this->scale, this->type};
+        dds_field dds = {this->dds.colAttrs.len, this->dds.colAttrs.scale, this->dds.colAttrs.type};
         return dds;
     }
 
     size_t getStorageSize() const noexcept {
-        return sizeof(CColumn) + colName.size;
-    }
-
-    void* operator new(size_t size) = delete;
-    ~CColumn() = delete;
-
-    /*
-        @param k: the key of the data
-        @return 0 on success, else on failure
-        @note return the key that used in b+ tree
-    */
-    size_t getKey(size_t& k) const noexcept {
-        switch (type)
-        {
-        case dpfs_datatype_t::TYPE_INT:
-            k = *((int32_t*)(colName.data));
-            break;
-        case dpfs_datatype_t::TYPE_BIGINT:
-            k = *((int64_t*)(colName.data));
-            break;
-        // not support now
-        case dpfs_datatype_t::TYPE_FLOAT:
-        case dpfs_datatype_t::TYPE_DOUBLE:
-            return -EINVAL;
-            // k = *((float*)(colName.data));
-            // k = *((double*)(colName.data));
-        default:
-            break;
-        }
-        return 0;
+        return sizeof(dds);
     }
     
     enum constraint_flags : uint8_t {
@@ -242,30 +234,62 @@ private:
     friend class CValue;
     friend class CCollection;
     friend class CItem;
-    // offset of the first row.
-    // uint32_t offSet;
-    // for string or binary type(max len)
 
-    // column data length
-    uint32_t len;
-    // for decimal
-    uint16_t scale;
+    CColumn() = default;
 
+    // // column data length
+    // uint32_t len;
+    // // for decimal
+    // uint16_t scale;
 
+    // union {
+    //     struct {
+    //         uint8_t defaultValue : 1;
+    //         uint8_t notNull : 1;
+    //         uint8_t primaryKey : 1;
+    //         uint8_t unique : 1;
+    //         uint8_t autoInc : 1;
+    //         uint8_t reserved : 3;
+    //     } ops;
+    //     uint8_t unionData;
+    // } constraints;
+    // dpfs_datatype_t type;
+    // smallData colName;
 
-    union {
-        struct {
-            uint8_t defaultValue : 1;
-            uint8_t notNull : 1;
-            uint8_t primaryKey : 1;
-            uint8_t unique : 1;
-            uint8_t autoInc : 1;
-            uint8_t reserved : 3;
-        } ops;
-        uint8_t unionData;
-    } constraints;
-    dpfs_datatype_t type;
-    smallData colName;
+    union colDds_t {
+        colDds_t() {
+            memset(data, 0, sizeof(data));
+        }
+
+        ~colDds_t() = default;
+        
+        struct colAttr_t {
+
+            // column data length
+            uint32_t len;
+            // for decimal
+            uint16_t scale;
+            // 1B
+            union {
+                struct {
+                    uint8_t defaultValue : 1;
+                    uint8_t notNull : 1;
+                    uint8_t primaryKey : 1;
+                    uint8_t unique : 1;
+                    uint8_t autoInc : 1;
+                    uint8_t reserved : 3;
+                } ops;
+                uint8_t unionData;
+            } constraints;
+            dpfs_datatype_t type;
+            uint8_t colNameLen = 0;
+            char colName[MAX_COL_NAME_LEN];
+            // smallData colName;
+        } colAttrs;
+        uint8_t data[sizeof(colAttr_t)];
+
+    } dds;
+
 };
 
 /*
@@ -323,16 +347,7 @@ public:
         return *this;
     }
 
-    /*
-        @param other: CValue to copy from
-        @return copied bytes on success, else on failure
-    */
-    // size_t copy(const CValue& other) noexcept {
-    //     len = other.len;
-    //     // std::copy(other.data, other.data + *len, data);
-    //     memcpy(data, other.data, len);
-    //     return len;
-    // }
+
 
     int setData(const void* data, uint32_t size) noexcept {
         len = size;
@@ -389,7 +404,7 @@ public:
         @return CValue pointer on success, else nullptr
         @note this function will search the item list for the column, and possible low performance
     */
-    CValue getValueByKey(CColumn* col) const noexcept;
+    CValue getValueByKey(const CColumn& col) const noexcept;
    
     /*
         @param pos: position of the item in the item list
@@ -403,7 +418,7 @@ public:
         @param value: CValue pointer to update
         @return CValue pointer on success, else nullptr
     */
-    int updateValueByKey(CColumn* col, CValue* value) noexcept;
+    int updateValueByKey(const CColumn& col, CValue* value) noexcept;
     
 
     /*
@@ -420,7 +435,7 @@ public:
         @return CItem pointer on success, else nullptr
         @note this function will create a new CItem with the given column info
     */
-    static CItem* newItem(const std::vector<CColumn*>& cs) noexcept;
+    static CItem* newItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs) noexcept;
     
     /*
         @param cs: column info
@@ -428,7 +443,7 @@ public:
         @return CItem pointer on success, else nullptr
         @note this function will create a new CItem with the given column info
     */
-    static CItem* newItems(const std::vector<CColumn*>& cs, size_t maxRowNumber) noexcept;
+    static CItem* newItems(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber) noexcept;
     static void delItem(CItem*& item) noexcept;
 
     /*
@@ -463,12 +478,12 @@ public:
         rowIter& operator++() {
             
             for(auto& pos : m_item->cols) {
-                if(isVariableType(pos->type)) {
+                if(isVariableType(pos.dds.colAttrs.type)) {
                     // first 4 bytes is actual length
                     uint32_t vallEN = *(uint32_t*)((char*)m_ptr);
                     m_ptr += sizeof(uint32_t) + vallEN;
                 } else {
-                    m_ptr += pos->getLen();
+                    m_ptr += pos.getLen();
                 }
             }
 
@@ -498,19 +513,19 @@ public:
             CValue val;
             size_t offSet = 0;
             for(size_t i = 0; i < index; ++i) {
-                if(isVariableType(m_item->cols[i]->type)) {
+                if(isVariableType(m_item->cols[i].dds.colAttrs.type)) {
                     offSet += sizeof(uint32_t) + (*(uint32_t*)((char*)m_ptr + offSet));
                 } else {
-                    offSet += m_item->cols[i]->len;
+                    offSet += m_item->cols[i].dds.colAttrs.len;
                 }
             }
 
-            if(m_item->cols[index]->type == dpfs_datatype_t::TYPE_VARCHAR) {
+            if(m_item->cols[index].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
                 // first 4 bytes is actual length
                 val.len = *(uint32_t*)((char*)m_ptr + offSet);
                 val.data = (char*)m_ptr + offSet + sizeof(uint32_t);
             } else {
-                val.len = m_item->cols[index]->len;
+                val.len = m_item->cols[index].dds.colAttrs.len;
                 val.data = (char*)m_ptr + offSet;
             }
             return val;
@@ -541,14 +556,14 @@ public:
         @param cs column info
         @param value of row data
     */
-    CItem(const std::vector<CColumn*>& cs);
+    CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs);
     CItem(const CItem& other) = delete;
     ~CItem();
     int dataCopy(size_t pos, const CValue* value) noexcept;
     size_t getDataOffset(size_t pos) const noexcept;
     // int resetOffset(size_t begPos) noexcept;
 
-    const std::vector<CColumn*>& cols;
+    const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cols;
 
     // row lock, if row is update but not committed, the row is locked
     bool locked : 1;
@@ -584,12 +599,12 @@ private:
 */
 class CSeqStorage {
 public:
-    CSeqStorage(bidx h, std::vector<CColumn*>& cls, CPage& pge) : head(h), cols(cls), m_page(pge) {
+    CSeqStorage(bidx h, std::vector<CColumn>& cls, CPage& pge) : head(h), cols(cls), m_page(pge) {
         count = 0;
         rowLen = 0;
         for (auto& col : cols) {
-            rowLen += col->getLen();
-            if(isVariableType(col->getType())) {
+            rowLen += col.getLen();
+            if(isVariableType(col.getType())) {
                 // variable length type not allowed
                 throw std::invalid_argument("Variable length type not allowed in CSeqStorage");
             }
@@ -622,7 +637,7 @@ private:
     bidx head = {0, 0};
     uint32_t count = 0;
     uint32_t rowLen = 0;
-    std::vector<CColumn*>& cols;
+    std::vector<CColumn>& cols;
     CPage& m_page;
 
 
@@ -640,17 +655,26 @@ like a table
 class CCollection {
 public:
     // use ccid to locate the collection (search in system collection table)
+    CCollection();
     /*
         @param engine: dpfsEngine reference to the storage engine
         @param ccid: CCollection ID, used to identify the collection info, 0 for new collection
         @note this constructor will create a new collection with the given engine and ccid
     */
-    CCollection(CProduct& owner, CDiskMan& dskman, CPage& pge, uint32_t id = 0);
+    CCollection(CProduct& owner, CDiskMan& dskman, CPage& pge);
 
     ~CCollection() {
         if(tmpData) {
             free(tmpData);
             tmpData = nullptr;
+        }
+        if(m_collectionStruct) {
+            delete m_collectionStruct;
+            m_collectionStruct = nullptr;
+        }
+        if(m_cltInfoCache) {
+            m_cltInfoCache->release();
+            m_cltInfoCache = nullptr;
         }
 
     };
@@ -665,7 +689,10 @@ public:
         if(name.size() > MAX_NAME_LEN) {
             return -ENAMETOOLONG; // Key length exceeds maximum allowed size
         }
-        m_name = name;
+        memset(m_collectionStruct->ds->m_name, 0, MAX_NAME_LEN);
+        m_collectionStruct->ds->m_nameLen = name.size() + 1;
+        mempcpy(m_collectionStruct->ds->m_name, name.c_str(), name.size() + 1);
+
         return 0;
     }
 
@@ -682,11 +709,11 @@ public:
             return -ENAMETOOLONG; // Key length exceeds maximum allowed size
         }
 
-        if(m_cols.size() >= MAX_COL_NUM) {
+        if(m_collectionStruct->m_cols.size() >= MAX_COL_NUM) {
             return -E2BIG; // Too many columns
         }
 
-        CColumn* col = nullptr;
+        // CColumn* col = nullptr;
 
         switch(type) {
             case dpfs_datatype_t::TYPE_DECIMAL: 
@@ -719,18 +746,19 @@ public:
                 return -EINVAL; // Invalid data type
         }
 
-        col = CColumn::newCol(colName, type, len, scale, constraint);
-        // if generate column fail
-        if(!col) {
-            return -ENOMEM;
-        }
+        // col = CColumn::newCol(colName, type, len, scale, constraint);
+        // // if generate column fail
+        // if(!col) {
+        //     return -ENOMEM;
+        // }
 
         m_lock.lock();
-        m_cols.emplace_back(col);
+        m_collectionStruct->m_cols.push_back({colName, type, len, scale, constraint});
+        // m_cols.emplace_back(col);
         m_lock.unlock();
         
-        m_perms.perm.m_dirty = true;
-        m_perms.perm.m_needreorg = true;
+        this->m_collectionStruct->ds->m_perms.perm.m_dirty = true;
+        this->m_collectionStruct->ds->m_perms.perm.m_needreorg = true;
         return 0;
     }
 
@@ -740,16 +768,16 @@ public:
         @note this function will remove the col from the collection, and update the index
     */
     int removeCol(const std::string& colName) {
-        for(std::vector<CColumn*>::iterator it = m_cols.begin(); it != m_cols.end(); ++it) {
-            if((*it)->getNameLen() != colName.size() + 1) {
+        for(auto it = m_collectionStruct->m_cols.begin(); it != m_collectionStruct->m_cols.end(); ++it) {
+            if((*it).getNameLen() != colName.size() + 1) {
                 continue;
             }
-            if(memcmp((*it)->getName(), colName.c_str(), (*it)->getNameLen()) == 0) {
+            if(memcmp((*it).getName(), colName.c_str(), (*it).getNameLen()) == 0) {
                 m_lock.lock();
-                m_cols.erase(it);
+                m_collectionStruct->m_cols.erase(it);
                 m_lock.unlock();
-                m_perms.perm.m_dirty = true;
-                m_perms.perm.m_needreorg = true;
+                m_collectionStruct->ds->m_perms.perm.m_dirty = true;
+                m_collectionStruct->ds->m_perms.perm.m_needreorg = true;
                 break;
             }
         }
@@ -803,7 +831,7 @@ public:
         @return 0 on success, else on failure
         @note commit the item changes to the storage.
 
-        need to do : 
+        need TODO : 
         write commit log, and then write data, finally update the index
     */
     int commit();
@@ -829,70 +857,39 @@ public:
             |perm 1B|nameLen 1B|dataroot 2B|collection name|columns|
         */
         int rc = 0;
+        int indicate = 0;
 
-        uint32_t pos = 0;
-        char tmpBuf[MAX_CLT_INFO_LBA_LEN * dpfs_lba_size];
-        memset(tmpBuf, 0, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
-
-        // record permissions
-        tmpBuf[pos] = m_perms.permByte;
-        ++pos;
-
-        // record data root
-        cpy2le(tmpBuf + pos, (char*)&m_dataRoot.gid, sizeof(uint64_t));
-        pos += sizeof(uint64_t);
-
-        cpy2le(tmpBuf + pos, (char*)&m_dataRoot.bid, sizeof(uint64_t));
-        pos += sizeof(uint64_t);
-
-        // record collection name
-        uint8_t nameLen = m_name.size();
-        cpy2le(tmpBuf + pos, (char*)&nameLen, sizeof(uint8_t));
-        pos += sizeof(uint8_t);
-        memcpy(tmpBuf + pos, m_name.c_str(), nameLen);
-        pos += nameLen;
-
-        // record columns
-        uint8_t colSize = m_cols.size();
-        cpy2le(tmpBuf + pos, (char*)&colSize, sizeof(uint8_t));
-        pos += sizeof(uint8_t);
-
-        /*
-            |ColNameLen|ColName|ColType|ColLen|ColScale|ColConstraint|
-        */
-        for (auto& col : m_cols) {
-
-            uint8_t colNameLen = col->getNameLen();
-            // record col name len
-            tmpBuf[pos] = colNameLen;
-            ++pos;
-            // record col name
-            memcpy(tmpBuf + pos, col->getName(), colNameLen);
-            pos += colNameLen;
-
-            // record col type, len, scale
-            tmpBuf[pos] = static_cast<uint8_t>(col->getType());
-            ++pos;
-            cpy2le(tmpBuf + pos, (char*)&col->len, sizeof(uint32_t));
-            pos += sizeof(uint32_t);
-            cpy2le(tmpBuf + pos, (char*)&col->scale, sizeof(uint16_t));
-            pos += sizeof(uint16_t);
-            cpy2le(tmpBuf + pos, (char*)&col->constraints.unionData, sizeof(uint8_t));
-            pos += sizeof(uint8_t);
-
+        if(!inited) {
+            return -EINVAL;
         }
 
-        int indicate = 0;
-        size_t lba_used = pos / dpfs_lba_size + (pos % dpfs_lba_size == 0 ? 0 : 1);
-        void* zptr = m_page.alloczptr(lba_used);
-        if (!zptr) {
-            rc = -ENOMEM;
+        if(B_END) {
+            // TODO : convert to storage endian (convert to little endian)
+            // target -> m_collectionStruct.data
+        }
+
+        if(m_cltInfoCache) {
+            // if is load from disk, write back the disk rather than put new block
+            rc = m_page.writeBack(m_cltInfoCache, &indicate);
+            if(rc != 0) {
+                goto errReturn;
+            }
+            while(!indicate) {
+                // write back not finished, wait
+            }
+            if(indicate == -1) {
+                rc = -EIO;
+                goto errReturn;
+            }
+            return 0;
+        }   
+
+        if(!m_collectionStruct) {
+            rc = -EINVAL;
             goto errReturn;
         }
 
-        memcpy(zptr, tmpBuf, pos);
-
-        rc = this->m_page.put(head, zptr, &indicate, lba_used, true);
+        rc = this->m_page.put(head, m_collectionStruct->data, &indicate, MAX_COLLECTION_INFO_LBA_SIZE, true);
         if(rc) {
             goto errReturn;
         }
@@ -909,9 +906,7 @@ public:
         return 0;
 
         errReturn:
-        if(zptr) {
-            m_page.freezptr(zptr, MAX_CLT_INFO_LBA_LEN);
-        }
+
         return rc;
     }
 
@@ -920,119 +915,38 @@ public:
         @return 0 on success, else on failure
     */
     int loadFrom(const bidx& head) {
-
+        if(inited) {
+            return -EALREADY;
+        }
         int rc = 0;
-
-        uint8_t nameLen = 0;
-        uint8_t colSize = 0;
-
-        uint32_t pos = 0;
-        char tmpBuf[MAX_CLT_INFO_LBA_LEN * dpfs_lba_size];
-        memset(tmpBuf, 0, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
-
+        
         cacheStruct* ce = nullptr;
 
         // acquire collection info block from storage
-        rc = m_page.get(ce, head, MAX_CLT_INFO_LBA_LEN);
+        rc = m_page.get(ce, head, MAX_COLLECTION_INFO_LBA_SIZE);
         if (rc != 0) {
             goto errReturn;
         }
-
         if(!ce) {
             rc = -EIO;
             goto errReturn;
         }
-        rc = ce->read_lock();
-        if(rc) {
-            // if lock fail
-            rc = -EIO;
+
+
+        m_collectionStruct = new collectionStruct(ce->getPtr(), ce->getLen() * dpfs_lba_size);
+        if(!m_collectionStruct) {
+            rc = -ENOMEM;
             goto errReturn;
         }
-        memcpy(tmpBuf, ce->getPtr(), ce->getLen() * dpfs_lba_size);
 
-        ce->read_unlock();
-        ce->release();
-        ce = nullptr;
-
-        // read from tmp data
-        // read permissions
-        m_perms.permByte = tmpBuf[pos];
-        ++pos;
-        // read data root
-        rc = cpyFromle((char*)&m_dataRoot.gid, tmpBuf + pos, sizeof(uint64_t));
-        if(rc) {
-            goto errReturn;
-        }
-        pos += sizeof(uint64_t);
-        rc = cpyFromle((char*)&m_dataRoot.bid, tmpBuf + pos, sizeof(uint64_t));
-        if(rc) {
-            goto errReturn;
-        }
-        pos += sizeof(uint64_t);
-
-        // read collection name
-        
-        rc = cpyFromle((char*)&nameLen, tmpBuf + pos, sizeof(uint8_t));
-        if(rc) {
-            goto errReturn;
-        }
-        pos += sizeof(uint8_t);
-        m_name.assign(tmpBuf + pos, nameLen);
-        pos += nameLen;
-
-        // read columns
-        
-        rc = cpyFromle((char*)&colSize, tmpBuf + pos, sizeof(uint8_t));
-        if(rc) {
-            goto errReturn;
-        }
-        pos += sizeof(uint8_t);
-
-        /*
-            COL : |NAMELEN|COLNAME|COLTYPE|COLLEN|COLSCALE|
-
-        */
-        for (size_t i = 0; i < colSize; ++i) {
-            uint8_t colNameLen = tmpBuf[pos];
-            ++pos;
-            std::string colName(tmpBuf + pos, colNameLen);
-            pos += colNameLen;
-
-            dpfs_datatype_t colType = static_cast<dpfs_datatype_t>(tmpBuf[pos]);
-            ++pos;
-
-            uint32_t colLen = 0;
-            rc = cpyFromle((char*)&colLen, tmpBuf + pos, sizeof(uint32_t));
-            if(rc) {
-                goto errReturn;
-            }
-            pos += sizeof(uint32_t);
-
-            uint16_t colScale = 0;
-            rc = cpyFromle((char*)&colScale, tmpBuf + pos, sizeof(uint16_t));
-            if(rc) {
-                goto errReturn;
-            }
-            pos += sizeof(uint16_t);
-            uint8_t colConstraint = 0;
-            rc = cpyFromle((char*)&colConstraint, tmpBuf + pos, sizeof(uint8_t));
-            if(rc) {
-                goto errReturn;
-            }
-            pos += sizeof(uint8_t);
-
-            addCol(colName, colType, colLen, colScale, colConstraint);
-
-            // CColumn* col = CColumn::newCol(colName, colType, colLen, colScale);
-            // if(!col) {
-            //     rc = -ENOMEM;
-            //     goto errReturn;
-            // }
-            // m_lock.lock();
-            // m_cols.emplace_back(col);
-            // m_lock.unlock();
+        if(B_END) {
+            // TODO: convert to host endian
+            
         }
 
+
+        m_cltInfoCache = ce;
+        inited = true;
         return 0;
 
         errReturn:
@@ -1040,7 +954,51 @@ public:
             ce->release();
             ce = nullptr;
         }
+
+        if(m_collectionStruct) {
+            delete m_collectionStruct;
+            m_collectionStruct = nullptr;
+        }
         return rc;
+    }
+
+
+    /*
+        @param id: CCollection ID, used to identify the collection info
+        @return 0 on success, else on failure
+        @note initialize the collection with the given id
+    */
+    int initialize(uint32_t id) {
+        if(inited) {
+            return 0;
+        }
+
+        void* zptr = m_page.alloczptr(MAX_CLT_INFO_LBA_LEN);
+        if(!zptr) {
+            return -ENOMEM;
+        }
+
+        m_collectionStruct = new collectionStruct(zptr, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
+        if(!m_collectionStruct) {
+            return -ENOMEM;
+        }
+
+        m_collectionStruct->ds->m_ccid = id;
+        memcpy(m_collectionStruct->ds->m_name, "dpfs_dummy", strlen("dpfs_dummy") + 1);
+        m_collectionStruct->ds->m_nameLen = strlen("dpfs_dummy") + 1;
+
+
+        m_collectionStruct->ds->m_perms.perm.m_updatable = false;
+        m_collectionStruct->ds->m_perms.perm.m_insertable = false;
+        m_collectionStruct->ds->m_perms.perm.m_detelable = false;
+        m_collectionStruct->ds->m_perms.perm.m_dirty = false;
+        m_collectionStruct->ds->m_perms.perm.m_btreeIndex = true;
+        m_collectionStruct->m_cols.clear();
+
+        curTmpDataLen = 0;
+
+        inited = true;
+        return 0;
     }
 
 private:
@@ -1062,54 +1020,82 @@ public:
     size_t curTmpDataLen = 0;
     char* tmpData = nullptr;
 
-    union{
-        struct perms {
-            // permission of operations
-            bool m_select : 1;
-            bool m_updatable : 1;
-            bool m_insertable : 1;
-            bool m_detelable : 1;
-            bool m_ddl : 1;
-            // if dirty trigger a commit will flush data change to storage
-            bool m_dirty : 1;
-            // if data struct is changed, need a restore to reorganize data in storage
-            bool m_needreorg : 1;
-            // wether use b+ tree index
-            bool m_btreeIndex : 1;
-            bool m_systab : 1;
-            bool : 7;
-        } perm;
-        uint16_t permByte = 0;
-    } m_perms;
-    //above 1B
+
+    struct collectionStruct {
+    
+        collectionStruct(void* dataPtr, size_t sz) : 
+            data((uint8_t*)dataPtr),
+            ds((dataStruct_t*)dataPtr),
+            m_cols(ds->m_colsData, ds->m_colSize),
+            size(sz) {
+        };
+
+        ~collectionStruct() {
+            data = nullptr;
+            ds = nullptr;
+            size = 0;
+        };
+        
+        struct dataStruct_t{
+            dataStruct_t() = delete;
+            ~dataStruct_t(){};
+
+            //above 1B
+            // 16B
+            bidx m_dataRoot {0, 0};
+            // 16B
+            bidx m_dataEndPos {0, 0};
+            // ccid: CCollection ID, used to identify the collection info 4B
+            uint32_t m_ccid = 0;
+            union{
+                struct perms {
+                    // permission of operations
+                    bool m_select : 1;
+                    bool m_updatable : 1;
+                    bool m_insertable : 1;
+                    bool m_detelable : 1;
+                    bool m_ddl : 1;
+                    // if dirty trigger a commit will flush data change to storage
+                    bool m_dirty : 1;
+                    // if data struct is changed, need a restore to reorganize data in storage
+                    bool m_needreorg : 1;
+                    // wether use b+ tree index
+                    bool m_btreeIndex : 1;
+                    bool m_systab : 1;
+                    bool : 7;
+                } perm;
+                uint16_t permByte = 0;
+            } m_perms;
+            uint8_t m_btreeHigh = 0;
+            // name of the collection
+            uint8_t m_colSize = 0;
+            CColumn m_colsData[MAX_COL_NUM];
+            uint8_t m_nameLen = 0;
+            char m_name[MAX_NAME_LEN];
+        }* ds = nullptr;
+        uint8_t* data = nullptr;
+        size_t size = 0;
+        // TODO:: 考虑列描述信息单独保存，以节省存储空间
+        CFixLenVec<CColumn, uint8_t, MAX_COL_NUM> m_cols;
+    }* m_collectionStruct = nullptr;
+
 
     // inner locker 1B
     CSpin m_lock;
-    // ccid: CCollection ID, used to identify the collection info 4B
-    uint32_t m_ccid;
-    // 16B
-    bidx m_dataRoot {0, 0};
-    // 16B
-    bidx m_dataEndPos {0, 0};
-
     CBPlusTree* m_btreeIndex = nullptr;
-
     // the product that owns this collection
-    // bidx m_ownerBid;
     CProduct& m_owner;
-
-    // name of the collection
-    std::string m_name;
     // columns in the collection
-
-    // TODO:: 考虑列描述信息单独保存，以节省存储空间
-    std::vector<CColumn*> m_cols;
     // primary key position in the columns
     uint8_t m_pkPos = 0;
-
     std::string message;
 
+    bool inited = false;
     // b plus tree head pointer or head block of seq storage
+
+private:
+    cacheStruct* m_cltInfoCache = nullptr;
+
 };
 
 /*
@@ -1123,3 +1109,83 @@ public:
 // void qqqwwweee() {
 //     sizeof(CCollection);
 // }
+
+
+
+
+
+    // // generate a dpfs column
+    // static CColumn* newCol(const std::string& colName, dpfs_datatype_t dataType, size_t dataLen = 0, size_t scale = 0, uint8_t constraint = 0) noexcept {
+    //     if (colName.size() == 0 || colName.size() > MAX_COL_NAME_LEN) {
+    //         return nullptr;
+    //     }
+    //     CColumn* k = (CColumn*)malloc(sizeof(CColumn) + colName.size() + 1);
+    //     if(!k) {
+    //         return nullptr;
+    //     }
+    //     memcpy(k->dds.colAttrs.colName, colName.c_str(), colName.size() + 1);
+    //     // k->dds.colAttrs.colName[colName.size()] = '\0';
+    //     k->dds.colAttrs.colNameLen = colName.size() + 1;
+    //     k->dds.colAttrs.type = dataType;
+    //     k->dds.colAttrs.len = dataLen;
+    //     k->dds.colAttrs.scale = scale;
+    //     k->dds.colAttrs.constraints.unionData = constraint;
+    //     // k->offSet = 0;
+    //     return k;
+    // }
+
+    // static CColumn* newCol(const CColumn& other) noexcept {
+    //     if (other.dds.colAttrs.colNameLen == 0) {
+    //         return nullptr;
+    //     }
+    //     // CColumn* k = (CColumn*)malloc(sizeof(CColumn) + other.dds.colAttrs.colNameLen);
+    //     CColumn* k = new CColumn();
+    //     if(!k) {
+    //         return nullptr;
+    //     }
+    //     memcpy(k->dds.colAttrs.colName, other.dds.colAttrs.colName, other.dds.colAttrs.colNameLen);
+    //     // k->dds.colAttrs.colName[other.dds.colAttrs.colNameLen] = '\0';
+    //     k->dds.colAttrs.colNameLen = other.dds.colAttrs.colNameLen;
+    //     k->dds.colAttrs.type = other.dds.colAttrs.type;
+    //     k->dds.colAttrs.len = other.dds.colAttrs.len;
+    //     k->dds.colAttrs.scale = other.dds.colAttrs.scale;
+    //     k->dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
+    //     return k;
+    // }
+
+    /*
+        @param other: CValue to copy from
+        @return copied bytes on success, else on failure
+    */
+    // size_t copy(const CValue& other) noexcept {
+    //     len = other.len;
+    //     // std::copy(other.data, other.data + *len, data);
+    //     memcpy(data, other.data, len);
+    //     return len;
+    // }
+
+    /*
+        @param k: the key of the data
+        @return 0 on success, else on failure
+        @note return the key that used in b+ tree
+    */
+    // size_t getKey(size_t& k) const noexcept {
+    //     switch (dds.colAttrs.type)
+    //     {
+    //     case dpfs_datatype_t::TYPE_INT:
+    //         k = *((int32_t*)(dds.colAttrs.colName));
+    //         break;
+    //     case dpfs_datatype_t::TYPE_BIGINT:
+    //         k = *((int64_t*)(dds.colAttrs.colName));
+    //         break;
+    //     // not support now
+    //     case dpfs_datatype_t::TYPE_FLOAT:
+    //     case dpfs_datatype_t::TYPE_DOUBLE:
+    //         return -EINVAL;
+    //         // k = *((float*)(colName.data));
+    //         // k = *((double*)(colName.data));
+    //     default:
+    //         break;
+    //     }
+    //     return 0;
+    // }

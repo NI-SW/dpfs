@@ -1,20 +1,21 @@
 #include <collect/bp.hpp>
 
-CBPlusTree::CBPlusTree(const CCollection& collection, CPage& pge, CDiskMan& cdm, size_t pageSize)
-    : m_root{0, 0},
-        m_pageSize(pageSize),
+CBPlusTree::CBPlusTree(CCollection& collection, CPage& pge, CDiskMan& cdm, size_t pageSize)
+    :   m_pageSize(pageSize),
         m_page(pge),
         m_diskman(cdm),
-        m_collection(collection) {
+        m_collection(collection),
+        high(m_collection.m_collectionStruct->ds->m_btreeHigh),
+        m_root(collection.m_collectionStruct->ds->m_dataRoot) {
 
     // find primary key column, now only support single primary key
-    CColumn* pkCol = m_collection.m_cols[m_collection.m_pkPos];
-    if(pkCol->getLen() <= maxSearchKeyLen) {
-        keyLen = static_cast<uint8_t>(pkCol->getLen());
+    const CColumn& pkCol = m_collection.m_collectionStruct->m_cols[m_collection.m_pkPos];
+    if(pkCol.getLen() <= maxSearchKeyLen) {
+        keyLen = static_cast<uint8_t>(pkCol.getLen());
     } else {
         keyLen = maxSearchKeyLen;
     }
-    keyType = pkCol->getType();
+    keyType = pkCol.getType();
 
     // ditermine order number by key size and page size
     m_nodeSize = hdrSize;
@@ -23,22 +24,19 @@ CBPlusTree::CBPlusTree(const CCollection& collection, CPage& pge, CDiskMan& cdm,
 
     // key count = (remain size - one child)/(key size + child size (with one extra child))
     size_t keyCnt = (remainSize - sizeof(uint64_t)) / (keyLen + sizeof(uint64_t) /*keysize + childsize*/);
-    
 
-    // calculate order
-    // last one for split
 
     // reserve 1 for split
     m_indexOrder = static_cast<size_t>(keyCnt) - 1;
     m_nodeSize += (m_indexOrder * keyLen) + ((m_indexOrder + 1) * sizeof(uint64_t));
 
-    for(int i = 0; i < m_collection.m_cols.size(); ++i) {
-        CColumn* col = m_collection.m_cols[i];
+    for(int i = 0; i < m_collection.m_collectionStruct->m_cols.size(); ++i) {
+        const CColumn& col = m_collection.m_collectionStruct->m_cols[i];
 
-        if(isVariableType(col->getType())) {
+        if(isVariableType(col.getType())) {
             m_colVariable = true;
         }
-        uint32_t dataLen = col->getLen();
+        uint32_t dataLen = col.getLen();
         // TODO:
         // limit in-row data length, if data len larger than maxInrowLen, store pointer, offset and length only
         // (other columns data...)(data1|pointer|offset of the newBlock|)(other columns data...)
@@ -62,7 +60,21 @@ CBPlusTree::CBPlusTree(const CCollection& collection, CPage& pge, CDiskMan& cdm,
 }
 
 CBPlusTree::~CBPlusTree() {
+    if(m_commitCache.size() > 0) {
+        // rollback uncommitted nodes
+        for(auto& it : m_commitCache) {
+            #ifdef __DEBUG__
+            cout << "Rolling back node gid: " << it.first.gid << " bid: " << it.first.bid << endl;
+            #endif
+            it.second.pCache->lock();
+            it.second.pCache->setStatus(cacheStruct::INVALID);
+            it.second.pCache->unlock();
+            it.second.pCache->release();
+        }
+        m_commitCache.clear();
+    }
 
+    
 }
 
 /*
@@ -165,20 +177,9 @@ int CBPlusTree::insert(const KEY_T& key, const void* row, uint32_t len) {
 
         m_root = newRoot.self;
 
-        // right.nodeData->hdr->childIsLeaf = root.nodeData->hdr->childIsLeaf;
-
-        // newRoot.nodeData->hdr->parent = 0;
-        // root.nodeData->hdr->parent = newRoot.self.bid;
-        // right.nodeData->hdr->parent = newRoot.self.bid;
-
-        // store_node(root);
-        // store_node(right);
         rc = store_node(newRoot);
         if(rc != 0) return rc;
         
-        // update parent links
-        // update_parent(m_root, root.self.bid);
-        // update_parent(upChild, root.self.bid);
         ++high;
         return 0;
     }
@@ -627,9 +628,12 @@ int CBPlusTree::mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode
         if(rc != 0) return rc;
 
         // delete right child node
-        rc = free_node(rightNode->self, isLeaf);
-        if(rc != 0) return rc;
-        rightNode->pCache->release();
+        rightNode->needDelete = true;
+        store_node(*rightNode);
+        
+        // rc = free_node(rightNode->self, isLeaf);
+        // if(rc != 0) return rc;
+        // rightNode->pCache->release();
 
         return 0;
 
@@ -668,8 +672,12 @@ int CBPlusTree::mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode
     if(rc != 0) return rc;
 
     // delete right child node
-    rc = free_node(rightNode->self, isLeaf);
-    if(rc != 0) return rc;
+    rightNode->needDelete = true;
+    store_node(*rightNode);
+
+    // rc = free_node(rightNode->self, isLeaf);
+    // if(rc != 0) return rc;
+    // rightNode->pCache->release();
 
     if(parent.size() == 0 && parent.self.bid == m_root.bid) {
         // root node become empty, update m_root
@@ -677,7 +685,7 @@ int CBPlusTree::mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode
         --high;
     }
 
-    rightNode->pCache->release();
+
 
     return 0;
 }
@@ -719,8 +727,7 @@ void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level) {
         rc = node.keyVec->at(i, key);
         if (rc == 0) {
             std::string keyStr;
-            for(int i = 0; i < KEYLEN; ++i) {
-                
+            for(int i = 0; i < KEYLEN - 24; ++i) {
                 keyStr.push_back(hex_chars[((*key).data[i] >> 4) & 0x0F]);
                 keyStr.push_back(hex_chars[(*key).data[i] & 0x0F]);
                 keyStr.push_back(' ');
@@ -733,12 +740,12 @@ void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level) {
         if(!node.nodeData->hdr->leaf) {
             std::cout << " | Child Bid: " << node.childVec->at(i) << endl;
         } else {
-            char rowDataPreview[33] = {0};
+            char rowDataPreview[48] = {0};
             uint8_t* rowData = nullptr;
             uint32_t rowLen = 0;
             rc = node.rowVec->reference_at(i, rowData, &rowLen);
             if (rc == 0) {
-                size_t previewLen = rowLen < 16 ? rowLen : 16;
+                size_t previewLen = rowLen < 32 ? rowLen : 32;
                 for (size_t j = 0; j < previewLen; ++j) {
                     rowDataPreview[j * 2] = hex_chars[(rowData[j] >> 4) & 0x0F];
                     rowDataPreview[j * 2 + 1] = hex_chars[rowData[j] & 0x0F];
@@ -850,6 +857,7 @@ int CBPlusTree::NodeData::initNodeByLoad(bool isLeaf, int32_t order, void* zptr)
         return -ENOMEM;
     }
 
+    maxKeySize = order;
     keys = (reinterpret_cast<KEY_T*>(nodeData->data + sizeof(NodeData::nd::hdr_t)));
     keyVec = new CKeyVec(*this);
 
@@ -1264,6 +1272,10 @@ CBPlusTree::NodeData::~NodeData() {
         keyVec = nullptr;
     }
     if (nodeData) {
+        if(!pCache && nodeData->data) {
+            m_page.freezptr(nodeData->data, nodeData->hdr->leaf ? ROWPAGESIZE : PAGESIZE);
+            nodeData->data = nullptr;
+        }
         delete nodeData;
         nodeData = nullptr;
     }

@@ -141,6 +141,7 @@ int CTempStorage::getData(size_t pos, void* data, size_t lba_len, size_t& readed
     size_t recursive_readed_lba_len = 0;
     readed_lba_len = 0;
 
+    
 
     const DataBlockInfo& dbi = m_dataBlockList[pos / tmpBlockLbaLen];
     

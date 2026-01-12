@@ -9,7 +9,7 @@
 
 #ifdef __DMDEBUG__
 static CSpin dm_glock;
-static size_t current_pos = 10;
+static size_t current_pos = 200;
 #endif
 
 /*
@@ -133,6 +133,9 @@ class CTempStorage {
         @note get total size of the temp storage
     */
     size_t size() noexcept {
+        if(m_dataBlockList.size() == 0) {
+            return 0;
+        }
         return m_dataBlockList.size() > 1 ? 
         (m_dataBlockList.size() - 1) * tmpBlockLbaLen + m_dataBlockList.back().lba_len :
         m_dataBlockList[0].lba_len;
