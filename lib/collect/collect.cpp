@@ -1,7 +1,6 @@
 #include <collect/collect.hpp>
 #include <collect/bp.hpp>
 #include <collect/product.hpp>
-
 uint64_t nodeId = 0;
 
 
@@ -406,6 +405,122 @@ m_tempStorage(m_page, m_diskMan) {
     
 };
 
+CCollection::~CCollection() {
+    if(tmpData) {
+        free(tmpData);
+        tmpData = nullptr;
+    }
+    if(m_collectionStruct) {
+        delete m_collectionStruct;
+        m_collectionStruct = nullptr;
+    }
+    if(m_cltInfoCache) {
+        m_cltInfoCache->release();
+        m_cltInfoCache = nullptr;
+    }
+
+};
+
+int CCollection::setName(const std::string& name) {
+    if(name.size() > MAX_NAME_LEN) {
+        return -ENAMETOOLONG; // Key length exceeds maximum allowed size
+    }
+    memset(m_collectionStruct->ds->m_name, 0, MAX_NAME_LEN);
+    m_collectionStruct->ds->m_nameLen = name.size() + 1;
+    mempcpy(m_collectionStruct->ds->m_name, name.c_str(), name.size() + 1);
+
+    return 0;
+}
+
+/*
+    @param col: column to add
+    @param type: data type of the col
+    @param len: length of the data, if not specified, will use 0
+    @param scale: scale of the data, only useful for decimal type
+    @return 0 on success, else on failure
+    @note this function will add the col to the collection
+*/
+int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t len, size_t scale, uint8_t constraint) {
+    if(colName.size() > MAX_COL_NAME_LEN) {
+        return -ENAMETOOLONG; // Key length exceeds maximum allowed size
+    }
+
+    if(m_collectionStruct->m_cols.size() >= MAX_COL_NUM) {
+        return -E2BIG; // Too many columns
+    }
+
+    // CColumn* col = nullptr;
+
+    switch(type) {
+        case dpfs_datatype_t::TYPE_DECIMAL: 
+        case dpfs_datatype_t::TYPE_CHAR:
+        case dpfs_datatype_t::TYPE_VARCHAR:
+        case dpfs_datatype_t::TYPE_BINARY:
+        case dpfs_datatype_t::TYPE_BLOB:
+            if (len == 0) {
+                return -EINVAL; // Invalid length for string or binary type
+            }
+            // col = CColumn::newCol(colName, type, len, scale);
+            break;
+        case dpfs_datatype_t::TYPE_INT:
+            len = sizeof(int32_t);
+            // col = CColumn::newCol(colName, type, len, scale);
+            break;
+        case dpfs_datatype_t::TYPE_BIGINT:
+            len = sizeof(int64_t);
+            // col = CColumn::newCol(colName, type, len, scale);
+            break;
+        case dpfs_datatype_t::TYPE_FLOAT:
+            len = sizeof(float);
+            // col = CColumn::newCol(colName, type, len, scale);
+            break;
+        case dpfs_datatype_t::TYPE_DOUBLE:
+            len = sizeof(double);
+            // col = CColumn::newCol(colName, type, len, scale);
+            break;
+        default:
+            return -EINVAL; // Invalid data type
+    }
+
+    // col = CColumn::newCol(colName, type, len, scale, constraint);
+    // // if generate column fail
+    // if(!col) {
+    //     return -ENOMEM;
+    // }
+
+    m_lock.lock();
+    m_collectionStruct->m_cols.push_back({colName, type, len, scale, constraint});
+    // m_cols.emplace_back(col);
+    m_lock.unlock();
+    
+    this->m_collectionStruct->ds->m_perms.perm.m_dirty = true;
+    this->m_collectionStruct->ds->m_perms.perm.m_needreorg = true;
+    return 0;
+}
+
+/*
+    @param col: column to remove(or column to remove)
+    @return 0 on success, else on failure
+    @note this function will remove the col from the collection, and update the index
+*/
+int CCollection::removeCol(const std::string& colName) {
+    for(auto it = m_collectionStruct->m_cols.begin(); it != m_collectionStruct->m_cols.end(); ++it) {
+        if((*it).getNameLen() != colName.size() + 1) {
+            continue;
+        }
+        if(memcmp((*it).getName(), colName.c_str(), (*it).getNameLen()) == 0) {
+            m_lock.lock();
+            m_collectionStruct->m_cols.erase(it);
+            m_lock.unlock();
+            m_collectionStruct->ds->m_perms.perm.m_dirty = true;
+            m_collectionStruct->ds->m_perms.perm.m_needreorg = true;
+            break;
+        }
+    }
+
+    return -ENODATA;
+};
+
 /*
     @param data the buffer
     @param len buffer length
@@ -450,7 +565,9 @@ int CCollection::addItem(const CItem& item) {
     // bpt.insert(key, value);
     int rc = 0;
     if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+        // separate key and value from item
         
+
         // use b plus tree to index the item
     }
 
@@ -491,7 +608,173 @@ errReturn:
     return rc;
 }
 
+/*
+    @note save the collection info to the storage
+    @return 0 on success, else on failure
+*/
+int CCollection::saveTo(const bidx& head) {
+
+    /*
+        |perm 1B|nameLen 1B|dataroot 2B|collection name|columns|
+    */
+    int rc = 0;
+    int indicate = 0;
+
+    if(!inited) {
+        return -EINVAL;
+    }
+
+    if(B_END) {
+        // TODO : convert to storage endian (convert to little endian)
+        // target -> m_collectionStruct.data
+    }
+
+    if(m_cltInfoCache) {
+        // if is load from disk, write back the disk rather than put new block
+        rc = m_page.writeBack(m_cltInfoCache, &indicate);
+        if(rc != 0) {
+            goto errReturn;
+        }
+        while(!indicate) {
+            // write back not finished, wait
+        }
+        if(indicate == -1) {
+            rc = -EIO;
+            goto errReturn;
+        }
+        return 0;
+    }   
+
+    if(!m_collectionStruct) {
+        rc = -EINVAL;
+        goto errReturn;
+    }
+
+    rc = this->m_page.put(head, m_collectionStruct->data, &indicate, MAX_COLLECTION_INFO_LBA_SIZE, true);
+    if(rc) {
+        goto errReturn;
+    }
+
+    while(!indicate) {
+        // write back not finished, wait
+    }
+
+    if(indicate == -1) {
+        rc = -EIO;
+        goto errReturn;
+    }
+
+    return 0;
+
+    errReturn:
+
+    return rc;
+}
+
+/*
+    @note load the collection info from the storage
+    @return 0 on success, else on failure
+*/
+int CCollection::loadFrom(const bidx& head) {
+    if(inited) {
+        return -EALREADY;
+    }
+    int rc = 0;
+    
+    cacheStruct* ce = nullptr;
+
+    // acquire collection info block from storage
+    rc = m_page.get(ce, head, MAX_COLLECTION_INFO_LBA_SIZE);
+    if (rc != 0) {
+        goto errReturn;
+    }
+    if(!ce) {
+        rc = -EIO;
+        goto errReturn;
+    }
+
+
+    m_collectionStruct = new collectionStruct(ce->getPtr(), ce->getLen() * dpfs_lba_size);
+    if(!m_collectionStruct) {
+        rc = -ENOMEM;
+        goto errReturn;
+    }
+
+    if(B_END) {
+        // TODO: convert to host endian
+        
+    }
+
+    if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+        m_btreeIndex = new CBPlusTree(*this, m_page, m_diskMan, 4);
+        if(!m_btreeIndex) {
+            return -ENOMEM;
+        }
+    }
+    m_cltInfoCache = ce;
+    inited = true;
+    return 0;
+
+    errReturn:
+    if(ce) {
+        ce->release();
+        ce = nullptr;
+    }
+
+    if(m_collectionStruct) {
+        delete m_collectionStruct;
+        m_collectionStruct = nullptr;
+    }
+    return rc;
+}
+
+
+/*
+    @param id: CCollection ID, used to identify the collection info
+    @return 0 on success, else on failure
+    @note initialize the collection with the given id
+*/
+int CCollection::initialize(const CCollectionInitStruct& initStruct) {
+    if(inited) {
+        return 0;
+    }
+
+    void* zptr = m_page.alloczptr(MAX_CLT_INFO_LBA_LEN);
+    if(!zptr) {
+        return -ENOMEM;
+    }
+
+    m_collectionStruct = new collectionStruct(zptr, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
+    if(!m_collectionStruct) {
+        return -ENOMEM;
+    }
+
+    m_collectionStruct->ds->m_ccid = initStruct.id;
+    memcpy(m_collectionStruct->ds->m_name, initStruct.name.c_str(), initStruct.name.size() + 1);
+    m_collectionStruct->ds->m_nameLen = initStruct.name.size() + 1;
+
+
+    m_collectionStruct->ds->m_perms.permByte = initStruct.m_perms.permByte;
+
+    m_collectionStruct->m_cols.clear();
+
+    curTmpDataLen = 0;
+
+    inited = true;
+    return 0;
+}
 
 
 
-
+int CCollection::initBPlusTreeIndex() noexcept {
+    if(!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+        return -EINVAL;
+    }
+    if(!m_btreeIndex) {
+        m_btreeIndex = new CBPlusTree(*this, m_page, m_diskMan, 4);
+        if(!m_btreeIndex) {
+            return -ENOMEM;
+        }
+    }
+    return 0;
+}

@@ -16,19 +16,16 @@ CBPlusTree::CBPlusTree(CCollection& collection, CPage& pge, CDiskMan& cdm, size_
         keyLen = maxSearchKeyLen;
     }
     keyType = pkCol.getType();
+    maxkeyCount = ((m_pageSize * dpfs_lba_size - sizeof(NodeData::nd::hdr_t)) - sizeof(uint64_t)) / (keyLen + sizeof(uint64_t));
 
     // ditermine order number by key size and page size
-    m_nodeSize = hdrSize;
-    size_t remainSize = 0;
-    remainSize = m_pageSize * dpfs_lba_size - hdrSize;
 
-    // key count = (remain size - one child)/(key size + child size (with one extra child))
-    size_t keyCnt = (remainSize - sizeof(uint64_t)) / (keyLen + sizeof(uint64_t) /*keysize + childsize*/);
+
 
 
     // reserve 1 for split
-    m_indexOrder = static_cast<size_t>(keyCnt) - 1;
-    m_nodeSize += (m_indexOrder * keyLen) + ((m_indexOrder + 1) * sizeof(uint64_t));
+    m_indexOrder = static_cast<size_t>(maxkeyCount) - 1;
+    // m_nodeSize = (m_indexOrder * keyLen) + ((m_indexOrder + 1) * sizeof(uint64_t)) + sizeof(NodeData::nd::hdr_t));
 
     for(int i = 0; i < m_collection.m_collectionStruct->m_cols.size(); ++i) {
         const CColumn& col = m_collection.m_collectionStruct->m_cols[i];
@@ -50,7 +47,12 @@ CBPlusTree::CBPlusTree(CCollection& collection, CPage& pge, CDiskMan& cdm, size_
     }
 
     // m_leafRowCount = (m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen);
-    m_rowOrder = ((m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen)) - 1;
+    size_t rowLenInByte = m_indexOrder * (keyLen + m_rowLen) + sizeof(NodeData::nd::hdr_t);
+
+    
+    
+    m_rowPageSize = static_cast<uint8_t>( rowLenInByte % dpfs_lba_size == 0 ? rowLenInByte / dpfs_lba_size : (rowLenInByte / dpfs_lba_size) + 1 );
+    m_rowOrder = m_indexOrder; // ((m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen)) - 1;
 
 #ifdef __DEBUG__
     m_indexOrder = indOrder;
@@ -89,7 +91,8 @@ int CBPlusTree::insert(const KEY_T& key, const void* row, uint32_t len) {
     int rc = ensure_root();
     if (rc != 0) return rc;
 
-    KEY_T upKey;
+    char tempData[MAXKEYLEN];
+    KEY_T upKey(tempData, key.len);
     bidx upChild{0, 0};
     // if split is required, rc == SPLIT
 
@@ -102,8 +105,8 @@ int CBPlusTree::insert(const KEY_T& key, const void* row, uint32_t len) {
         // root is leaf >> 
         if(high == 1) {
             // create new root node, old root become left child, upChild become right child
-            CBPlusTree::NodeData newRoot(m_page);
-            rc = newRoot.initNode(false, m_indexOrder);
+            NodeData newRoot(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+            rc = newRoot.initNode(false, m_indexOrder, keyType);
             if(rc != 0) {
                 return rc;
             }
@@ -161,10 +164,10 @@ int CBPlusTree::insert(const KEY_T& key, const void* row, uint32_t len) {
         // }
 
         // split root node
-        NodeData newRoot(m_page);
+        NodeData newRoot(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
         
         // right.initNode(false, m_indexOrder);
-        newRoot.initNode(false, m_indexOrder);
+        newRoot.initNode(false, m_indexOrder, keyType);
 
         // rc = split_internal(root, right, upKey);
         // if(rc != 0) return rc;
@@ -190,17 +193,17 @@ int CBPlusTree::search(const KEY_T& key, void* out, uint32_t len, uint32_t* actu
     CSpinGuard g(m_lock);
     if (m_root.bid == 0) return -ENOENT;
     bidx cur = m_root;
-    NodeData node(m_page);
+    NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
     bool nextIsLeaf = false;
     while (true) {
         int rc = load_node(cur, node, nextIsLeaf);
         if (rc != 0) return rc;
         if (node.nodeData->hdr->leaf) {
             int pos = node.keyVec->search(key);
-            KEY_T* foundKey = nullptr;
-            rc = node.keyVec->at(pos, foundKey);
 
-            if(!(rc == 0 && *foundKey == key)) {
+            KEY_T foundKey;
+            rc = node.keyVec->at(pos, foundKey);
+            if(!(rc == 0 && foundKey == key)) {
                 return -ENOENT;
             }
 
@@ -223,11 +226,12 @@ int CBPlusTree::remove(const KEY_T& key) {
     CSpinGuard g(m_lock);
     if (m_root.bid == 0) return -ENOENT;
     bidx cur = m_root;
-    NodeData node(m_page);
+    NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
 
     
-    int rc = 0;    
-    KEY_T upKey;
+    int rc = 0;   
+    char tempData[MAXKEYLEN]; 
+    KEY_T upKey{tempData, key.len};
     bidx upChild {0, 0};
     // if split is required, rc == SPLIT
 
@@ -253,7 +257,7 @@ int CBPlusTree::remove(const KEY_T& key) {
 }
 
 int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& upKey, bidx& upChild, bool isLeaf) {
-    CBPlusTree::NodeData node(m_page);
+    CBPlusTree::NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
     int32_t rc = load_node(idx, node, isLeaf);
     if (rc != 0) return rc;
     int updateType = 0;
@@ -266,9 +270,9 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
             return g.returnCode();
         }
 
-        KEY_T* foundKey = nullptr;
+        KEY_T foundKey;
         rc = node.keyVec->at(0, foundKey);
-        if(rc == 0 && *foundKey == key) {
+        if(rc == 0 && foundKey == key) {
             // key not found, no need to delete
             node.keyVec->pop_front();
             node.rowVec->pop_front();
@@ -296,7 +300,8 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
         return updateType;
     }
 
-    KEY_T childUp{};
+    char tempData[MAXKEYLEN];
+    KEY_T childUp{tempData, key.len};
     bidx childNew{nodeId, 0};
 
     rc = node.pCache->read_lock();
@@ -378,7 +383,10 @@ int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild, KEY_T& child
     bool isLeaf = node.nodeData->hdr->childIsLeaf ? true : false;
     bool fromLeft = false;
     NodeData* borrowNode = nullptr;
-    NodeData left(m_page), right(m_page), target(m_page);
+    NodeData left(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen), 
+             right(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen), 
+             target(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+
     int rc = 0;
     // load left child
     bidx idx = {nodeId, 0}; 
@@ -428,7 +436,6 @@ int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild, KEY_T& child
         }
         left.pCache->read_unlock();
         right.pCache->read_unlock();
-
     }
 
     // lock two nodes
@@ -518,11 +525,11 @@ RIGHT
         // borrow key from sibling leaf node
 
         // move key and row data from fromNode to toNode
-        KEY_T* fromKey = nullptr;
+        KEY_T fromKey;
         int rc = fromNode.keyVec->at(fromKeyIdx, fromKey);
         if(rc != 0) return rc;
 
-        KEY_T* parentKey = nullptr;
+        KEY_T parentKey;
         rc = parent.keyVec->at(parentKeyIdx, parentKey);
         if(rc != 0) return rc;
         
@@ -535,18 +542,19 @@ RIGHT
 
         // change parent key
         if(fromLeft) {
-            rc = toNode.pushFrontRow(*fromKey, rowData, rowLen);
+            rc = toNode.pushFrontRow(fromKey, rowData, rowLen);
             if(rc != 0) return rc;
             // left borrow use last key
-            *parentKey = *fromKey;
+            parentKey = fromKey;
             fromNode.popBackRow();
         } else {
             // may cause 2 parent key change
             
-            rc = toNode.pushBackRow(*fromKey, rowData, rowLen);
+            rc = toNode.pushBackRow(fromKey, rowData, rowLen);
             if(rc != 0) return rc;
             // right borrow use second key
-            *parentKey = *(fromKey + 1);
+            parentKey = *(fromNode.keyVec->begin() + (fromKeyIdx + 1));
+            // *parentKey = *(fromKey + 1);
             // cout << "frontkeyidx = " << fromKeyIdx << endl;
             // cout << "parentKeyIdx = " << parentKeyIdx << endl;
             // fromNode.printNode();
@@ -557,25 +565,27 @@ RIGHT
         // borrow key from sibling index
         // change index node
         // move key and child from fromNode to toNode
-        KEY_T* fromKey = nullptr;
+        KEY_T fromKey;
         // get key from sibling node
         int rc = fromNode.keyVec->at(fromKeyIdx, fromKey);
         if(rc != 0) return rc;
 
-        KEY_T* parentKey = nullptr;
+        KEY_T parentKey;
         // get change key from parent node
         rc = parent.keyVec->at(parentKeyIdx, parentKey);
         if(rc != 0) return rc;
         
-        KEY_T targetKey;
-        targetKey = *parentKey;
+        char tempData[MAXKEYLEN];
+        KEY_T targetKey{tempData, parentKey.len};
+        targetKey = parentKey;
+        
         // get target insert key from target node
 
         // rc = toNode.keyVec->at(fromLeft ? 0 : toNode.keyVec->size() - 1, targetKey);
         // if(rc != 0) return rc;
         // *targetKey = *parentKey;
 
-        *parentKey = *fromKey;
+        parentKey = fromKey;
 
         child_t fromNodeChild = 0;
         // if from left, get last child, else get first child
@@ -585,13 +595,13 @@ RIGHT
         // insert child into target node
         if(fromLeft) {
             // insert to left
-            rc = toNode.pushFrontChild(targetKey, fromNodeChild);
+            rc = toNode.pushFrontChild({targetKey.data, targetKey.len}, fromNodeChild);
             if(rc != 0) return rc;
             fromNode.popBackChild();
         } else {
 
             // insert to right
-            rc = toNode.pushBackChild(targetKey, fromNodeChild);
+            rc = toNode.pushBackChild({targetKey.data, targetKey.len}, fromNodeChild);
             if(rc != 0) return rc;
             fromNode.popFrontChild();
         }
@@ -601,7 +611,7 @@ RIGHT
 
 int CBPlusTree::mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode, bool isLeaf, bool fromLeft, int targetIdx) {
 
-    KEY_T* parentKey = nullptr;
+    KEY_T parentKey;
     int rc = 0;
     
     NodeData* rightNode = &toNode;
@@ -664,7 +674,7 @@ int CBPlusTree::mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode
     // move the parent's key to left node, and merge right node childs to left node
 
     // [ 5 6 7 ]    [ 9 11 ] => [ 5 6 7 8 9 11 ]
-    rc = leftNode->pushBackChilds(*rightNode, *parentKey);
+    rc = leftNode->pushBackChilds(*rightNode, parentKey);
     if(rc != 0) return rc;
 
     //  [  1  5  8  13  16  20  27 ] => [  1  5  13  16  20  27]
@@ -706,7 +716,7 @@ void CBPlusTree::printTree() {
 const char hex_chars[] = "0123456789ABCDEF";
 
 void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level) {
-    NodeData node(m_page);
+    NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
     int rc = load_node(idx, node, isLeaf);
     if (rc != 0) {
         std::cout << "Failed to load node at bid " << idx.bid << std::endl;
@@ -723,13 +733,13 @@ void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level) {
               << " next leaf bid: " << node.nodeData->hdr->next << std::endl; 
     }
     for (size_t i = 0; i < node.keyVec->size(); ++i) {
-        KEY_T* key = nullptr;
+        KEY_T key;
         rc = node.keyVec->at(i, key);
         if (rc == 0) {
             std::string keyStr;
-            for(int i = 0; i < KEYLEN - 24; ++i) {
-                keyStr.push_back(hex_chars[((*key).data[i] >> 4) & 0x0F]);
-                keyStr.push_back(hex_chars[(*key).data[i] & 0x0F]);
+            for(int i = 0; i < keyLen; ++i) {
+                keyStr.push_back(hex_chars[((key).data[i] >> 4) & 0x0F]);
+                keyStr.push_back(hex_chars[(key).data[i] & 0x0F]);
                 keyStr.push_back(' ');
             }
 
@@ -808,20 +818,20 @@ void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level) {
 //     return 0;
 // }
 
-int CBPlusTree::NodeData::initNode(bool isLeaf, int32_t order) {
+int CBPlusTree::NodeData::initNode(bool isLeaf, int32_t order, dpfs_datatype_t keyType) {
 
-    void* zptr = isLeaf ? m_page.alloczptr(ROWPAGESIZE) : m_page.alloczptr(PAGESIZE);
+    void* zptr = isLeaf ? m_page.alloczptr(m_rowPageSize) : m_page.alloczptr(m_pageSize);
     if(zptr == nullptr) {
         return -ENOSPC;
     }
 
-    nodeData = new nd(isLeaf, zptr);
-    memset(nodeData->data, 0, isLeaf ? ROWPAGESIZE : PAGESIZE);
+    nodeData = new nd(isLeaf, zptr, m_pageSize, m_rowPageSize);
+    memset(nodeData->data, 0, isLeaf ? m_rowPageSize : m_pageSize);
     nodeData->hdr->leaf = isLeaf ? 1 : 0;
     
     maxKeySize = order;
-    keys = (reinterpret_cast<KEY_T*>(nodeData->data + sizeof(NodeData::nd::hdr_t)));
-    keyVec = new CKeyVec(*this);
+    keys = (reinterpret_cast<uint8_t*>(nodeData->data + sizeof(NodeData::nd::hdr_t)));
+    keyVec = new CKeyVec<KEY_T, uint16_t>(keys, nodeData->hdr->count, keyLen, maxKeySize + 1, keyType);
 
     if (keyVec == nullptr) {
         return -ENOMEM;
@@ -830,7 +840,7 @@ int CBPlusTree::NodeData::initNode(bool isLeaf, int32_t order) {
     if (!isLeaf) {
         // pass header and keys area
         // constexpr uint32_t order32 = (PAGESIZE * 4096 - sizeof(NodeData::nd::hdr_t) - sizeof(uint64_t)) / (KEYLEN + sizeof(uint64_t));
-        children = (reinterpret_cast<uint64_t*>(nodeData->data + sizeof(NodeData::nd::hdr_t) + (KEYLEN * order)));
+        children = (reinterpret_cast<uint64_t*>(nodeData->data + sizeof(NodeData::nd::hdr_t) + (keyLen * order)));
         childVec = new CChildVec(*this);
         if (childVec == nullptr) {
             return -ENOMEM;
@@ -840,7 +850,7 @@ int CBPlusTree::NodeData::initNode(bool isLeaf, int32_t order) {
 
         // values = (reinterpret_cast<void*>(nodeData->data + sizeof(nodeData->hdr) + (KEYLEN * order)));
         // values = reinterpret_cast<void*>(keys);
-        rowVec = new CRowVec(*this, order);
+        rowVec = new CRowVec(*this, m_rowLen);
         if (rowVec == nullptr) {
             return -ENOMEM;
         }
@@ -850,16 +860,16 @@ int CBPlusTree::NodeData::initNode(bool isLeaf, int32_t order) {
     return 0;
 }
 
-int CBPlusTree::NodeData::initNodeByLoad(bool isLeaf, int32_t order, void* zptr) {
+int CBPlusTree::NodeData::initNodeByLoad(bool isLeaf, int32_t order, void* zptr, dpfs_datatype_t keyType) {
 
-    nodeData = new nd(isLeaf, zptr);
+    nodeData = new nd(isLeaf, zptr, m_pageSize, m_rowPageSize);
     if(nodeData == nullptr) {
         return -ENOMEM;
     }
 
     maxKeySize = order;
-    keys = (reinterpret_cast<KEY_T*>(nodeData->data + sizeof(NodeData::nd::hdr_t)));
-    keyVec = new CKeyVec(*this);
+    keys = (reinterpret_cast<uint8_t*>(nodeData->data + sizeof(NodeData::nd::hdr_t)));
+    keyVec = new CKeyVec<KEY_T, uint16_t>(keys, nodeData->hdr->count, keyLen, maxKeySize + 1, keyType);
 
     if (keyVec == nullptr) {
 
@@ -868,8 +878,7 @@ int CBPlusTree::NodeData::initNodeByLoad(bool isLeaf, int32_t order, void* zptr)
 
     if (!isLeaf) {
         // pass header and keys area
-        // constexpr uint32_t order32 = (PAGESIZE * 4096 - sizeof(NodeData::nd::hdr_t) - sizeof(uint64_t)) / (KEYLEN + sizeof(uint64_t));
-        children = (reinterpret_cast<uint64_t*>(nodeData->data + sizeof(NodeData::nd::hdr_t) + (KEYLEN * order)));
+        children = (reinterpret_cast<uint64_t*>(nodeData->data + sizeof(NodeData::nd::hdr_t) + (keyLen * order)));
         childVec = new CChildVec(*this);
         if (childVec == nullptr) {
             return -ENOMEM;
@@ -1183,8 +1192,10 @@ int CBPlusTree::NodeData::insertRow(const KEY_T& key, const void* rowData, size_
         return rc;
     }
     pos = rc;
+
     rc = rowVec->insert(pos, rowData, dataLen);
     if (rc < 0) {
+        keyVec->erase(pos, pos + 1);
         return rc;
     }
     return 0;
@@ -1202,6 +1213,7 @@ CBPlusTree::NodeData::NodeData(NodeData&& nd) noexcept : m_page(nd.m_page) {
     this->maxKeySize = nd.maxKeySize;
     this->pCache = nd.pCache;
     this->inited = nd.inited;
+    this->keyLen = nd.keyLen;
 
     nd.keys = nullptr;
     nd.children = nullptr;
@@ -1225,6 +1237,7 @@ CBPlusTree::NodeData& CBPlusTree::NodeData::operator=(NodeData&& nd) {
     this->maxKeySize = nd.maxKeySize;
     this->pCache = nd.pCache;
     this->inited = nd.inited;
+    this->keyLen = nd.keyLen;
 
     nd.keys = nullptr;
     nd.children = nullptr;
@@ -1248,6 +1261,7 @@ CBPlusTree::NodeData& CBPlusTree::NodeData::operator=(NodeData* nd) {
     this->maxKeySize = nd->maxKeySize;
     this->pCache = nd->pCache;
     this->inited = nd->inited;
+    this->keyLen = nd->keyLen;
     this->isRef = true;
 
     return *this;
@@ -1273,7 +1287,7 @@ CBPlusTree::NodeData::~NodeData() {
     }
     if (nodeData) {
         if(!pCache && nodeData->data) {
-            m_page.freezptr(nodeData->data, nodeData->hdr->leaf ? ROWPAGESIZE : PAGESIZE);
+            m_page.freezptr(nodeData->data, nodeData->hdr->leaf ? m_rowPageSize : m_pageSize);
             nodeData->data = nullptr;
         }
         delete nodeData;
@@ -1293,7 +1307,7 @@ int CBPlusTree::NodeData::size() noexcept {
 }
 
 int CBPlusTree::NodeData::assign(const NodeData& target, int begin, int end) noexcept {
-    int rc = keyVec->assign(&target.keys[begin], &target.keys[end]);
+    int rc = keyVec->assign(target.keyVec->begin() + begin, target.keyVec->begin() + end);
     if (rc < 0) {
         return rc;
     }
@@ -1303,7 +1317,7 @@ int CBPlusTree::NodeData::assign(const NodeData& target, int begin, int end) noe
             return rc;
         }
     } else {
-        rc = rowVec->assign(&target.rowVec->row[begin * ROWLEN], &target.rowVec->row[end * ROWLEN]);
+        rc = rowVec->assign(&target.rowVec->row[begin * rowVec->m_rowLen], &target.rowVec->row[end * rowVec->m_rowLen]);
         if (rc < 0) {
             return rc;
         }
@@ -1358,9 +1372,11 @@ int CBPlusTree::NodeData::erase(int begin, int end) noexcept {
 int CBPlusTree::NodeData::erase(const KEY_T& key) noexcept {
     // erase children or rows first
     int begin = keyVec->search(key);
-    KEY_T* foundKey = nullptr;
+
+
+    KEY_T foundKey;
     int rc = keyVec->at(begin, foundKey);
-    if(!(rc == 0 && *foundKey == key)) {
+    if(!(rc == 0 && foundKey == key)) {
         return -ENOENT;
     }
     int end = begin + 1;
@@ -1400,14 +1416,14 @@ int CBPlusTree::NodeData::printNode() const noexcept {
               << " next leaf bid: " << nodeData->hdr->next << std::endl; 
     }
     for (size_t i = 0; i < keyVec->size(); ++i) {
-        KEY_T* key = nullptr;
+        KEY_T key;
         int rc = keyVec->at(i, key);
         if (rc == 0) {
             std::string keyStr;
-            for(int i = 0; i < KEYLEN; ++i) {
+            for(int i = 0; i < this->keyLen; ++i) {
                 
-                keyStr.push_back(hex_chars[((*key).data[i] >> 4) & 0x0F]);
-                keyStr.push_back(hex_chars[(*key).data[i] & 0x0F]);
+                keyStr.push_back(hex_chars[((key).data[i] >> 4) & 0x0F]);
+                keyStr.push_back(hex_chars[((key).data[i]) & 0x0F]);
                 keyStr.push_back(' ');
             }
 

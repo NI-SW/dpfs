@@ -1,12 +1,18 @@
 #include <collect/page.hpp>
 #include <memory.h>
 
-// #define __DEBUG__
+#define __DEBUG__
 
 #ifdef __DEBUG__
 #include <iostream>
 using namespace std;
 #endif
+extern uint64_t nodeId;
+#define log_inf(fmt, ...) log_inf("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
+#define log_notic(fmt, ...) log_notic("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
+#define log_error(fmt, ...) log_error("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
+#define log_fatal(fmt, ...) log_fatal("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
+#define log_debug(fmt, ...) log_debug("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
 
 // max block len, manage memory block alloced by dpfsEngine::zmalloc
 const size_t maxBlockLen = 20;
@@ -291,49 +297,73 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
             goto errReturn;
         }
 
+        dpfs_engine_cb_struct* cbs = alloccbs();// alloc dpfs_engine_cb_struct;
+        if(!cbs) {
+            m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory\n");
+            rc = -ENOMEM;
+            goto errReturn;
+        }
+        cbs->m_arg = this;
+        // call back function for disk write
+        cbs->m_cb = [cptr, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
+            if(cptr->cache->getStatus() == cacheStruct::INVALID || cptr->cache->getStatus() == cacheStruct::ERROR) {
+                // already invalid, just return
+                if(finish_indicator) {
+                    *finish_indicator = 1;
+                }
+                reinterpret_cast<CPage*>(arg)->freecbs(cbs);
+                return;
+            }
+
+            CPage* pge = static_cast<CPage*>(arg);
+            if(dcp->return_code) {
+                cptr->cache->status = cacheStruct::ERROR;
+                pge->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
+                // write error
+                // TODO process error
+                if(finish_indicator) {
+                    *finish_indicator = -1;
+                }
+                pge->freecbs(cbs);
+                return;
+            }
+            if(finish_indicator) {
+                *finish_indicator = 1;
+            }
+            cptr->cache->status = cacheStruct::VALID;
+            cptr->cache->dirty = 0;
+            pge->freecbs(cbs);
+        };   
+    
+
         rc = cptr->cache->lock();
         if(rc) {
             // TODO process error
-
             m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
-            goto errReturn;
+            // to indicate error
+            if(!finish_indicator) {
+                // TODO
+                return 0;
+            }
+
+            zptr = alloczptr(1);
+            if(!zptr) {
+                m_log.log_error("can't malloc small block for error indication, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
+                goto errReturn;
+            }
+
+            // write to 0 to refresh the indicator
+            rc = m_engine_list[idx.gid]->write(0, zptr, 1, cbs);
+            if(rc < 0) {
+                m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
+            }
+            return 0;
         }
         cptr->cache->status = cacheStruct::WRITING;
         cptr->cache->unlock();
 
-        if(1) {
-            dpfs_engine_cb_struct* cbs = alloccbs();// new dpfs_engine_cb_struct;
-            if(!cbs) {
-                m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory\n");
-                rc = -ENOMEM;
-                goto errReturn;
-            }
-
-            cbs->m_arg = this;
-            // call back function for disk write
-            cbs->m_cb = [cptr, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
-                CPage* pge = static_cast<CPage*>(arg);
-                if(dcp->return_code) {
-                    cptr->cache->status = cacheStruct::ERROR;
-                    pge->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
-                    // write error
-                    // TODO process error
-                    if(finish_indicator) {
-                        *finish_indicator = -1;
-                    }
-                    pge->freecbs(cbs);
-                    return;
-                }
-                if(finish_indicator) {
-                    *finish_indicator = 1;
-                }
-                cptr->cache->status = cacheStruct::VALID;
-                cptr->cache->dirty = 0;
-                pge->freecbs(cbs);
-            };   
-
-            rc = m_engine_list[idx.gid]->write(idx.bid, zptr, len, cbs);
-        }
+        rc = m_engine_list[idx.gid]->write(idx.bid, zptr, len, cbs);
+        
 
         if(rc < 0) {
             // if error, unlock immediately, else unlock in callback
@@ -379,6 +409,16 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
     cbs->m_arg = this;
     // call back function for disk write
     cbs->m_cb = [cache, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
+        
+        if(cache->getStatus() == cacheStruct::INVALID || cache->getStatus() == cacheStruct::ERROR) {
+            // already invalid, just return
+            if(finish_indicator) {
+                *finish_indicator = 1;
+            }
+            reinterpret_cast<CPage*>(arg)->freecbs(cbs);
+            return;
+        }
+
         CPage* pge = static_cast<CPage*>(arg);
         if(dcp->return_code) {
             cache->status = cacheStruct::ERROR;
@@ -402,10 +442,27 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
     rc = cache->lock();
     if(rc) {
         // TODO process error
-
         m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
-        goto errReturn;
+        // to indicate error
+        if(!finish_indicator) {
+            // TODO
+            return 0;
+        }
+
+        void* zptr = alloczptr(1);
+        if(!zptr) {
+            m_log.log_error("can't malloc small block for error indication, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
+            return -ENOMEM;
+        }
+
+        // write to 0 to refresh the indicator
+        rc = m_engine_list[cache->idx.gid]->write(0, zptr, 1, cbs);
+        if(rc < 0) {
+            m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
+        }
+        return 0;
     }
+
     cache->status = cacheStruct::WRITING;
     cache->unlock();
     rc = m_engine_list[cache->idx.gid]->write(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
@@ -607,17 +664,9 @@ void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
 
 
     // some problem, need to considerate call back method
-    if(p->dirty || finish_indicator) {
+    if(p->dirty || finish_indicator != nullptr) {
 
-        // change status to writing
-        rc = p->lock();
-        if(rc) {
-            // TODO process error
-            cp->m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
-            return;
-        }
-        p->status = cacheStruct::WRITING;
-        p->unlock();
+
 
         dpfs_engine_cb_struct* cbs = this->cp->alloccbs(); //new dpfs_engine_cb_struct;
         if(!cbs) {
@@ -628,6 +677,17 @@ void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
         cbs->m_arg = this;
         // call back function for disk write
         cbs->m_cb = [&p, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
+
+            if(p->getStatus() == cacheStruct::INVALID || p->getStatus() == cacheStruct::ERROR) {
+                // already invalid, just return
+                if(finish_indicator) {
+                    *finish_indicator = 1;
+                }
+                p->release();
+                reinterpret_cast<PageClrFn*>(arg)->cp->freecbs(cbs);
+                return;
+            }
+
             PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
 
             #ifdef __DEBUG__
@@ -652,15 +712,44 @@ void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
             p->release();
             pcf->cp->freecbs(cbs);
         };
+        
+        // change status to writing
+        rc = p->lock();
+        if(rc) {
+            // TODO process error
+            cp->m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+            // to indicate error
+            if(!finish_indicator) {
+                // TODO
+                p->release();
+                return;
+            }
 
+            zptr = this->cp->alloczptr(1);
+            if(!zptr) {
+                cp->m_log.log_error("can't malloc small block for error indication, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+                p->release();
+                return;
+            }
+
+            // write to 0 to refresh the indicator
+            rc = cp->m_engine_list[p->idx.gid]->write(0, zptr, 1, cbs);
+            if(rc < 0) {
+                cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+                p->release();
+            }
+            return;
+        }
+        p->status = cacheStruct::WRITING;
+        p->unlock();
+
+        // if write is successfully called, the unlock and release will be in callback function
         rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
         if(rc < 0) {
-
             cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
             // write error
             // !-!QUESTION!-!
             // TODO
-
             p->release();
             return;
         }

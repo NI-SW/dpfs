@@ -11,18 +11,24 @@
 #include <iostream>
 #include <vector>
 
-#define __LOAD__ 1
+#define __LOAD__ 0
 
-static CBPlusTree::KEY_T make_key(uint64_t v) {
-    CBPlusTree::KEY_T k{};
-    std::memset(k.data, 0, KEYLEN);
-    std::memcpy(k.data, &v, sizeof(v));
-    return k;
+const bidx BOOTDIX = {0, 1};
+
+
+uint8_t gdata[MAXKEYLEN] { 0 };
+
+static KEY_T make_key(uint64_t v) {
+    
+    std::memset(gdata, 0, MAXKEYLEN);
+    std::memcpy(gdata, &v, sizeof(v));
+    return { gdata, sizeof(v) };
 }
 
 static void expect_insert(CBPlusTree& bpt, uint64_t keyVal, uint64_t payload) {
     auto key = make_key(keyVal);
     uint64_t row[3] = {keyVal, payload, payload + 50};
+    cout << "key data : " << *(uint64_t*)key.data << ", len=" << (int)key.len << endl;
     int rc = bpt.insert(key, row, sizeof(row));
     if(rc != 0) {
         cout << rc << endl;
@@ -58,13 +64,13 @@ int main() {
 
 
     if(__LOAD__) {
-        rc = coll->loadFrom({0, 0});
+        rc = coll->loadFrom(BOOTDIX);
         if(rc != 0) {
             cout << " load collection fail, rc=" << rc << endl;
         }
         
     } else {
-        rc = coll->initialize(0);
+        rc = coll->initialize();
         if(rc != 0) {
             cout << " load collection fail, rc=" << rc << endl;
         }
@@ -74,21 +80,25 @@ int main() {
         assert(rc == 0);
         rc = coll->addCol("val2", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t));
         assert(rc == 0);
+
+        coll->initBPlusTreeIndex();
     }
     
-    CBPlusTree bpt(*coll, *page, dman, 4);
+    // CBPlusTree bpt(*coll, *page, dman, 4);
 
+    CBPlusTree& bpt = *coll->m_btreeIndex;
 
 #if __LOAD__ == 1
 
 #else
     try {
-        for(int i = 1; i < 23; ++i) {
-            if(i == 13) {
-                continue;
-            }
-            expect_insert(bpt, i, 1000 + i);
-        }
+        // for(int i = 1; i < 23; ++i) {
+        //     if(i == 13) {
+        //         continue;
+        //     }
+        //     expect_insert(bpt, i, 1000 + i);
+        // }
+        expect_insert(bpt, 1, 1000 + 1);
     } catch (const std::exception& ex) {
         threw = true;
         std::cerr << "insert threw exception: " << ex.what() << std::endl;
@@ -182,7 +192,7 @@ int main() {
     }
 
     //TODO TEST SAVE AND LOAD TREE FROM DISK
-    rc = coll->saveTo({0, 0});
+    rc = coll->saveTo(BOOTDIX);
     if(rc != 0) {
         cout << " save collection fail, rc=" << rc << endl;
         goto errReturn;

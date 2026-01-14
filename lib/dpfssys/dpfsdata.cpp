@@ -39,7 +39,7 @@ int CDatasvc::init() {
     sysdpfs->fixedInfo.addCol("KEY", dpfs_datatype_t::TYPE_CHAR, 32);
     sysdpfs->fixedInfo.addCol("VALUE", dpfs_datatype_t::TYPE_CHAR, 32);
 
-    itm = CItem::newItems(sysdpfs->fixedInfo.m_cols, 10);
+    itm = CItem::newItems(sysdpfs->fixedInfo.m_collectionStruct->m_cols, 10);
     if(!itm) {
         rc = -ENOMEM;
         goto errReturn;

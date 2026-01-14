@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <threadlock.hpp>
 // #define __DPFS_CACHE_DEBUG__
-// #define __DEBUG__
+#define __DEBUG__
 
 #ifdef __DEBUG__
 #include <iostream>
@@ -64,11 +64,11 @@ public:
     }
 
     ~CDpfsCache() {
+        
         size_t sz = m_cacheMap.size();
 
         if(sz > 0) {
             int finish_indicator = 0;
-            
             for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
 
                 #ifdef __DEBUG__
