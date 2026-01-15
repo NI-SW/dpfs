@@ -607,9 +607,11 @@ struct CCollectionInitStruct {
         m_perms.permByte = 0b0000000010011111;
         name = "dpfs_dummy";
         id = 0;
+        indexPageSize = 4;
     };
     ~CCollectionInitStruct() = default;
     uint32_t id = 0;
+    uint8_t indexPageSize = 4;
     std::string name;
     union{
         struct perms {
@@ -835,9 +837,11 @@ public:
                 uint16_t permByte = 0;
             } m_perms;
             uint8_t m_btreeHigh = 0;
+            // default b plus tree index page size 4 * 4096 = 16KB
+            uint8_t m_indexPageSize = 4;
             // name of the collection
-            uint8_t m_colSize = 0;
             CColumn m_colsData[MAX_COL_NUM];
+            uint8_t m_colSize = 0;
             uint8_t m_nameLen = 0;
             char m_name[MAX_NAME_LEN];
         }* ds = nullptr;

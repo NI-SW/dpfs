@@ -1,9 +1,9 @@
 #include <collect/page.hpp>
 #include <memory.h>
 
-#define __DEBUG__
+// #define __PGDEBUG__
 
-#ifdef __DEBUG__
+#ifdef __PGDEBUG__
 #include <iostream>
 using namespace std;
 #endif
@@ -690,7 +690,7 @@ void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
 
             PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
 
-            #ifdef __DEBUG__
+            #ifdef __PGDEBUG__
             cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
             #endif
             

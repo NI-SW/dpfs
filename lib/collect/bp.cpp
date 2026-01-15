@@ -54,9 +54,13 @@ CBPlusTree::CBPlusTree(CCollection& collection, CPage& pge, CDiskMan& cdm, size_
     m_rowPageSize = static_cast<uint8_t>( rowLenInByte % dpfs_lba_size == 0 ? rowLenInByte / dpfs_lba_size : (rowLenInByte / dpfs_lba_size) + 1 );
     m_rowOrder = m_indexOrder; // ((m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen)) - 1;
 
-#ifdef __DEBUG__
-    m_indexOrder = indOrder;
-    m_rowOrder = rowOrder;
+#ifdef __BPDEBUG__
+
+    cout << "BPlusTree initialized with page size: " << (int)m_pageSize << " row page size: " << (int)m_rowPageSize << " LBA, key length: " << (int)keyLen 
+    << ", index order: " << m_indexOrder << ", row order: " << m_rowOrder << ", row length: " << m_rowLen << endl;
+
+    // m_indexOrder = indOrder;
+    // m_rowOrder = rowOrder;
 #endif
 
 }
@@ -65,7 +69,7 @@ CBPlusTree::~CBPlusTree() {
     if(m_commitCache.size() > 0) {
         // rollback uncommitted nodes
         for(auto& it : m_commitCache) {
-            #ifdef __DEBUG__
+            #ifdef __BPDEBUG__
             cout << "Rolling back node gid: " << it.first.gid << " bid: " << it.first.bid << endl;
             #endif
             it.second.pCache->lock();
@@ -194,7 +198,7 @@ int CBPlusTree::search(const KEY_T& key, void* out, uint32_t len, uint32_t* actu
     if (m_root.bid == 0) return -ENOENT;
     bidx cur = m_root;
     NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-    bool nextIsLeaf = false;
+    bool nextIsLeaf = high == 1 ? true : false;
     while (true) {
         int rc = load_node(cur, node, nextIsLeaf);
         if (rc != 0) return rc;
@@ -250,8 +254,6 @@ int CBPlusTree::remove(const KEY_T& key) {
         m_root = {0, 0};
         high = 0;
     }
-    
-    
     
     return 0;
 }
@@ -452,7 +454,7 @@ int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild, KEY_T& child
     // if sibling has enough keys, borrow from sibling, else merge two nodes
     if(borrowNode->size() > (isLeaf ? (m_rowOrder / 2) : (m_indexOrder / 2))) {
         ct = BORROW;
-        #ifdef __DEBUG__
+        #ifdef __BPDEBUG__
         // std::cout << "BORROW from " << (fromLeft ? "LEFT" : "RIGHT") << " sibling node." << std::endl;
         // std::cout << "  Target Node before borrow: ";
         // target.printNode();
@@ -700,7 +702,7 @@ int CBPlusTree::mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode
     return 0;
 }
 
-#ifdef __DEBUG__
+#ifdef __BPDEBUG__
 
 
 void CBPlusTree::printTree() {
@@ -778,6 +780,13 @@ void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level) {
     }
 }
 
+#else 
+void CBPlusTree::printTree() {
+    // do nothing
+}
+void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level)  {
+    // do nothing
+}
 #endif
 
 
@@ -886,7 +895,7 @@ int CBPlusTree::NodeData::initNodeByLoad(bool isLeaf, int32_t order, void* zptr,
     } else {
         // values = (reinterpret_cast<void*>(nodeData->data + sizeof(nodeData->hdr) + (KEYLEN * order)));
         // values = reinterpret_cast<void*>(keys);
-        rowVec = new CRowVec(*this, order);
+        rowVec = new CRowVec(*this, m_rowLen);
         if (rowVec == nullptr) {
             return -ENOMEM;
         }
@@ -1406,7 +1415,7 @@ int CBPlusTree::NodeData::erase(const KEY_T& key) noexcept {
 
 int CBPlusTree::NodeData::printNode() const noexcept {
 
-    #ifdef __DEBUG__
+    #ifdef __BPDEBUG__
     std::cout << "Node Bid: " << self.bid << ", Keys: \n";
     std::cout << "node header : " << " leaf: " << (int)nodeData->hdr->leaf 
               << " childIsLeaf: " << (int)nodeData->hdr->childIsLeaf 

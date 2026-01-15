@@ -11,7 +11,7 @@
 #include <iostream>
 #include <vector>
 
-#define __LOAD__ 0
+#define __LOAD__ 1
 
 const bidx BOOTDIX = {0, 1};
 
@@ -70,7 +70,9 @@ int main() {
         }
         
     } else {
-        rc = coll->initialize();
+        CCollectionInitStruct initStruct;
+        initStruct.indexPageSize = 1;
+        rc = coll->initialize(initStruct);
         if(rc != 0) {
             cout << " load collection fail, rc=" << rc << endl;
         }

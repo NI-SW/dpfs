@@ -13,9 +13,9 @@
 #include <dpendian.hpp>
 #include <unordered_map>
 
-#define __DEBUG__
+#define __BPDEBUG__
 
-#ifdef __DEBUG__
+#ifdef __BPDEBUG__
 #include <iostream>
 #include <string>
 using namespace std;
@@ -1330,7 +1330,7 @@ address         0 1 2 3 4 5 6 7 8
             ++pos;
         }
 
-        #ifdef __DEBUG__
+        #ifdef __BPDEBUG__
         string ks((char*)key.data, key.len);
         cout << "child_index: key " << ks << endl;;
         cout << " found at pos " << pos << endl;
@@ -1517,7 +1517,7 @@ private:
             return rc;
         }
 
-        #ifdef __DEBUG__
+        #ifdef __BPDEBUG__
 
         cout << "Loaded node gid: " << idx.gid << " bid: " << idx.bid << endl;
         cout << "  isLeaf: " << (int)(out.nodeData->hdr->leaf) << " keyCount: " << out.nodeData->hdr->count << " secondCount: " << out.nodeData->hdr->secondCount << endl;
@@ -1596,7 +1596,7 @@ private:
             // fetch the cache struct
             if(rc != 0) return rc;
         }
-        #ifdef __DEBUG__
+        #ifdef __BPDEBUG__
 
         cout << "store node gid: " << node.self.gid << " bid: " << node.self.bid << endl;
         cout << "  isLeaf: " << (int)(node.nodeData->hdr->leaf) << " keyCount: " << node.nodeData->hdr->count << " secondCount: " << node.nodeData->hdr->secondCount << endl;
@@ -1647,7 +1647,7 @@ private:
                 // node.second.nodeData->hdr->isConverted = 0;
             }
 
-            #ifdef __DEBUG__
+            #ifdef __BPDEBUG__
             cout << "Committing node gid: " << node.first.gid << " bid: " << node.first.bid << endl;
             #endif
 

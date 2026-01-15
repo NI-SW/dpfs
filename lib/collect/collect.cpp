@@ -566,7 +566,7 @@ int CCollection::addItem(const CItem& item) {
     int rc = 0;
     if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         // separate key and value from item
-        
+
 
         // use b plus tree to index the item
     }
@@ -706,7 +706,7 @@ int CCollection::loadFrom(const bidx& head) {
     }
 
     if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
-        m_btreeIndex = new CBPlusTree(*this, m_page, m_diskMan, 4);
+        m_btreeIndex = new CBPlusTree(*this, m_page, m_diskMan, m_collectionStruct->ds->m_indexPageSize);
         if(!m_btreeIndex) {
             return -ENOMEM;
         }
@@ -755,7 +755,7 @@ int CCollection::initialize(const CCollectionInitStruct& initStruct) {
 
 
     m_collectionStruct->ds->m_perms.permByte = initStruct.m_perms.permByte;
-
+    m_collectionStruct->ds->m_indexPageSize = initStruct.indexPageSize;
     m_collectionStruct->m_cols.clear();
 
     curTmpDataLen = 0;
@@ -771,7 +771,7 @@ int CCollection::initBPlusTreeIndex() noexcept {
         return -EINVAL;
     }
     if(!m_btreeIndex) {
-        m_btreeIndex = new CBPlusTree(*this, m_page, m_diskMan, 4);
+        m_btreeIndex = new CBPlusTree(*this, m_page, m_diskMan, m_collectionStruct->ds->m_indexPageSize);
         if(!m_btreeIndex) {
             return -ENOMEM;
         }
