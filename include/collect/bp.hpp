@@ -13,7 +13,7 @@
 #include <dpendian.hpp>
 #include <unordered_map>
 
-#define __BPDEBUG__
+// #define __BPDEBUG__
 
 #ifdef __BPDEBUG__
 #include <iostream>
@@ -28,95 +28,21 @@ static int myabort() {
     return 0;
 }
 // #define ERANGE myabort()
+extern const char hex_chars[];
 #endif
 
 // if key length exceed maxKeyLen, when search compare only first maxKeyLen bytes
-constexpr uint32_t maxSearchKeyLen = 255; // 16KB
-constexpr uint32_t maxInrowLen = 256;
+constexpr uint32_t maxSearchKeyLen = 255; // 255B
+constexpr uint32_t maxInrowLen = 1024;
 
 // constexpr uint8_t PAGESIZE = 4;
 // constexpr uint32_t ROWPAGESIZE = 32; 
 // constexpr int ROWLEN = 512; // default row length
-
 // parent + prev + next + keyCnt + isLeaf + reserve
-constexpr uint8_t hdrSize = 8 + 8 + 8 + 2 + 1 + 5; 
+// constexpr uint8_t hdrSize = 8 + 8 + 8 + 2 + 1 + 5; 
+
 constexpr uint8_t MAXKEYLEN = maxSearchKeyLen;
 constexpr dpfs_datatype_t KEYTYPE = dpfs_datatype_t::TYPE_BIGINT;
-
-/*
-    @note class to manage key vector without dynamic memory allocate
-*/
-// template <typename VALUE_T = int, typename SIZETYPE = size_t>
-// class CKeyVec : public CVarLenVec<VALUE_T, SIZETYPE> {
-// public:
-//     CKeyVec(VALUE_T* begin, SIZETYPE& sz, size_t valueLength, size_t maxSize) : CVarLenVec<VALUE_T, SIZETYPE>(begin, sz, valueLength, maxSize) {
-//         // extra one reserve for split action
-// 	}
-// 	virtual ~CKeyVec() = default;
-
-//     /*
-//         @param pos position to insert
-//         @param val value to insert
-//         @return 0 on success, -ERANGE on exceed max size
-//         @note insert val to the vector at pos, mark as virtual if need override insert method
-//     */
-//     virtual int insert(const VALUE_T& val) noexcept {
-//         // find the pos of the key to insert
-//         auto pos = std::lower_bound(this->values, this->values + this->vecSize, val);
-//         if (pos != this->values + this->vecSize && *pos == val) {
-//             // Key already exists
-//             return -EEXIST;
-//         }
-//         if (this->vecSize >= this->maxSize) {
-//             return -ERANGE;
-//         }
-//         std::memmove(pos + 1, pos, (this->values + this->vecSize - pos) * this->valueLen);
-//         *pos = val;
-//         ++this->vecSize;
-//         return pos - this->values;
-//     }
-
-//     virtual int erase(const VALUE_T& val) noexcept override {
-//         auto pos = std::lower_bound(this->values, this->values + this->vecSize, val);
-//         if (pos == this->values + this->vecSize || !(*pos == val)) {
-//             // key not found
-//             return -ENOENT;
-//         }
-//         std::memmove(pos, pos + 1, (this->values + this->vecSize - pos - 1) * this->valueLen);
-//         --this->vecSize;
-//         return pos - this->values;
-//     }
-
-//     int erase(const int& begin, const int& end) {
-//         return CVarLenVec<VALUE_T, SIZETYPE>::erase(begin, end);
-//     }
-
-//     int erase(VALUE_T* it) {
-//         return CVarLenVec<VALUE_T, SIZETYPE>::erase(it);
-//     }
-
-//     /*
-//         @param key: key to search
-//         @return position of the key on success, -ENOENT if not found
-//         @note search key in the vector
-//     */
-//     int search(const VALUE_T& val) const noexcept {
-//         auto pos = std::lower_bound(this->values, this->values + this->vecSize, val);
-//         // if (pos == keys + vecSize || !(*pos == key)) {
-//         //     return -ENOENT;
-//         // }
-//         return pos - this->values;
-//     }
-
-//     int concate_front(const CKeyVec<VALUE_T, SIZETYPE>& fromVec) noexcept {
-// 		return CVarLenVec<VALUE_T, SIZETYPE>::concate_front(static_cast<const CVarLenVec<VALUE_T, SIZETYPE>&>(fromVec));
-//     }
-
-//     int concate_back(const CKeyVec<VALUE_T, SIZETYPE>& fromVec) noexcept {
-// 		return CVarLenVec<VALUE_T, SIZETYPE>::concate_back(static_cast<const CVarLenVec<VALUE_T, SIZETYPE>&>(fromVec));
-//     }
-
-// };
 
 
 
@@ -203,29 +129,6 @@ struct KEY_T {
     }
 };
 
-struct CTEMPLKEY {
-    CTEMPLKEY(size_t l) : len(l) {
-        data = new uint8_t[len];
-        if(!data) {
-            throw std::bad_alloc();
-        }
-    }
-
-    CTEMPLKEY(const KEY_T& key) : len(key.len) {
-        data = new uint8_t[len];
-        if(!data) {
-            throw std::bad_alloc();
-        }
-        std::memcpy(data, key.data, key.len);
-    }
-    
-    ~CTEMPLKEY() {
-        delete[] data;
-    }
-
-    uint8_t* data = nullptr;
-    size_t len = 0;
-};
 
 template <typename VALUE_T = KEY_T, typename SIZETYPE = size_t>
 class CKeyVec : public CVarLenVec<VALUE_T, SIZETYPE> {
@@ -336,113 +239,24 @@ private:
 };
 
 
-//TODO :: B+树模板化？X
-// template<uint8_t KEYLEN = 8>
 class CBPlusTree {
-public:
-
+private:
 using child_t = uint64_t;
-
-    // template<uint8_t KEYLEN = 8, dpfs_datatype_t KEYTYPE = dpfs_datatype_t::TYPE_BIGINT>
-    // TODO CHANGE KEY_T LEN
-    // struct KEY_T {
-    //     // dpfs_datatype_t type = dpfs_datatype_t::TYPE_NULL;
-    //     // uint8_t m_len = KEYLEN;
-    //     uint8_t data[KEYLEN];
-
-    //     KEY_T& operator=(const KEY_T& other) noexcept {
-    //         std::memcpy(data, other.data, KEYLEN);
-    //         return *this;
-    //     }
-
-    //     bool operator==(const KEY_T& other) const noexcept {
-    //         switch(KEYTYPE) {
-    //             case dpfs_datatype_t::TYPE_INT:
-    //                 return *(int32_t*)data == *(int32_t*)other.data;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_FLOAT:
-    //                 return *(float*)data == *(float*)other.data;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_BIGINT:
-    //                 return *(int64_t*)data == *(int64_t*)other.data;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_DOUBLE:
-    //                 return *(double*)data == *(double*)other.data;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_CHAR:
-    //             case dpfs_datatype_t::TYPE_VARCHAR:
-    //                 return std::strncmp((const char*)data, (const char*)other.data, KEYLEN) == 0;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_BLOB:
-    //             case dpfs_datatype_t::TYPE_BINARY:
-    //                 return std::memcmp(data, other.data, KEYLEN) == 0;
-    //                 break;
-    //             default:
-    //                 break;
-    //         }
-    //         return std::memcmp(data, other.data, KEYLEN) == 0;
-    //     }
-    //     bool operator<(const KEY_T& other) const noexcept {
-    //         switch(KEYTYPE) {
-    //             case dpfs_datatype_t::TYPE_INT:
-    //                 return *(int32_t*)data < *(int32_t*)other.data;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_FLOAT:
-    //                 return *(float*)data < *(float*)other.data;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_BIGINT:
-    //                 return *(int64_t*)data < *(int64_t*)other.data;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_DOUBLE:
-    //                 return *(double*)data < *(double*)other.data;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_CHAR:
-    //             case dpfs_datatype_t::TYPE_VARCHAR:
-    //                 return std::strncmp((const char*)data, (const char*)other.data, KEYLEN) < 0;
-    //                 break;
-    //             case dpfs_datatype_t::TYPE_BLOB:
-    //             case dpfs_datatype_t::TYPE_BINARY:
-    //                 return std::memcmp(data, other.data, KEYLEN) < 0;
-    //                 break;
-    //             default:
-    //                 break;
-    //         }
-            
-    //         return std::memcmp(data, other.data, KEYLEN) < 0;
-    //     }
-    // };
-
-    // tiny RAII helper for CSpin
-    struct CSpinGuard {
-        explicit CSpinGuard(CSpin& l) : lock(l) { lock.lock(); }
-        ~CSpinGuard() { lock.unlock(); }
-        CSpin& lock;
-    };
-
-    /*
-
-    {ONE BLOCK FOR LEAF NODE}
-                |parent(8B)|prev(8B)|next(8B)|isLeaf(1B)|keyCnt(2B)|reserve(5B)|key|value|...|...|key|value|
-                                                                                |
-    nodeData->                                                                 data[]
-
-
-    {ONE BLOCK FOR INDEX NODE}
-                |parent(8B)|prev(8B)|next(8B)|isLeaf(1B)|keyCnt(2B)|reserve(5B)|keys...|childs...|
-                                                                    |       |
-    nodeData->                                                    data[]  keyCnt * KEYLEN
-
-    Data region layout is compact; all block ids are stored as uint64_t (bid) and
-    gid is inherited from the current node's gid. VALUE is stored as uint64_t
-    reinterpretation of VALUE_T (pointer or integral payload).
-
-    */
-    class CChildVec;
-    class CRowVec;
-
+class CChildVec;
+class CRowVec;
+    
     // for one node data in b+ tree
     struct NodeData {
-        explicit NodeData(CPage& page, uint8_t keyLength, uint8_t pageSize, uint8_t rowPageSize, uint32_t rowLen) : m_page(page), keyLen(keyLength), m_pageSize(pageSize), m_rowPageSize(rowPageSize), m_rowLen(rowLen) {};
+        explicit NodeData(CPage& page, uint8_t keyLength, uint8_t pageSize, uint8_t rowPageSize, uint32_t rowLen) : 
+        m_page(page), 
+        keyLen(keyLength), 
+        m_pageSize(pageSize), 
+        m_rowPageSize(rowPageSize), 
+        m_rowLen(rowLen) {
+            #ifdef __BPDEBUG__
+            std::cout << "NodeData constructor called for bid: " << std::endl;
+            #endif
+        };
         NodeData(const NodeData& nd) = delete;
         NodeData(NodeData&& nd) noexcept;
         NodeData& operator=(NodeData&& nd);
@@ -454,6 +268,7 @@ using child_t = uint64_t;
         // use data from zptr
         int initNode(bool isLeaf, int32_t order, dpfs_datatype_t keyType);
         int initNodeByLoad(bool isLeaf, int32_t order, void* zptr, dpfs_datatype_t keyType);
+        int deInitNode();
         /*
             @param key: key to insert
             @param lchild: left child bid, 0 if do not update
@@ -574,20 +389,6 @@ using child_t = uint64_t;
                 }
             }
 
-            // nd(bool isLeaf = false) {
-            //     if (isLeaf) {
-            //         size = PAGESIZE * 4096 * rowCoefficient;
-            //     } else {
-            //         size = PAGESIZE * 4096;
-            //     }
-            //     data = new uint8_t[size];
-            //     if (!data) {
-            //         throw std::bad_alloc();
-            //     }
-            //     hdr = reinterpret_cast<decltype(hdr)>(data);
-            //     std::memset(data, 0, size);
-            // }
-
             nd(nd&& nd) noexcept {
                 this->data = nd.data;
                 this->size = nd.size;
@@ -597,9 +398,7 @@ using child_t = uint64_t;
             }
 
             ~nd() {
-                // if (data) {
-                //     delete[] data;
-                // }
+
             }
 
             #pragma pack(push, 1)
@@ -620,7 +419,7 @@ using child_t = uint64_t;
             uint8_t* data = nullptr;
             uint32_t size = 0;
         }* nodeData = nullptr;
-        
+
         bidx self{ 0, 0 };
         // key start position
         uint8_t* keys = nullptr;
@@ -641,9 +440,193 @@ using child_t = uint64_t;
         bool isRef = false;
         bool needDelete = false;
     };
+public:
+    CBPlusTree(CCollection& collection, CPage& pge, CDiskMan& cdm, size_t pageSize = 4);
+    ~CBPlusTree();
+    
+    class iterator {
+    public:
+        iterator(CBPlusTree& tree, const bidx& start);
 
-    // max key count in one node
-    uint32_t maxkeyCount = 0;
+        iterator(const iterator& other);
+
+        /*
+            @note set current iterator to next row
+        */
+        iterator& operator++();
+        /*
+            @note set current iterator to prev row
+        */
+        iterator& operator--();
+
+        iterator operator++(int) noexcept = delete;
+
+        /*
+            @note assign from other iterator, operator= will not load from disk automatically, so need to call loadNode() after this function to activate the iterator
+        */
+        iterator& operator=(const iterator& other);
+
+        bool operator==(const iterator& other) const noexcept { return (m_currentNode == other.m_currentNode) && (m_currentPos == other.m_currentPos); }
+
+        bool operator!=(const iterator& other) const noexcept { return !(*this == other); }
+
+        /*
+            @note retrieve data at current iterator position, before use the iterator, need to call loadNode() first
+        */
+        int loadData(void* outKey, uint32_t outKeyLen, uint32_t& keyLen, void* outRow, uint32_t outRowLen, uint32_t& rowLen);
+        
+        
+        /*
+            @note load data at current iterator position, before use the iterator, need to call loadNode() first
+        */
+        int loadNode();
+
+        int isValid() noexcept {
+            return valid;
+        }
+    private:
+        friend class CBPlusTree;
+        uint32_t m_currentPos = 0;
+        bool loaded = false;
+        bool valid = false;
+        CBPlusTree::NodeData node;
+        bidx m_currentNode = {0, 0};
+        CBPlusTree& m_tree;
+    };
+
+    friend class iterator;
+    /*
+        @param key key to insert
+        @param row row buffer pointer
+        @param len length of the input value
+        @return 0 on success, else on failure
+    */
+    int insert(const KEY_T& key, const void* row, uint32_t len);
+
+    /*
+        @param key: key to update
+        @param input: input value pointer
+        @param len: length of the input value
+        @return 0 on success, else on failure
+    */
+    int update(const KEY_T& key, const void* input, uint32_t len);
+    /*
+        @param key: key to search
+        @param out: output value
+        @param len: length of the output buffer
+        @param actualLen: actual length of the output value
+        @return 0 on success, nagetive on failure, positive on warning
+        @note if return value > 0, it means output buffer is too small, data is truncated
+    */
+    int search(const KEY_T& key, void* out, uint32_t len, uint32_t* actualLen = nullptr);
+
+    /*
+        @param key: key to search
+        @return iterator to the key on success, end() if not found
+        @attention the iterator will return the position of the key, but the data is not loaded yet, need to call loadNode() before using the iterator
+        @note if the key is not exist, the function will return the lower bound of the key,the first value will bigger the key.
+    */
+    iterator search(const KEY_T& key);
+
+    /*
+        @param key: key to remove
+        @return 0 on success, else on failure
+    */
+    int remove(const KEY_T& key);
+
+    int commit() {
+        int lastIndicator = 0;
+        int rc = 0;
+
+        if (m_commitCache.empty()) {
+            return 0;
+        }
+
+        for(auto it = m_commitCache.begin(); it != m_commitCache.end(); ) {
+            if (it->second.needDelete) {
+                it->second.pCache->lock();
+                it->second.pCache->setStatus(cacheStruct::INVALID);
+                it->second.pCache->unlock();
+                rc = free_node(it->first, it->second.nodeData->hdr->leaf);
+                if (rc != 0) {
+                    return rc;
+                }
+                it->second.pCache->release();
+                it = m_commitCache.erase(it);
+            } else {
+                ++it;
+            }
+
+        }
+
+        if (m_commitCache.empty()) {
+            return 0;
+        }
+
+        size_t sz = m_commitCache.size();
+        for(auto& node : m_commitCache) {
+
+
+
+            if (B_END) {
+                // TODO convert back to little endian if needed
+
+                // before storing, convert back to little endian
+                // node.second.nodeData->hdr->isConverted = 0;
+            }
+
+            #ifdef __BPDEBUG__
+            cout << "Committing node gid: " << node.first.gid << " bid: " << node.first.bid << endl;
+            #endif
+
+            if (sz <= 1) {            
+                rc = m_page.writeBack(node.second.pCache, &lastIndicator);
+            } else {
+                rc = m_page.writeBack(node.second.pCache, nullptr);
+            }
+            if (rc != 0) {
+                return rc;
+            }
+            --sz;
+        }
+
+        while(lastIndicator != 1) {
+            // wait for last write back complete
+        }
+        m_commitCache.clear();
+        return 0;
+    }
+
+
+private:
+
+
+
+    // tiny RAII helper for CSpin
+    struct CSpinGuard {
+        explicit CSpinGuard(CSpin& l) : lock(l) { lock.lock(); }
+        ~CSpinGuard() { lock.unlock(); }
+        CSpin& lock;
+    };
+
+    /*
+
+    {ONE BLOCK FOR LEAF NODE}
+                |parent(8B)|prev(8B)|next(8B)|isLeaf(1B)|keyCnt(2B)|reserve(5B)|key|value|...|...|key|value|
+                                                                                |
+    nodeData->                                                                 data[]
+
+
+    {ONE BLOCK FOR INDEX NODE}
+                |parent(8B)|prev(8B)|next(8B)|isLeaf(1B)|keyCnt(2B)|reserve(5B)|keys...|childs...|
+                                                                    |       |
+    nodeData->                                                    data[]  keyCnt * KEYLEN
+
+    Data region layout is compact; all block ids are stored as uint64_t (bid) and
+    gid is inherited from the current node's gid. VALUE is stored as uint64_t
+    reinterpretation of VALUE_T (pointer or integral payload).
+
+    */
 
 
     /*
@@ -664,7 +647,7 @@ using child_t = uint64_t;
         int insert(uint32_t pos, child_t val) noexcept {
             if (pos > maxSize) {
                 return -EINVAL;
-            } else if(this->size() + 1 > maxSize) {
+            } else if (this->size() + 1 > maxSize) {
                 // out of space
                 return -ERANGE;
             }
@@ -770,7 +753,7 @@ address         0 1 2 3 4 5 6 7 8
         }
 
         int erase(int begin, int end) noexcept {
-            if(end < begin) {
+            if (end < begin) {
                 return -EINVAL;
             }
             if (begin >= vecSize + 1) {
@@ -854,44 +837,6 @@ address         0 1 2 3 4 5 6 7 8
         uint32_t maxSize = 0; // = ((PAGESIZE * 4096 - sizeof(NodeData::nd::hdr_t)) - sizeof(uint64_t)) / (KEYLEN + sizeof(uint64_t)) + 1;
     };
 
-    /*
-        @note class to manage key vector without dynamic memory allocate
-    */
-    //TODO finishing this class
-    // struct ROW_T {
-
-    //     void* operator new(size_t sz) = delete;
-    //     void* operator new[](size_t sz) = delete;
-
-    //     dpfs_datatype_t type = dpfs_datatype_t::TYPE_NULL;
-    //     // uint8_t m_len = KEYLEN;
-    //     ROW_T(void* rowData, dpfs_datatype_t dtype) : type(dtype) {
-    //         data = reinterpret_cast<decltype(data)>(rowData);
-    //         rowhead = reinterpret_cast<decltype(rowhead)>(rowData);
-    //     }
-    //     ~ROW_T() {
-
-    //     }
-
-    //     struct {
-    //         uint64_t pointerCol[2];
-    //     } *rowhead;
-
-    //     uint8_t* data = nullptr;
-
-    //     // use data type to determine how to interpret the data
-    //     // dpfs_datatype_t type = dpfs_datatype_t::TYPE_NULL;
-    //     bool operator<(const ROW_T& other) const noexcept {
-    //         return std::memcmp(data, other.data, ROWLEN) < 0;
-    //     }
-
-
-    //     bool operator==(const ROW_T& other) const noexcept {
-    //         return std::memcmp(data, other.data, ROWLEN) == 0;
-    //     }
-
-    // };
-
     class CRowVec {
     public:
         CRowVec(NodeData& nd, size_t rowLen) : vecSize(nd.nodeData->hdr->secondCount), m_rowLen(rowLen) {
@@ -909,7 +854,7 @@ address         0 1 2 3 4 5 6 7 8
         */
         int insert(int pos, const void* data, size_t dataLen) noexcept {
             int rc = 0;
-            if(dataLen > m_rowLen) {
+            if (dataLen > m_rowLen) {
                 // TODO:: use pointer to store data exceed row length
                 // ROW_T rowPtr(row + pos * m_rowLen);
                 rc = -ENOBUFS;
@@ -924,7 +869,7 @@ address         0 1 2 3 4 5 6 7 8
 
         int push_back(const void* data, size_t dataLen) noexcept {
             int rc = 0;
-            if(dataLen > m_rowLen) {
+            if (dataLen > m_rowLen) {
                 return -ENOBUFS;
             }
             std::memcpy(&row[vecSize * m_rowLen], data, dataLen);
@@ -952,7 +897,7 @@ address         0 1 2 3 4 5 6 7 8
 
         int push_front(const void* data, size_t dataLen) noexcept {
             int rc = 0;
-            if(dataLen > m_rowLen) {
+            if (dataLen > m_rowLen) {
                 return -ENOBUFS;
             }
             memmove(&row[m_rowLen * 1], &row[0], vecSize * m_rowLen);
@@ -1007,7 +952,7 @@ address         0 1 2 3 4 5 6 7 8
 
         // must be used before erase the key
         int erase(const uint64_t& begin, const uint64_t& end) noexcept {
-            if(end < begin) {
+            if (end < begin) {
                 return -EINVAL;
             }
             if (begin >= vecSize) {
@@ -1087,16 +1032,6 @@ address         0 1 2 3 4 5 6 7 8
         uint32_t maxKeySize = 0;
     };
     
-    CBPlusTree(CCollection& collection, CPage& pge, CDiskMan& cdm, size_t pageSize = 4);
-    ~CBPlusTree();
-
-    /*
-        @param key key to insert
-        @param row row buffer pointer
-        @param len length of the input value
-        @return 0 on success, else on failure
-    */
-    int insert(const KEY_T& key, const void* row, uint32_t len);
 
     /*
         @note split leaf node
@@ -1156,7 +1091,7 @@ address         0 1 2 3 4 5 6 7 8
             // int pos = node.keyVec->search(key); // check if key already exists
 
             rc = node.pCache->lock();
-            if(rc != 0) {
+            if (rc != 0) {
                 return rc;
             }
 
@@ -1189,8 +1124,7 @@ address         0 1 2 3 4 5 6 7 8
         
         // >= key => right child, < key => left child
         int32_t idxChild = child_index(node, key);
-        // TODO CREATE NEW NODE?
-        if(idxChild == -ERANGE) {
+        if (idxChild == -ERANGE) {
             idxChild = 0;
         }
         char tempData[MAXKEYLEN];
@@ -1246,11 +1180,6 @@ address         0 1 2 3 4 5 6 7 8
                  [5,8,9]
 
             */
-            
-            // rc = node.pCache->lock();
-            // if(rc != 0) {
-            //     return rc;
-            // }
 
             CTemplateGuard g(*node.pCache);
 
@@ -1258,7 +1187,7 @@ address         0 1 2 3 4 5 6 7 8
             rc = node.insertChild(childUp, 0, childNew.bid);
             if (rc != 0) return rc;
             
-            if(node.keyVec->size() < m_indexOrder) {
+            if (node.keyVec->size() < m_indexOrder) {
                  //node.pCache->unlock();
                 return store_node(node);
             }
@@ -1298,21 +1227,21 @@ address         0 1 2 3 4 5 6 7 8
         if (rc != 0) return rc;
 
         rc = left.erase(keymid, left.keyVec->size());
-        if(rc != 0) {
+        if (rc != 0) {
             return rc;
         }
 
         // right.nodeData->hdr->parent = left.nodeData->hdr->parent;
         right.nodeData->hdr->childIsLeaf = left.nodeData->hdr->childIsLeaf;
         right.self = allocate_node(false);
-        if(right.self.bid == 0) {
+        if (right.self.bid == 0) {
             return -ENOSPC;
         }
         return rc;
 
     }
 
-    int32_t child_index(const NodeData& n, const KEY_T& k) const {
+    int32_t child_index(const NodeData& n, const KEY_T& k) const noexcept {
         int32_t pos = n.keyVec->search(k);
         //  10 22 23 25 28  (21)
         // 0  1  2  3  4  5
@@ -1321,12 +1250,10 @@ address         0 1 2 3 4 5 6 7 8
         // if find k == 22
         // -> pos = 1 -> child = 2
 
-//ASDQWE
-
         int rc = 0;
         KEY_T key;
         rc = n.keyVec->at(pos, key);
-        if(rc == 0 && key == k) {
+        if (rc == 0 && key == k) {
             ++pos;
         }
 
@@ -1336,7 +1263,7 @@ address         0 1 2 3 4 5 6 7 8
         cout << " found at pos " << pos << endl;
         #endif
         
-        if(pos > n.keyVec->size()) {
+        if (pos > n.keyVec->size()) {
             return -ERANGE;
         }
 
@@ -1366,13 +1293,15 @@ address         0 1 2 3 4 5 6 7 8
 
         m_root = root.self;
         high = 1;
+        m_begin = m_root;
+        m_end = {0, 0};
         return 0;
     }
 
     bidx allocate_node(bool isLeaf) {
         bidx id{0, 0};
         id.gid = nodeId;
-        if(!isLeaf) {
+        if (!isLeaf) {
             id.bid = m_diskman.balloc(m_pageSize);
         } else {
             id.bid = m_diskman.balloc(m_rowPageSize);
@@ -1381,7 +1310,7 @@ address         0 1 2 3 4 5 6 7 8
     }
 
     int free_node(bidx lba, bool isLeaf) {
-        if(!isLeaf) {
+        if (!isLeaf) {
             return m_diskman.bfree(lba.bid, m_pageSize);
         } else {
             return m_diskman.bfree(lba.bid, m_rowPageSize);
@@ -1390,15 +1319,6 @@ address         0 1 2 3 4 5 6 7 8
         return 0;
     }
 
-    /*
-        @param key: key to search
-        @param out: output value
-        @param len: length of the output buffer
-        @param actualLen: actual length of the output value
-        @return 0 on success, nagetive on failure, positive on warning
-        @note if return value > 0, it means output buffer is too small, data is truncated
-    */
-    int search(const KEY_T& key, void* out, uint32_t len, uint32_t* actualLen = nullptr);
     
 
     /*
@@ -1422,6 +1342,7 @@ address         0 1 2 3 4 5 6 7 8
         @note combine child node at idxChild with its sibling, and node should be locked before call this function
     */
     int32_t combine_child(NodeData& node, int32_t idxChild, KEY_T& childUp, bidx& childNew);
+
     /*
         @param parent: parent node data
         @param fromNode: node to borrow from
@@ -1434,19 +1355,7 @@ address         0 1 2 3 4 5 6 7 8
     */
     int32_t borrowKey(NodeData& parent, NodeData& fromNode, NodeData& toNode, bool isLeaf, bool fromLeft, int targetIdx);
     int32_t mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode, bool isLeaf, bool fromLeft, int targetIdx);
-    /*
-        @param key: key to update
-        @param input: input value pointer
-        @param len: length of the input value
-        @return 0 on success, else on failure
-    */
-    int update(const KEY_T& key, const void* input, uint32_t len);
-    
-    /*
-        @param key: key to remove
-        @return 0 on success, else on failure
-    */
-    int remove(const KEY_T& key);
+
 
 private:
     enum InsertResult { 
@@ -1492,7 +1401,7 @@ private:
     int load_node(const bidx& idx, NodeData& out, bool isLeaf) {
 
         auto it = m_commitCache.find(idx);
-        if(it != m_commitCache.end()) {
+        if (it != m_commitCache.end()) {
             // pointer assignment as reference
             out = &it->second;
             return 0;
@@ -1512,7 +1421,7 @@ private:
         out.self = idx;
 
         rc = out.initNodeByLoad(isLeaf, isLeaf ? m_rowOrder : m_indexOrder, base, keyType);
-        if(rc != 0) {
+        if (rc != 0) {
             out.pCache->release();
             return rc;
         }
@@ -1524,43 +1433,43 @@ private:
         
         #endif
 
-        if(B_END) {
+        if (B_END) {
             // TODO convert keys and values to host endian if needed
             // storage is always little endian, if host is big endian, need convert
 
             /*
             rc = out.pCache->lock();
-            if(rc != 0) {
+            if (rc != 0) {
                 out.pCache->release();
                 return rc;
             }
 
 
-            if(out.nodeData->hdr->isConverted) {
+            if (out.nodeData->hdr->isConverted) {
                 // already converted
                 // do nothing
             } else {
 
                 // write lock the cache for conversion
                 rc = out.pCache->lock();
-                if(rc != 0) {
+                if (rc != 0) {
                     out.pCache->release();
                     return rc;
                 }
-                if(!out.nodeData->hdr->isConverted) {
+                if (!out.nodeData->hdr->isConverted) {
                     cpyFromleTp(out.nodeData->hdr->parent, out.nodeData->hdr->parent);
                     cpyFromleTp(out.nodeData->hdr->prev, out.nodeData->hdr->prev);
                     cpyFromleTp(out.nodeData->hdr->next, out.nodeData->hdr->next);
                     cpyFromleTp(out.nodeData->hdr->count, out.nodeData->hdr->count);
                     cpyFromleTp(out.nodeData->hdr->leaf, out.nodeData->hdr->leaf);
                     // convert keys
-                    // if(isNumberType(this->keyType)) {
+                    // if (isNumberType(this->keyType)) {
                     //     // convert keys to host endian if needed
                     //     for(size_t i = 0; i < out.nodeData->hdr->count; ++i) {
                     //         cpyFromleTp(out.keys[i], out.keys[i]);
                     //     }
                     // }
-                    if(out.nodeData->hdr->leaf) {
+                    if (out.nodeData->hdr->leaf) {
                         // TODO convert the values to host endian if needed
                     } else {
                         // TODO convert children to host endian if needed
@@ -1588,13 +1497,13 @@ private:
     int store_node(NodeData& node) {
         // save the node that to be stored, until commit is called ?
         // if node is reference, no need to store
-        if(node.isRef) return 0;
+        if (node.isRef) return 0;
 
         int rc = 0;
-        if(!node.pCache) {
+        if (!node.pCache) {
             rc = m_page.put(node.self, node.nodeData->data, nullptr, node.nodeData->hdr->leaf ? m_rowPageSize : m_pageSize, false, &node.pCache);
             // fetch the cache struct
-            if(rc != 0) return rc;
+            if (rc != 0) return rc;
         }
         #ifdef __BPDEBUG__
 
@@ -1606,72 +1515,6 @@ private:
         return 0;
     }
 
-    int commit() {
-        int lastIndicator = 0;
-        int rc = 0;
-
-        if(m_commitCache.empty()) {
-            return 0;
-        }
-
-        for(auto it = m_commitCache.begin(); it != m_commitCache.end(); ) {
-            if(it->second.needDelete) {
-                it->second.pCache->lock();
-                it->second.pCache->setStatus(cacheStruct::INVALID);
-                it->second.pCache->unlock();
-                rc = free_node(it->first, it->second.nodeData->hdr->leaf);
-                if(rc != 0) {
-                    return rc;
-                }
-                it->second.pCache->release();
-                it = m_commitCache.erase(it);
-            } else {
-                ++it;
-            }
-
-        }
-
-        if(m_commitCache.empty()) {
-            return 0;
-        }
-
-        size_t sz = m_commitCache.size();
-        for(auto& node : m_commitCache) {
-
-
-
-            if(B_END) {
-                // TODO convert back to little endian if needed
-
-                // before storing, convert back to little endian
-                // node.second.nodeData->hdr->isConverted = 0;
-            }
-
-            #ifdef __BPDEBUG__
-            cout << "Committing node gid: " << node.first.gid << " bid: " << node.first.bid << endl;
-            #endif
-
-            if(sz <= 1) {            
-                rc = m_page.writeBack(node.second.pCache, &lastIndicator);
-            } else {
-                rc = m_page.writeBack(node.second.pCache, nullptr);
-            }
-            if(rc != 0) {
-                return rc;
-            }
-            --sz;
-        }
-
-        while(lastIndicator != 1) {
-            // wait for last write back complete
-        }
-        m_commitCache.clear();
-        return 0;
-    }
-
-    void printTree();
-
-    void printTreeRecursive(const bidx& idx, bool isLeaf, int level);
 
 
     void update_prev(uint64_t bid, uint64_t newPrev) {
@@ -1684,31 +1527,45 @@ private:
     }
 
 
+public:
+    void printTree();
+    void printTreeRecursive(const bidx& idx, bool isLeaf, int level);
+
+    iterator begin() {
+        return {*this, m_begin};
+    }
+
+    iterator end() {
+        return {*this, m_end};
+    }
+
 private:
     bidx& m_root;
-    size_t m_indexOrder = 0;
-    size_t m_rowOrder = 0;
+    bidx& m_begin;
+    bidx& m_end;
 
-    uint32_t keyOffset = 0;
-    uint32_t childOffset = 0;
-    uint32_t rowOffset = 0;
+    // max key count in one node
+    uint32_t maxkeyCount = 0;
+    uint32_t m_rowLen = 0;
     uint16_t keyLen = 0;
+    uint8_t m_indexOrder = 0;
+    uint8_t m_rowOrder = 0;
     uint8_t m_pageSize = 0; // requested page blocks per fetch
     uint8_t m_rowPageSize = 0; // requested page blocks per fetch for row page
+    dpfs_datatype_t keyType = dpfs_datatype_t::TYPE_NULL;
+    // indicate the col maybe variable-length type
+    // bool m_colVariable = false;    
+    CSpin m_lock;
+
     
     // size_t m_nodeSize = 0; // page size in bytes
     CPage& m_page;
     CDiskMan& m_diskman;
     const CCollection& m_collection;
     
-    dpfs_datatype_t keyType = dpfs_datatype_t::TYPE_NULL;
-    // indicate the col maybe variable-length type
-    bool m_colVariable = false;
-    uint32_t m_rowLen = 0;
     // if high == 1, root is leaf node
     uint8_t& high;
     std::unordered_map<bidx, NodeData> m_commitCache;
-    CSpin m_lock;
 
 
 };

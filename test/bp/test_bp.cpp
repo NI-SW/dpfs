@@ -11,7 +11,7 @@
 #include <iostream>
 #include <vector>
 
-#define __LOAD__ 1
+#define __LOAD__ 0
 
 const bidx BOOTDIX = {0, 1};
 
@@ -30,7 +30,7 @@ static void expect_insert(CBPlusTree& bpt, uint64_t keyVal, uint64_t payload) {
     uint64_t row[3] = {keyVal, payload, payload + 50};
     cout << "key data : " << *(uint64_t*)key.data << ", len=" << (int)key.len << endl;
     int rc = bpt.insert(key, row, sizeof(row));
-    if(rc != 0) {
+    if (rc != 0) {
         cout << rc << endl;
         return;
     }
@@ -50,7 +50,7 @@ int main() {
 	// rc = engine->attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	rc = engine->attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
 	// rc = engine->attach_device("trtype:pcie traddr:0000.1b.00.0");  engine->attach_device("trtype:pcie traddr:0000.13.00.0");
-	if(rc) {
+	if (rc) {
 		cout << " attach device fail " << endl;
 		delete engine;
         return rc;
@@ -63,9 +63,9 @@ int main() {
     CCollection* coll = new CCollection(owner, dman, *page);
 
 
-    if(__LOAD__) {
+    if (__LOAD__) {
         rc = coll->loadFrom(BOOTDIX);
-        if(rc != 0) {
+        if (rc != 0) {
             cout << " load collection fail, rc=" << rc << endl;
         }
         
@@ -73,7 +73,7 @@ int main() {
         CCollectionInitStruct initStruct;
         initStruct.indexPageSize = 1;
         rc = coll->initialize(initStruct);
-        if(rc != 0) {
+        if (rc != 0) {
             cout << " load collection fail, rc=" << rc << endl;
         }
         rc = coll->addCol("pk", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t), 0, static_cast<uint8_t>(CColumn::constraint_flags::PRIMARY_KEY));
@@ -95,7 +95,7 @@ int main() {
 #else
     try {
         // for(int i = 1; i < 23; ++i) {
-        //     if(i == 13) {
+        //     if (i == 13) {
         //         continue;
         //     }
         //     expect_insert(bpt, i, 1000 + i);
@@ -131,7 +131,7 @@ int main() {
         cout << " insert key val (0 to exit): ";
         uint64_t keyVal = 0;
         cin >> keyVal;
-        if(keyVal == 0) {
+        if (keyVal == 0) {
             break;
         }
 
@@ -146,12 +146,12 @@ int main() {
         cout << " remove key val (0 to exit): ";
         uint64_t keyVal = 0;
         cin >> keyVal;
-        if(keyVal == 0) {
+        if (keyVal == 0) {
             break;
         }
         auto key = make_key(keyVal);
         rc = bpt.remove(key);
-        if(rc != 0) {
+        if (rc != 0) {
             cout << " remove key " << keyVal << " fail, rc=" << rc << endl;
         }
         bpt.printTree();
@@ -163,7 +163,7 @@ int main() {
         cout << " search key val (0 to exit): ";
         uint64_t keyVal = 0;
         cin >> keyVal;
-        if(keyVal == 0) {
+        if (keyVal == 0) {
             break;
         }
 
@@ -171,8 +171,8 @@ int main() {
         uint32_t actureLen = 0;
 
         rc = bpt.search(make_key(keyVal), out, sizeof(out), &actureLen);
-        if(rc != 0) {
-            if(rc == -2) {
+        if (rc != 0) {
+            if (rc == -2) {
                 cout << " search key " << keyVal << " not found " << endl;
                 continue;
             }
@@ -187,15 +187,56 @@ int main() {
         printf("\n");
     }
 
+
+    cout << " print data by iterator " << endl;
+    try {
+        // auto it = bpt.begin();
+        auto it = bpt.search(make_key(5));
+        auto end = bpt.end();
+        rc = it.loadNode();
+        if (rc != 0) {
+
+        } else {
+            for (; it != end; --it) {
+                char keyData[128] = {0};
+                uint32_t keyLen = 0;
+                char payloadData[256] = {0};
+                uint32_t payloadLen = 0;
+                rc = it.loadData(keyData, sizeof(keyData), keyLen, payloadData, sizeof(payloadData), payloadLen);
+                if (rc != 0) {
+                    cout << " load data fail, rc=" << rc << endl;
+                    continue;
+                }
+                // cout << " load data success " << endl;
+                // cout << " key len: " << keyLen << ", payload len: " << payloadLen << endl;
+                cout << " Key: ";
+                for (uint32_t i = 0; i < keyLen; ++i) {
+                    printf("%02X", (unsigned char)keyData[i]);
+                }
+                cout << ", Payload: ";
+                for (uint32_t i = 0; i < payloadLen; ++i) {
+                    printf("%02X", (unsigned char)payloadData[i]);
+                }
+                cout << std::endl;
+
+                // cout << "Key: " << keyData << ", Payload: " << payloadData << endl;
+            }
+        }
+    } catch (const std::exception& ex) {
+        std::cerr << "Iterator threw exception: " << ex.what() << std::endl;
+    } catch (...) {
+        std::cerr << "Iterator threw non-std exception" << std::endl;
+    }
+
     rc = bpt.commit();
-    if(rc != 0) {
+    if (rc != 0) {
         cout << " commit b+ tree fail, rc=" << rc << endl;
         goto errReturn;
     }
 
     //TODO TEST SAVE AND LOAD TREE FROM DISK
     rc = coll->saveTo(BOOTDIX);
-    if(rc != 0) {
+    if (rc != 0) {
         cout << " save collection fail, rc=" << rc << endl;
         goto errReturn;
     }
@@ -203,29 +244,29 @@ int main() {
 
     cout << " test finished " << endl;
 
-    if(coll) {
+    if (coll) {
         delete coll;
     }
-    if(page) {
+    if (page) {
         delete page;
     }
     // maybe some unfinished async work that cause core dump
     std::this_thread::sleep_for(std::chrono::seconds(1));
-    if(engine) {
+    if (engine) {
 		delete engine;
 	}
 
     return 0;
 
 errReturn:    
-    if(coll) {
+    if (coll) {
         delete coll;
     }
-    if(page) {
+    if (page) {
         delete page;
     }
     std::this_thread::sleep_for(std::chrono::seconds(1));
-	if(engine) {
+	if (engine) {
 		delete engine;
 	}
 	

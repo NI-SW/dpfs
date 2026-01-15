@@ -251,7 +251,7 @@ int CCollection::commit() {
             curTmpDataLen = 0;
             memset(tmpData, 0, tmpBlockLen);
 
-            m_collectionStruct->ds->m_dataEndPos = tmpDataRoot;
+            m_collectionStruct->ds->m_dataEnd = tmpDataRoot;
         }
 
         // wait for last write complete
@@ -264,12 +264,13 @@ int CCollection::commit() {
         memset(tmpData, 0, curTmpDataLen);
 
     } else {
-        m_owner.m_log.log_inf("commit collection with b+ tree index is not implemented yet.\n");
+        m_owner.m_log.log_inf("commit collection with b+ tree index.\n");
         // CBPlusTree bpt(&m_page, &m_diskMan, nodeId, m_dataRoot, m_log);
 
         // TODO::
         // write commit log
         // write data to storage
+        m_btreeIndex->commit();
         // write to this->m_dataRoot
         // update index
     }

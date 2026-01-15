@@ -814,7 +814,8 @@ public:
             // 16B
             bidx m_dataRoot {0, 0};
             // 16B
-            bidx m_dataEndPos {0, 0};
+            bidx m_dataBegin {0, 0};
+            bidx m_dataEnd {0, 0};
             // ccid: CCollection ID, used to identify the collection info 4B
             uint32_t m_ccid = 0;
             union{
