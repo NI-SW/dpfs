@@ -23,8 +23,7 @@ int main() {
     std::string data = "";
     CProduct* sysdpfs = nullptr; // = new CProduct();
     CItem* itm = nullptr;
-    CValue vv(32);
-    CValue* val = &vv;
+    CValue val(32);
 
     // signal(SIGINT, sigfun);
     // signal(SIGKILL, sigfun);
@@ -106,7 +105,7 @@ int main() {
 
         goto __DONE;
     }
-    sysdpfs->fixedInfo.initialize(0);
+    sysdpfs->fixedInfo.initialize();
 
 
     sysdpfs->pid = sysBidx;
@@ -125,18 +124,18 @@ int main() {
         goto errReturn;
     }
 
-    if(!val->maxLen) {
+    if(!val.maxLen) {
         rc = -ENOMEM;
         goto errReturn;
     }
     // set system version
 
-    val->setData("VERSION", sizeof("VERSION"));
+    val.setData("VERSION", sizeof("VERSION"));
     rc = itm->updateValue(0, val); 
     cout << "Update rc: " << rc << endl;
 
     
-    val->setData(version, sizeof(version));
+    val.setData(version, sizeof(version));
     rc = itm->updateValue(1, val); 
     cout << "Update rc: " << rc << endl;
     printMemory(itm->data, 128);
@@ -148,10 +147,10 @@ int main() {
 
 
     // set system codeset
-    val->setData("CODESET", sizeof("CODESET"));
+    val.setData("CODESET", sizeof("CODESET"));
     itm->updateValue(0, val);
 
-    val->setData("UTF-8", sizeof("UTF-8"));
+    val.setData("UTF-8", sizeof("UTF-8"));
     itm->updateValue(1, val); 
 
     itm->nextRow();
@@ -161,10 +160,10 @@ int main() {
 
 
     // set system node id
-    val->setData("DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));
+    val.setData("DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));
     itm->updateValue(0, val);
 
-    val->setData("50", sizeof("50"));
+    val.setData("50", sizeof("50"));
     itm->updateValue(1, val);
 
 	printMemory(itm->data, 256);

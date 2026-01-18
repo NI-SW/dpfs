@@ -59,8 +59,7 @@ int main() {
     // this class must be destruct before engine destruct
     CPage* page = new CPage(engines, 128, log);
     CDiskMan dman(page);
-    CProduct owner(*page, dman, log);
-    CCollection* coll = new CCollection(owner, dman, *page);
+    CCollection* coll = new CCollection(dman, *page);
 
 
     if (__LOAD__) {

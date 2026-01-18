@@ -379,14 +379,22 @@ public:
         @param value: CValue pointer to update
         @return bytes updated on success, else on failure
     */
-    int updateValue(size_t pos, CValue* value) noexcept;
+    int updateValue(size_t pos, const CValue& value) noexcept;
     
+    /*
+        @param pos: position of the column in the row
+        @param ptr: value pointer to update
+        @param len: len of the ptr
+        @return bytes updated on success, else on failure
+    */
+    int updateValue(size_t pos, const void* ptr, size_t len) noexcept;
+
     /*
         @param col: col of the item, maybe column name
         @param value: CValue pointer to update
         @return CValue pointer on success, else nullptr
     */
-    int updateValueByKey(const CColumn& col, CValue* value) noexcept;
+    int updateValueByKey(const CColumn& col, const CValue& value) noexcept;
     
 
     /*
@@ -445,16 +453,19 @@ public:
 
         rowIter& operator++() {
             
-            for(auto& pos : m_item->cols) {
-                if(isVariableType(pos.dds.colAttrs.type)) {
-                    // first 4 bytes is actual length
-                    uint32_t vallEN = *(uint32_t*)((char*)m_ptr);
-                    m_ptr += sizeof(uint32_t) + vallEN;
-                } else {
-                    m_ptr += pos.getLen();
-                }
-            }
+            // for(auto& pos : m_item->cols) {
+            //     // if(isVariableType(pos.dds.colAttrs.type)) {
+            //     //     // first 4 bytes is actual length
+            //     //     uint32_t vallEN = *(uint32_t*)((char*)m_ptr);
+            //     //     m_ptr += sizeof(uint32_t) + vallEN;
+            //     // } else {
+            //     //     m_ptr += pos.getLen();
+            //     // }
+            //     // m_ptr += pos.getLen();
+            // }
 
+            m_ptr += m_item->rowLen;
+            
             ++m_pos;
             return *this;
         }
@@ -471,21 +482,25 @@ public:
             CValue val;
             size_t offSet = 0;
             for(size_t i = 0; i < index; ++i) {
-                if(isVariableType(m_item->cols[i].dds.colAttrs.type)) {
-                    offSet += sizeof(uint32_t) + (*(uint32_t*)((char*)m_ptr + offSet));
-                } else {
-                    offSet += m_item->cols[i].dds.colAttrs.len;
-                }
+                // if(isVariableType(m_item->cols[i].dds.colAttrs.type)) {
+                //     offSet += sizeof(uint32_t) + (*(uint32_t*)((char*)m_ptr + offSet));
+                // } else {
+                //     offSet += m_item->cols[i].dds.colAttrs.len;
+                // }
+                offSet += m_item->cols[i].dds.colAttrs.len;
             }
 
-            if(m_item->cols[index].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
-                // first 4 bytes is actual length
-                val.len = *(uint32_t*)((char*)m_ptr + offSet);
-                val.data = (char*)m_ptr + offSet + sizeof(uint32_t);
-            } else {
-                val.len = m_item->cols[index].dds.colAttrs.len;
-                val.data = (char*)m_ptr + offSet;
-            }
+            // if(m_item->cols[index].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
+            //     // first 4 bytes is actual length
+            //     val.len = *(uint32_t*)((char*)m_ptr + offSet);
+            //     val.data = (char*)m_ptr + offSet + sizeof(uint32_t);
+            // } else {
+            //     val.len = m_item->cols[index].dds.colAttrs.len;
+            //     val.data = (char*)m_ptr + offSet;
+            // }
+
+            val.len = m_item->cols[index].dds.colAttrs.len;
+            val.data = (char*)m_ptr + offSet;
             return val;
         }
 
@@ -517,7 +532,8 @@ public:
     CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs);
     CItem(const CItem& other) = delete;
     ~CItem();
-    int dataCopy(size_t pos, const CValue* value) noexcept;
+    int dataCopy(size_t pos, const CValue& value) noexcept;
+    int dataCopy(size_t pos, const void* ptr, size_t len) noexcept;
     size_t getDataOffset(size_t pos) const noexcept;
     // int resetOffset(size_t begPos) noexcept;
 
@@ -535,21 +551,11 @@ public:
     size_t rowLen = 0;
     size_t validLen = 0;
     char* rowPtr = nullptr;
+    std::vector<size_t> rowOffsets;
     char data[];
     // CValue* values = nullptr;
 };
 
-/*
-    TODO process where clause
-*/
-class CWhere {
-public:
-    CWhere() {};
-    ~CWhere() {};
-private:
-    // condition tree
-
-};
 
 /*
     class to manage Sequential Storaged data
@@ -562,10 +568,10 @@ public:
         rowLen = 0;
         for (auto& col : cols) {
             rowLen += col.getLen();
-            if(isVariableType(col.getType())) {
-                // variable length type not allowed
-                throw std::invalid_argument("Variable length type not allowed in CSeqStorage");
-            }
+            // if(isVariableType(col.getType())) {
+            //     // variable length type not allowed
+            //     throw std::invalid_argument("Variable length type not allowed in CSeqStorage");
+            // }
         }
     };
     ~CSeqStorage() {};
@@ -619,7 +625,7 @@ struct CCollectionInitStruct {
             bool m_select : 1;
             bool m_updatable : 1;
             bool m_insertable : 1;
-            bool m_detelable : 1;
+            bool m_deletable : 1;
             bool m_ddl : 1;
             // if dirty trigger a commit will flush data change to storage
             bool m_dirty : 1;
@@ -654,7 +660,7 @@ public:
         @param ccid: CCollection ID, used to identify the collection info, 0 for new collection
         @note this constructor will create a new collection with the given engine and ccid
     */
-    CCollection(CProduct& owner, CDiskMan& dskman, CPage& pge);
+    CCollection(CDiskMan& dskman, CPage& pge);
 
     ~CCollection();
 
@@ -857,11 +863,13 @@ public:
     CSpin m_lock;
     CBPlusTree* m_btreeIndex = nullptr;
     // the product that owns this collection
-    CProduct& m_owner;
+    // CProduct& m_owner;
+
     // columns in the collection
     // primary key position in the columns
     uint8_t m_pkPos = 0;
     std::string message;
+    uint32_t m_rowLen = 0;
 
     bool inited = false;
     // b plus tree head pointer or head block of seq storage

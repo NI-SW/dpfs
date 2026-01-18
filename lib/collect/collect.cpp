@@ -39,38 +39,71 @@ CValue CItem::getValue(size_t pos) const noexcept {
 size_t CItem::getDataOffset(size_t pos) const noexcept {
     size_t offSet = 0;
     for(size_t i = 0; i < pos; ++i) {
-        if(isVariableType(cols[i].dds.colAttrs.type)) {
-            offSet += sizeof(uint32_t) + (*(uint32_t*)(rowPtr + offSet));
-        } else {
-            offSet += cols[i].dds.colAttrs.len;
-        }
+        // if(isVariableType(cols[i].dds.colAttrs.type)) {
+        //     offSet += sizeof(uint32_t) + (*(uint32_t*)(rowPtr + offSet));
+        // } else {
+        //     offSet += cols[i].dds.colAttrs.len;
+        // }
+        offSet += cols[i].dds.colAttrs.len;
     }
     return offSet;
 }
 
-int CItem::dataCopy(size_t pos, const CValue* value) noexcept {
+int CItem::dataCopy(size_t pos, const CValue& value) noexcept {
     // data offset in row
     size_t offSet = getDataOffset(pos);
 
-    if(isVariableType(cols[pos].dds.colAttrs.type)) {
-        // first 4 bytes is actual length
-        uint32_t actualLen = value->len;
-        if(actualLen > cols[pos].dds.colAttrs.len) {
-            return -E2BIG;
-        }
-        // use col offset of row to find the pointer and copy data
-        *(uint32_t*)((char*)rowPtr + offSet) = actualLen;
-        memcpy(((char*)rowPtr + offSet + sizeof(uint32_t)), value->data, actualLen);
-    } else {
+    // if(isVariableType(cols[pos].dds.colAttrs.type)) {
+    //     // first 4 bytes is actual length
+    //     uint32_t actualLen = value.len;
+    //     if(actualLen > cols[pos].dds.colAttrs.len) {
+    //         return -E2BIG;
+    //     }
+    //     // use col offset of row to find the pointer and copy data
+    //     *(uint32_t*)((char*)rowPtr + offSet) = actualLen;
+    //     memcpy(((char*)rowPtr + offSet + sizeof(uint32_t)), value.data, actualLen);
+    // } else {
 
-        memcpy(((char*)rowPtr + offSet), value->data, value->len);
-        if(value->len < cols[pos].dds.colAttrs.len) {
-            memset(((char*)rowPtr + offSet + value->len), 0, cols[pos].dds.colAttrs.len - value->len);
-        }
+    //     memcpy(((char*)rowPtr + offSet), value.data, value.len);
+    //     if(value.len < cols[pos].dds.colAttrs.len) {
+    //         memset(((char*)rowPtr + offSet + value.len), 0, cols[pos].dds.colAttrs.len - value.len);
+    //     }
+    // }
+
+    memcpy(((char*)rowPtr + offSet), value.data, value.len);
+    if(value.len < cols[pos].dds.colAttrs.len) {
+        memset(((char*)rowPtr + offSet + value.len), 0, cols[pos].dds.colAttrs.len - value.len);
     }
-
-    return value->len;
+    return value.len;
 }
+
+int CItem::dataCopy(size_t pos, const void* ptr, size_t len) noexcept {
+    // data offset in row
+    size_t offSet = getDataOffset(pos);
+
+    // if(isVariableType(cols[pos].dds.colAttrs.type)) {
+    //     // first 4 bytes is actual length
+    //     uint32_t actualLen = len;
+    //     if(actualLen > cols[pos].dds.colAttrs.len) {
+    //         return -E2BIG;
+    //     }
+    //     // use col offset of row to find the pointer and copy data
+    //     *(uint32_t*)((char*)rowPtr + offSet) = actualLen;
+    //     memcpy(((char*)rowPtr + offSet + sizeof(uint32_t)), ptr, actualLen);
+    // } else {
+
+    //     memcpy(((char*)rowPtr + offSet), ptr, len);
+    //     if(len < cols[pos].dds.colAttrs.len) {
+    //         memset(((char*)rowPtr + offSet + len), 0, cols[pos].dds.colAttrs.len - len);
+    //     }
+    // }
+    memcpy(((char*)rowPtr + offSet), ptr, len);
+    if(len < cols[pos].dds.colAttrs.len) {
+        memset(((char*)rowPtr + offSet + len), 0, cols[pos].dds.colAttrs.len - len);
+    }
+    return len;
+}
+
 
 /*
     @param col: column of the item, maybe column name
@@ -103,14 +136,29 @@ CValue CItem::getValueByKey(const CColumn& col) const noexcept {
     @param value: CValue pointer to update
     @return bytes updated on success, else on failure
 */
-int CItem::updateValue(size_t pos, CValue* value) noexcept {
+int CItem::updateValue(size_t pos, const CValue& value) noexcept {
     if(pos < 0 || pos >= cols.size()) {
         return -EINVAL;
     }
-    if(cols[pos].getLen() < value->len) {
+    if(cols[pos].getLen() < value.len) {
         return -E2BIG;
     }
     return dataCopy(pos, value);
+}
+
+/*
+    @param pos: position of the item in the item list
+    @param value: CValue pointer to update
+    @return bytes updated on success, else on failure
+*/
+int CItem::updateValue(size_t pos, const void* ptr, size_t len) noexcept {
+    if(pos < 0 || pos >= cols.size()) {
+        return -EINVAL;
+    }
+    if(cols[pos].getLen() < len) {
+        return -E2BIG;
+    }
+    return dataCopy(pos, ptr, len);
 }
 
 /*
@@ -118,7 +166,7 @@ int CItem::updateValue(size_t pos, CValue* value) noexcept {
     @param value: CValue pointer to update
     @return CValue pointer on success, else nullptr
 */
-int CItem::updateValueByKey(const CColumn& col, CValue* value) noexcept {
+int CItem::updateValueByKey(const CColumn& col, const CValue& value) noexcept {
     for(size_t i = 0; i < cols.size(); ++i) {
         if (cols[i] == col) {
             return dataCopy(i, value);
@@ -264,7 +312,7 @@ int CCollection::commit() {
         memset(tmpData, 0, curTmpDataLen);
 
     } else {
-        m_owner.m_log.log_inf("commit collection with b+ tree index.\n");
+        // m_owner.m_log.log_inf("commit collection with b+ tree index.\n");
         // CBPlusTree bpt(&m_page, &m_diskMan, nodeId, m_dataRoot, m_log);
 
         // TODO::
@@ -295,9 +343,13 @@ errReturn:
 */
 CItem* CItem::newItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs) noexcept {
     size_t len = 0;
+    std::vector<size_t> rowOffsets;
+    rowOffsets.reserve(cs.size() + 1);
+    rowOffsets.emplace_back(0);
     for(size_t i = 0; i < cs.size(); ++i) {
         len += cs[i].getLen();
-        isVariableType(cs[i].dds.colAttrs.type) ? len += 4 : 0;
+        rowOffsets.emplace_back(len);
+        // isVariableType(cs[i].dds.colAttrs.type) ? len += 4 : 0;
     }
 
     // row data in data[]
@@ -310,6 +362,7 @@ CItem* CItem::newItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs) noexc
     item->maxRowNumber = 1;
     item->rowNumber = 0;
     item->rowPtr = item->data;
+    item->rowOffsets.swap(rowOffsets);
     return item;
 }
 
@@ -320,9 +373,13 @@ CItem* CItem::newItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs) noexc
 */
 CItem* CItem::newItems(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber) noexcept {
     size_t len = 0;
+    std::vector<size_t> rowOffsets;
+    rowOffsets.reserve(cs.size() + 1);
+    rowOffsets.emplace_back(0);
     for(size_t i = 0; i < cs.size(); ++i) {
         len += cs[i].getLen();
-        isVariableType(cs[i].dds.colAttrs.type) ? len += 4 : 0;
+        rowOffsets.emplace_back(len);
+        // isVariableType(cs[i].dds.colAttrs.type) ? len += 4 : 0;
     }
 
     // row data in data[]
@@ -335,6 +392,7 @@ CItem* CItem::newItems(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size
     item->maxRowNumber = maxRowNumber;
     item->rowNumber = 1;
     item->rowPtr = item->data;
+    item->rowOffsets.swap(rowOffsets);
     return item;
 }
 
@@ -368,15 +426,17 @@ int CItem::nextRow() noexcept {
     endIter.m_pos = rowNumber + 1;
 
     for(auto& pos : cols) {
-        if(isVariableType(pos.dds.colAttrs.type)) {
-            // first 4 bytes is actual length
-            uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
-            rowPtr += sizeof(uint32_t) + vallEN;
-            validLen += sizeof(uint32_t) + vallEN;
-        } else {
-            rowPtr += pos.getLen();
-            validLen += pos.getLen();
-        }
+        // if(isVariableType(pos.dds.colAttrs.type)) {
+        //     // first 4 bytes is actual length
+        //     uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
+        //     rowPtr += sizeof(uint32_t) + vallEN;
+        //     validLen += sizeof(uint32_t) + vallEN;
+        // } else {
+        //     rowPtr += pos.getLen();
+        //     validLen += pos.getLen();
+        // }
+        rowPtr += pos.getLen();
+        validLen += pos.getLen();
     }
 
     return 0;
@@ -398,8 +458,8 @@ CItem::~CItem() {
     @param ccid: CCollection ID, used to identify the collection info, 0 for new collection
     @note this constructor will create a new collection with the given engine and ccid
 */
-CCollection::CCollection(CProduct& owner, CDiskMan& dskman, CPage& pge) : 
-m_owner(owner), 
+CCollection::CCollection(CDiskMan& dskman, CPage& pge) : 
+// m_owner(owner), 
 m_diskMan(dskman), 
 m_page(pge), 
 m_tempStorage(m_page, m_diskMan) { 
@@ -557,7 +617,11 @@ int CCollection::saveTmpData(const void* data, size_t len){
     return 0;
 }
 
-
+/*
+    @param item: item to add
+    @return 0 on success, else on failure
+    @note this function will add the item to the collection storage and update the index
+*/
 int CCollection::addItem(const CItem& item) {
 
     // save item to storage and update index
@@ -565,29 +629,71 @@ int CCollection::addItem(const CItem& item) {
     
     // bpt.insert(key, value);
     int rc = 0;
+    const char* dataPtr = item.data;
+    size_t validLen = 0;
+    char* rowPtr = item.rowPtr;
+
     if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         // separate key and value from item
+        for(size_t i = 0; i < item.rowNumber; ++i){
+            char keyBuf[255];
+            KEY_T key(keyBuf, 255);
 
+            int pkinRow = 0;
+            for(auto& pos : item.cols) {
+
+                // if(isVariableType(pos.dds.colAttrs.type)) {
+                //     // first 4 bytes is actual length
+                //     //last row ptr
+                //     uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
+                //     rowPtr += sizeof(uint32_t) + vallEN;
+                //     validLen += sizeof(uint32_t) + vallEN;
+                // } else {
+                //     rowPtr += pos.getLen();
+                //     validLen += pos.getLen();
+                // }
+
+                rowPtr += pos.getLen();
+                validLen += pos.getLen();
+                // if is primary key column
+                if(pkinRow == m_pkPos) {
+                    // key part
+                    // use b plus tree to index the item
+                    key.len = validLen;
+                    key.KEYTYPE = pos.dds.colAttrs.type;
+                    memcpy(key.data, rowPtr, key.len);
+
+                }
+
+                ++pkinRow;
+            }
+            /*
+                |KEY|data....|
+            */
+           m_btreeIndex->insert(key, rowPtr, validLen);
+        }
 
         // use b plus tree to index the item
     }
 
     // get len of the data
-    const char* dataPtr = item.data;
-    size_t validLen = 0; // item.validLen;
-    char* rowPtr = item.rowPtr;
+    // const char* dataPtr = item.data;
+    // size_t validLen = 0; // item.validLen;
+    // char* rowPtr = item.rowPtr;
     for(size_t i = 0; i < item.rowNumber; ++i){
         for(auto& pos : item.cols) {
-            if(isVariableType(pos.dds.colAttrs.type)) {
-                // first 4 bytes is actual length
-                //last row ptr
-                uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
-                rowPtr += sizeof(uint32_t) + vallEN;
-                validLen += sizeof(uint32_t) + vallEN;
-            } else {
-                rowPtr += pos.getLen();
-                validLen += pos.getLen();
-            }
+            // if(isVariableType(pos.dds.colAttrs.type)) {
+            //     // first 4 bytes is actual length
+            //     //last row ptr
+            //     uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
+            //     rowPtr += sizeof(uint32_t) + vallEN;
+            //     validLen += sizeof(uint32_t) + vallEN;
+            // } else {
+            //     rowPtr += pos.getLen();
+            //     validLen += pos.getLen();
+            // }
+            rowPtr += pos.getLen();
+            validLen += pos.getLen();
         }
     }
 
@@ -704,6 +810,10 @@ int CCollection::loadFrom(const bidx& head) {
     if(B_END) {
         // TODO: convert to host endian
         
+    }
+
+    for(int i = 0; i < m_collectionStruct->m_cols.size(); ++i) {
+        m_rowLen += m_collectionStruct->m_cols[i].getDds().len;
     }
 
     if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {

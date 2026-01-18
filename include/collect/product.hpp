@@ -25,7 +25,7 @@ struct CTraceBack {
 
 class CProduct {
 public:
-    CProduct(CPage& pge, CDiskMan& dskman, logrecord& log) : m_page(pge), m_diskMan(dskman), fixedInfo(*this, dskman, pge), products(*this, dskman, pge), m_log(log) {};
+    CProduct(CPage& pge, CDiskMan& dskman, logrecord& log) : m_page(pge), m_diskMan(dskman), fixedInfo(dskman, pge), products(dskman, pge), m_log(log) {};
     ~CProduct() {};
     
     // product id for system product is {nodeId, 0}

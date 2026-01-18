@@ -2,6 +2,8 @@
 #include <vector>
 #include <collect/product.hpp>
 #include <basic/dpfscache.hpp>
+#include <dpfssys/systab.hpp>
+
 /*
     data service class
     1.process ddl and dml commands
@@ -13,14 +15,18 @@ class CDatasvc {
 public:
     CDatasvc(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : m_diskMan(nullptr), m_page(engine_list, cacheSize, log) {
         m_diskMan.m_page = &m_page;
-
+        sys = new CSysSchemas(m_diskMan, m_page);
     }
     ~CDatasvc() = default;
     /*
         @return 0 on success, else on failure
         @note init the data service, create super block, system tables and some necessary structures on disk
     */
-    int init();
+    int init() {
+        sys->init();
+        
+        return 0;
+    }
 
     /*
         @return 0 on success, else on failure
@@ -32,6 +38,8 @@ public:
     CDiskMan m_diskMan;
     CPage m_page;
     logrecord m_log;
+    // system collection
+    CSysSchemas* sys = nullptr;
 
     // // product list, should storage on disk but not vector
     // std::vector<std::pair<bidx, std::string>> pdl;

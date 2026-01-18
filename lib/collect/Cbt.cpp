@@ -127,6 +127,7 @@ int64_t Cbt::bidxToOffset(bidx bid)/*可优化*/
     }
     return offset;
 }
+
 bidx Cbt::offsetToBid(int64_t offset)/*可优化*/
 {
     bidx bid;
