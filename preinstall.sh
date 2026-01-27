@@ -4,3 +4,4 @@ yum install -y gcc-c++ libaio-devel numactl-devel openssl-devel CUnit-devel libu
 yum install -y libnvme-devel librdmacm rdma-core libnuma-devel ncurses-devel nvme-cli nvmetcli
 yum install -y rapidjson-devel
 pip install pyelftools
+
