@@ -27,6 +27,7 @@ public:
     */
     bool is_connected() const;
 
+    int execute(const char* execStr);
     
     logrecord log;
 private:

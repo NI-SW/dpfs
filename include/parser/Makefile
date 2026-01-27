@@ -8,21 +8,27 @@ DPFS_ROOT_DIR := $(abspath $(CURDIR)/../..)
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 
-LIB := $(DPFS_ROOT_DIR)/lib/libdpfs_parser.so
-
 FLEXSRC := lexyy.cpp
-BISONSRC := parser.cpp parser.hpp
+BISONSRC := $(DPFS_ROOT_DIR)/lib/parser/parser.cpp 
 
 OBJS += parser.o lexyy.o
 
-EXTRACLEAN := parser.cpp parser.hpp lexyy.cpp 
+EXTRACLEAN := $(DPFS_ROOT_DIR)/lib/parser/parser.cpp $(DPFS_ROOT_DIR)/lib/parser/parser.hpp $(DPFS_ROOT_DIR)/lib/parser/lexyy.cpp $(DPFS_ROOT_DIR)/lib/parser/lexer.h stack.hh parser_test
 
 all : $(FLEXSRC) $(BISONSRC)
+	
+	
+$(FLEXSRC): lexyy.l
+	flex --header-file=$(DPFS_ROOT_DIR)/lib/parser/lexer.h -o $(DPFS_ROOT_DIR)/lib/parser/lexyy.cpp lexyy.l
 
-$(FLEXSRC): lexyy.lpp
-	flex -o lexyy.cpp lexyy.lpp
+$(BISONSRC): parser.y
+	bison -d --defines=$(DPFS_ROOT_DIR)/lib/parser/parser.hpp -o $(DPFS_ROOT_DIR)/lib/parser/parser.cpp parser.y
 
-$(BISONSRC): parser.yy
-	bison -d -o parser.cpp parser.yy
+# 
 
-include $(DPFS_ROOT_DIR)/mk/dpfs.lib.mk
+clean : 
+	rm -f $(LIB) $(OBJS) $(EXTRACLEAN)
+
+
+# include $(DPFS_ROOT_DIR)/mk/dpfs.app.mk
+# include $(DPFS_ROOT_DIR)/mk/dpfs.lib.mk

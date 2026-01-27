@@ -238,6 +238,7 @@ public:
 
 
 /*
+    this class for the element which is allocated on heap(variable length),
     if data is sorted, use binary search to improve search performance
 */
 template <typename VALUE_T = CExampleValue, typename SIZETYPE = size_t>
@@ -288,8 +289,6 @@ public:
         iterator operator+(difference_type n) const {
             return iterator(m_ptr + n * valueLen, valueLen);
         }
-
-        
 
         iterator operator-(difference_type n) const {
             return iterator(m_ptr - n * valueLen, valueLen);
@@ -347,7 +346,11 @@ public:
 
 
 
-    CVarLenVec(uint8_t* begin, SIZETYPE& sz, size_t valueLength, size_t maxsize) : vecSize(sz), values(reinterpret_cast<uint8_t*>(begin)), valueLen(valueLength), maxSize(maxsize) {
+    CVarLenVec(uint8_t* begin, SIZETYPE& sz, size_t valueLength, size_t maxsize) : 
+    vecSize(sz), 
+    values(reinterpret_cast<uint8_t*>(begin)), 
+    valueLen(valueLength), 
+    maxSize(maxsize) {
         // extra one reserve for split action
     }
     virtual ~CVarLenVec() = default;
@@ -567,10 +570,10 @@ public:
 
 protected:
     SIZETYPE& vecSize;
-    size_t valueLen = 0;
     // first value pointer
     uint8_t* values = nullptr;
-    const size_t maxSize;
+    size_t valueLen = 0;
+    const SIZETYPE maxSize;
 };
 
 /*

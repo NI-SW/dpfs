@@ -34,7 +34,10 @@ void cacheStruct::release() {
     }
 }
 
-CPage::CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : m_engine_list(engine_list), m_cache(cacheSize, this), m_log(log) {
+CPage::CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : 
+m_log(log),
+m_engine_list(engine_list), 
+m_cache(cacheSize, this) {
     // the length larger then 10 need Special Processing
     m_zptrList.resize(maxBlockLen);
     m_zptrLock.resize(maxBlockLen);
@@ -260,6 +263,7 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
         }
 
         if(pCache) {
+            ++cs->refs;
             *pCache = cs;
         }
         
@@ -283,6 +287,7 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
         cptr->cache->unlock();
 
         if(pCache) {
+            ++cptr->cache->refs;
             *pCache = cptr->cache;
         }
     }
@@ -392,6 +397,11 @@ errReturn:
     if(cs) {
         freecs(cs);
     }
+
+    if(pCache) {
+        *pCache = nullptr;
+    }
+
     return rc;
 }
 

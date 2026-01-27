@@ -13,7 +13,7 @@
 #include <dpendian.hpp>
 #include <unordered_map>
 
-// #define __BPDEBUG__
+#define __BPDEBUG__
 
 #ifdef __BPDEBUG__
 #include <iostream>
@@ -22,18 +22,18 @@ using namespace std;
 constexpr int indOrder = 5;
 constexpr int rowOrder = 5;
 
-static int myabort() {
-    return -ERANGE;
-    abort();
-    return 0;
-}
+// static int myabort() {
+//     return -ERANGE;
+//     abort();
+//     return 0;
+// }
 // #define ERANGE myabort()
 extern const char hex_chars[];
 #endif
 
 // if key length exceed maxKeyLen, when search compare only first maxKeyLen bytes
-constexpr uint32_t maxSearchKeyLen = 255; // 255B
-constexpr uint32_t maxInrowLen = 1024;
+constexpr uint16_t maxSearchKeyLen = 1024; // 1024B
+constexpr uint32_t maxInrowLen = 32768; // 32KB
 
 // constexpr uint8_t PAGESIZE = 4;
 // constexpr uint32_t ROWPAGESIZE = 32; 
@@ -41,23 +41,26 @@ constexpr uint32_t maxInrowLen = 1024;
 // parent + prev + next + keyCnt + isLeaf + reserve
 // constexpr uint8_t hdrSize = 8 + 8 + 8 + 2 + 1 + 5; 
 
-constexpr uint8_t MAXKEYLEN = maxSearchKeyLen;
-constexpr dpfs_datatype_t KEYTYPE = dpfs_datatype_t::TYPE_BIGINT;
-
+constexpr uint16_t MAXKEYLEN = maxSearchKeyLen;
+// constexpr dpfs_datatype_t KEYTYPE = dpfs_datatype_t::TYPE_BIGINT;
+const std::vector<std::pair<uint8_t, dpfs_datatype_t>> emptyCmpTypes = { {8, dpfs_datatype_t::TYPE_BIGINT} };
 
 
 struct KEY_T {
     // dpfs_datatype_t type = dpfs_datatype_t::TYPE_NULL;
 
-    KEY_T() : data(0), len(0) {}
-    KEY_T(const KEY_T& other) : data(other.data), len(other.len) {}
-    KEY_T(void* val, size_t length) : data(reinterpret_cast<uint8_t*>(val)), len(length) {}
+    KEY_T(const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTyps = emptyCmpTypes) : data(0), len(0), compareTypes(cmpTyps) {}
+    KEY_T(const KEY_T& other) : data(other.data), len(other.len), compareTypes(other.compareTypes) {}
+    KEY_T(void* val, size_t length, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTyps = emptyCmpTypes) : data(reinterpret_cast<uint8_t*>(val)), len(length), compareTypes(cmpTyps) {}
     ~KEY_T() = default;
 
     uint8_t* data = nullptr;
     size_t len = 0;
-    dpfs_datatype_t KEYTYPE = dpfs_datatype_t::TYPE_BIGINT;
+    // dpfs_datatype_t KEYTYPE = dpfs_datatype_t::TYPE_BIGINT;
     bool hostMemory = false;
+
+    // | size | type |
+    const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& compareTypes;
 
 
     // KEY_T& operator=(const KEY_T& other) noexcept = delete;
@@ -100,32 +103,56 @@ struct KEY_T {
         return std::memcmp(data, other.data, len) == 0;
     }
     bool operator<(const KEY_T& other) const noexcept {
-        switch (KEYTYPE) {
-        case dpfs_datatype_t::TYPE_INT:
-            return *(int32_t*)data < *(int32_t*)other.data;
-            break;
-        case dpfs_datatype_t::TYPE_FLOAT:
-            return *(float*)data < *(float*)other.data;
-            break;
-        case dpfs_datatype_t::TYPE_BIGINT:
-            return *(int64_t*)data < *(int64_t*)other.data;
-            break;
-        case dpfs_datatype_t::TYPE_DOUBLE:
-            return *(double*)data < *(double*)other.data;
-            break;
-        case dpfs_datatype_t::TYPE_CHAR:
-        case dpfs_datatype_t::TYPE_VARCHAR:
-            return std::strncmp((const char*)data, (const char*)other.data, len) < 0;
-            break;
-        case dpfs_datatype_t::TYPE_BLOB:
-        case dpfs_datatype_t::TYPE_BINARY:
-            return std::memcmp(data, other.data, len) < 0;
-            break;
-        default:
-            break;
+        size_t offset = 0;
+        void* cmpPtr = nullptr;
+        void* targetPtr = nullptr;
+        for(const auto& cmpt : compareTypes) {
+            cmpPtr = data + offset;
+            targetPtr = other.data + offset;
+            dpfs_datatype_t compareType = cmpt.second;
+            auto cmpResult = 0;
+            switch (compareType) {
+                case dpfs_datatype_t::TYPE_INT:
+                    if ((*(int32_t*)cmpPtr < *(int32_t*)targetPtr)) return true;
+                    else if (*(int32_t*)cmpPtr == *(int32_t*)targetPtr) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_FLOAT:
+                    if ((*(float*)cmpPtr < *(float*)targetPtr)) return true;
+                    else if (*(float*)cmpPtr == *(float*)targetPtr) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_BIGINT:
+                    if ((*(int64_t*)cmpPtr < *(int64_t*)targetPtr)) return true;
+                    else if (*(int64_t*)cmpPtr == *(int64_t*)targetPtr) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_DOUBLE:
+                    if ((*(double*)cmpPtr < *(double*)targetPtr)) return true;
+                    else if (*(double*)cmpPtr == *(double*)targetPtr) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_CHAR:
+                case dpfs_datatype_t::TYPE_VARCHAR:
+                    cmpResult = std::strncmp((const char*)cmpPtr, (const char*)targetPtr, cmpt.first);
+                    if (cmpResult < 0) return true;
+                    else if (cmpResult == 0) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_BLOB:
+                case dpfs_datatype_t::TYPE_BINARY:
+                    cmpResult = std::memcmp(cmpPtr, targetPtr, cmpt.first);
+                    if (cmpResult < 0) return true;
+                    else if (cmpResult == 0) break;
+                    else return false;
+                    break;
+                default:
+                    break;
+            }
+            offset += cmpt.first;
         }
-
-        return std::memcmp(data, other.data, len) < 0;
+        return false;
+        // return std::memcmp(data, other.data, len) < 0;
     }
 };
 
@@ -133,7 +160,7 @@ struct KEY_T {
 template <typename VALUE_T = KEY_T, typename SIZETYPE = size_t>
 class CKeyVec : public CVarLenVec<VALUE_T, SIZETYPE> {
 public:
-    CKeyVec(uint8_t* begin, SIZETYPE& sz, size_t valueLength, size_t maxSize, dpfs_datatype_t cmpType) : CVarLenVec<VALUE_T, SIZETYPE>(begin, sz, valueLength, maxSize), cmpFun(cmpType){
+    CKeyVec(uint8_t* begin, SIZETYPE& sz, size_t valueLength, size_t maxSize, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& compareTypes) : CVarLenVec<VALUE_T, SIZETYPE>(begin, sz, valueLength, maxSize), cmpFun(compareTypes){
         // extra one reserve for split action
     }
     virtual ~CKeyVec() = default;
@@ -148,7 +175,9 @@ public:
         // find the pos of the key to insert
 
         auto pos = std::lower_bound(this->begin(), this->end(), val, cmpFun);
+        #ifdef __BPDEBUG__
         cout << "pos : " << pos - this->begin() << endl;
+        #endif
         if (pos != this->end() && *pos == val) {
             // Key already exists
             return -EEXIST;
@@ -204,35 +233,65 @@ public:
 
 private:
     struct compareByTwoKey {
-        compareByTwoKey(dpfs_datatype_t cmpTp) : compareType(cmpTp) {}
-        bool operator()(const VALUE_T& val1, const VALUE_T& val2) {
-            switch (compareType) {
-            case dpfs_datatype_t::TYPE_INT:
-                return *(int32_t*)val1.data < *(int32_t*)val2.data;
-                break;
-            case dpfs_datatype_t::TYPE_FLOAT:
-                return *(float*)val1.data < *(float*)val2.data;
-                break;
-            case dpfs_datatype_t::TYPE_BIGINT:
-                return *(int64_t*)val1.data < *(int64_t*)val2.data;
-                break;
-            case dpfs_datatype_t::TYPE_DOUBLE:
-                return *(double*)val1.data < *(double*)val2.data;
-                break;
-            case dpfs_datatype_t::TYPE_CHAR:
-            case dpfs_datatype_t::TYPE_VARCHAR:
-                return std::strncmp((const char*)val1.data, (const char*)val2.data, val1.len) < 0;
-                break;
-            case dpfs_datatype_t::TYPE_BLOB:
-            case dpfs_datatype_t::TYPE_BINARY:
-                return std::memcmp(val1.data, val2.data, val1.len) < 0;
-                break;
-            default:
-                break;
-            }
-            return std::memcmp(val1.data, val2.data, val1.len) < 0;
+        compareByTwoKey(const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTyps) : compareTypes(cmpTyps) {
+
         }
-        dpfs_datatype_t compareType = dpfs_datatype_t::TYPE_BIGINT;
+
+        bool operator()(const VALUE_T& val1, const VALUE_T& val2) {
+            size_t offset = 0;
+            uint8_t* cmpPtr = nullptr;
+            uint8_t* targetPtr = nullptr;
+            for(const auto& cmpt : compareTypes) {
+                cmpPtr = val1.data + offset;
+                targetPtr = val2.data + offset;
+                dpfs_datatype_t compareType = cmpt.second;
+                auto cmpResult = 0;
+                switch (compareType) {
+                case dpfs_datatype_t::TYPE_INT:
+                    if (*(int32_t*)cmpPtr < *(int32_t*)targetPtr) return true;   // if first is less, return true
+                    else if (*(int32_t*)cmpPtr == *(int32_t*)targetPtr) break;   // judge next value
+                    else return false;                                           // first is greater, return false
+                    break;
+                case dpfs_datatype_t::TYPE_FLOAT:
+                    if (*(float*)cmpPtr < *(float*)targetPtr) return true;
+                    else if (*(float*)cmpPtr == *(float*)targetPtr) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_BIGINT:
+                    if (*(int64_t*)cmpPtr < *(int64_t*)targetPtr) return true;
+                    else if (*(int64_t*)cmpPtr == *(int64_t*)targetPtr) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_DOUBLE:
+                    if (*(double*)cmpPtr < *(double*)targetPtr) return true;
+                    else if (*(double*)cmpPtr == *(double*)targetPtr) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_CHAR:
+                case dpfs_datatype_t::TYPE_VARCHAR:
+                    cmpResult = std::strncmp((const char*)cmpPtr, (const char*)targetPtr, cmpt.first);
+                    if (cmpResult < 0) return true;
+                    else if (cmpResult == 0) break;
+                    else return false;
+                    break;
+                case dpfs_datatype_t::TYPE_BLOB:
+                case dpfs_datatype_t::TYPE_BINARY:
+                    cmpResult = std::memcmp(cmpPtr, targetPtr, cmpt.first);
+                    if (cmpResult < 0) return true;
+                    else if (cmpResult == 0) break;
+                    else return false;
+                    break;
+                default:
+                    break;
+                }
+                offset += cmpt.first;
+            }
+            // equal
+            return false;
+            // return std::memcmp(val1.data, val2.data, val1.len) < 0;
+        }
+        const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& compareTypes;
+        // dpfs_datatype_t compareType = dpfs_datatype_t::TYPE_BIGINT;
     };
     compareByTwoKey cmpFun;
 
@@ -266,8 +325,8 @@ class CRowVec;
         ~NodeData();
         // int initNode(bool isLeaf, int32_t order);
         // use data from zptr
-        int initNode(bool isLeaf, int32_t order, dpfs_datatype_t keyType);
-        int initNodeByLoad(bool isLeaf, int32_t order, void* zptr, dpfs_datatype_t keyType);
+        int initNode(bool isLeaf, int32_t order, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& keyType);
+        int initNodeByLoad(bool isLeaf, int32_t order, void* zptr, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& keyType);
         int deInitNode();
         /*
             @param key: key to insert
@@ -421,6 +480,14 @@ class CRowVec;
         }* nodeData = nullptr;
 
         bidx self{ 0, 0 };
+
+
+        CKeyVec<KEY_T, uint16_t>* keyVec = nullptr;
+        CChildVec* childVec = nullptr;
+        CRowVec* rowVec = nullptr;
+        CPage& m_page;
+        cacheStruct* pCache = nullptr;
+
         // key start position
         uint8_t* keys = nullptr;
         uint8_t keyLen = 0;
@@ -429,19 +496,14 @@ class CRowVec;
         uint32_t m_rowLen = 0;
         child_t* children = nullptr;   // internal child pointers
 
-        CKeyVec<KEY_T, uint16_t>* keyVec = nullptr;
-        CChildVec* childVec = nullptr;
-        CRowVec* rowVec = nullptr;
-        CPage& m_page;
-        cacheStruct* pCache = nullptr;
-
         uint32_t maxKeySize = 0;
         bool inited = false;
         bool isRef = false;
         bool needDelete = false;
+        bool newNode = false;
     };
 public:
-    CBPlusTree(CCollection& collection, CPage& pge, CDiskMan& cdm, size_t pageSize = 4);
+    CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& treeHigh, bidx& root, bidx& begin, bidx& end, uint16_t okeyLen, uint32_t orowLen, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTypes);
     ~CBPlusTree();
     
     class iterator {
@@ -486,12 +548,12 @@ public:
         }
     private:
         friend class CBPlusTree;
+        CBPlusTree& m_tree;
         uint32_t m_currentPos = 0;
         bool loaded = false;
         bool valid = false;
         CBPlusTree::NodeData node;
         bidx m_currentNode = {0, 0};
-        CBPlusTree& m_tree;
     };
 
     friend class iterator;
@@ -577,6 +639,7 @@ public:
 
             #ifdef __BPDEBUG__
             cout << "Committing node gid: " << node.first.gid << " bid: " << node.first.bid << endl;
+            cout << "pc addr: " << node.second.pCache << endl;
             #endif
 
             if (sz <= 1) {            
@@ -592,11 +655,16 @@ public:
 
         while(lastIndicator != 1) {
             // wait for last write back complete
+            if(lastIndicator == -1) {
+                return -EIO;
+            }
+            std::this_thread::yield();
         }
         m_commitCache.clear();
         return 0;
     }
 
+    int rollback();
 
 private:
 
@@ -853,12 +921,10 @@ address         0 1 2 3 4 5 6 7 8
             @note insert key to the vector in sorted order
         */
         int insert(int pos, const void* data, size_t dataLen) noexcept {
-            int rc = 0;
             if (dataLen > m_rowLen) {
                 // TODO:: use pointer to store data exceed row length
                 // ROW_T rowPtr(row + pos * m_rowLen);
-                rc = -ENOBUFS;
-                return rc;
+                return -ENOBUFS;
             }
 
             memmove(&row[(pos + 1) * m_rowLen], &row[pos * m_rowLen], (vecSize - pos) * m_rowLen);
@@ -868,7 +934,6 @@ address         0 1 2 3 4 5 6 7 8
         }
 
         int push_back(const void* data, size_t dataLen) noexcept {
-            int rc = 0;
             if (dataLen > m_rowLen) {
                 return -ENOBUFS;
             }
@@ -896,7 +961,6 @@ address         0 1 2 3 4 5 6 7 8
         }
 
         int push_front(const void* data, size_t dataLen) noexcept {
-            int rc = 0;
             if (dataLen > m_rowLen) {
                 return -ENOBUFS;
             }
@@ -1108,7 +1172,7 @@ address         0 1 2 3 4 5 6 7 8
             }
 
             NodeData right(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-            right.initNode(true, m_rowOrder, keyType);
+            right.initNode(true, m_rowOrder, cmpTyps);
 
             // upKey is used to return up key to parent
             split_leaf(node, right, upKey);
@@ -1128,7 +1192,7 @@ address         0 1 2 3 4 5 6 7 8
             idxChild = 0;
         }
         char tempData[MAXKEYLEN];
-        KEY_T childUp{tempData, key.len};
+        KEY_T childUp{tempData, key.len, cmpTyps};
         bidx childNew{nodeId, 0};
 
 
@@ -1215,7 +1279,7 @@ address         0 1 2 3 4 5 6 7 8
 
         // problem :: cause node split error
         int rc = 0;
-        rc = right.initNode(false, m_indexOrder, keyType);
+        rc = right.initNode(false, m_indexOrder, cmpTyps);
         if (rc != 0) {
             return rc;
         }
@@ -1242,7 +1306,7 @@ address         0 1 2 3 4 5 6 7 8
     }
 
     int32_t child_index(const NodeData& n, const KEY_T& k) const noexcept {
-        int32_t pos = n.keyVec->search(k);
+        int64_t pos = n.keyVec->search(k);
         //  10 22 23 25 28  (21)
         // 0  1  2  3  4  5
         // if k != 22
@@ -1251,9 +1315,9 @@ address         0 1 2 3 4 5 6 7 8
         // -> pos = 1 -> child = 2
 
         int rc = 0;
-        KEY_T key;
+        KEY_T key(cmpTyps);
         rc = n.keyVec->at(pos, key);
-        if (rc == 0 && key == k) {
+        if (rc == 0 && k == key) {
             ++pos;
         }
 
@@ -1267,7 +1331,7 @@ address         0 1 2 3 4 5 6 7 8
             return -ERANGE;
         }
 
-        return pos;
+        return static_cast<int32_t>(pos);
     }
 
     /*
@@ -1280,7 +1344,7 @@ address         0 1 2 3 4 5 6 7 8
         if (m_root.bid != 0) return 0;
 
         NodeData root(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-        root.initNode(true, m_rowOrder, keyType);
+        root.initNode(true, m_rowOrder, cmpTyps);
         root.self = allocate_node(true);
         if (root.self.bid == 0) return -ENOSPC;
         root.nodeData->hdr->childIsLeaf = 0;
@@ -1330,7 +1394,7 @@ address         0 1 2 3 4 5 6 7 8
         @return 0 on success, COMBINE on combine, else on failure
         @note remove the data or combine internal node when necessary
     */
-    int32_t remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& upKey, bidx& upChild, bool isLeaf);
+    int32_t remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& upKey, bool isLeaf);
     
     
     /*
@@ -1341,7 +1405,7 @@ address         0 1 2 3 4 5 6 7 8
         @return 0 on success, else on failure
         @note combine child node at idxChild with its sibling, and node should be locked before call this function
     */
-    int32_t combine_child(NodeData& node, int32_t idxChild, KEY_T& childUp, bidx& childNew);
+    int32_t combine_child(NodeData& node, int32_t idxChild);
 
     /*
         @param parent: parent node data
@@ -1411,16 +1475,14 @@ private:
         int rc = 0;
         rc = m_page.get(p, idx, isLeaf ? m_rowPageSize : m_pageSize);
 
-        if (rc != 0 || p == nullptr) return rc == 0 ? -EIO : rc;
+        if (rc != 0 || p == nullptr) return rc;
         uint8_t* base = reinterpret_cast<uint8_t*>(p->getPtr());
 
-        nodeHdr* nodedatahdr;
-        nodedatahdr = (nodeHdr*)base;
 
         out.pCache = p;
         out.self = idx;
 
-        rc = out.initNodeByLoad(isLeaf, isLeaf ? m_rowOrder : m_indexOrder, base, keyType);
+        rc = out.initNodeByLoad(isLeaf, isLeaf ? m_rowOrder : m_indexOrder, base, cmpTyps);
         if (rc != 0) {
             out.pCache->release();
             return rc;
@@ -1540,9 +1602,13 @@ public:
     }
 
 private:
-    bidx& m_root;
-    bidx& m_begin;
-    bidx& m_end;
+    friend class CCollection;
+    CPage& m_page;
+    CDiskMan& m_diskman;
+    // const CCollection& m_collection;
+
+
+
 
     // max key count in one node
     uint32_t maxkeyCount = 0;
@@ -1552,19 +1618,14 @@ private:
     uint8_t m_rowOrder = 0;
     uint8_t m_pageSize = 0; // requested page blocks per fetch
     uint8_t m_rowPageSize = 0; // requested page blocks per fetch for row page
-    dpfs_datatype_t keyType = dpfs_datatype_t::TYPE_NULL;
-    // indicate the col maybe variable-length type
-    // bool m_colVariable = false;    
     CSpin m_lock;
 
-    
-    // size_t m_nodeSize = 0; // page size in bytes
-    CPage& m_page;
-    CDiskMan& m_diskman;
-    const CCollection& m_collection;
-    
     // if high == 1, root is leaf node
     uint8_t& high;
+    bidx& m_root;
+    bidx& m_begin;
+    bidx& m_end;
+    const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTyps;
     std::unordered_map<bidx, NodeData> m_commitCache;
 
 

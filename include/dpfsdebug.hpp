@@ -1,6 +1,9 @@
+#pragma once
 #include <cstdio>
+#include <iostream>
+using namespace std;
 
-void printMemory(void* ptr, int size) {
+inline void printMemory(void* ptr, int size) noexcept {
 
     unsigned char* p = reinterpret_cast<unsigned char*>(ptr);
     for(int i = 0; i < size; ++i) {

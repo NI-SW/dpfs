@@ -22,6 +22,7 @@ enum class dpfsipc : uint32_t {
     DPFS_IPC_CONNECT = 0,       // connect to system
     DPFS_IPC_DISCONNECT,        // disconnect from system
     DPFS_IPC_FOODTRACE,         // trace a request
+    DPFS_IPC_EXECUTE,           // execute a command
     DPFS_IPC_INSMOD,            // insert a module
     DPFS_IPC_DELMOD,            // delete a module
     DPFS_IPC_MAX,
@@ -30,6 +31,9 @@ constexpr const char* dpfsipcStr[] = {
     "IPC_CONNECT",
     "IPC_DISCONNECT",
     "IPC_FOODTRACE",
+    "IPC_EXECUTE",
+    "IPC_INSMOD",
+    "IPC_DELMOD",
 };
 
 /*
@@ -43,10 +47,12 @@ enum class dpfsrsp : uint32_t {
     DPFS_RSP_CONNECT,               // connect response
     DPFS_RSP_DISCONNECT,            // disconnect response
     DPFS_RSP_FOODTRACE,             // response for a trace request
+    DPFS_RSP_EXECUTE,               // response for execute command
     DPFS_RSP_INSMOD,                // response for insert module
     DPFS_RSP_DELMOD,                // response for delete module
     DPFS_RSP_MAX,
 };
+
 constexpr const char* dpfsrspStr[] = {
     "RSP_INVALID",
     "RSP_NOTSUPPORT",
@@ -55,6 +61,9 @@ constexpr const char* dpfsrspStr[] = {
     "RSP_CONNECT",
     "RSP_DISCONNECT",
     "RSP_FOODTRACE",
+    "RSP_EXECUTE",
+    "RSP_INSMOD",
+    "RSP_DELMOD",
 };
 
 struct ipc_connect {
@@ -70,6 +79,11 @@ struct ipc_connect_rsp {
     bool serverEndian = B_END;      // false: little endian, true: big endian
     // uint16_t msgSize = 0;        // size of return message
     int8_t  message[];              // return message (null terminate string)
+};
+
+struct ipc_execute {
+    char authToken[32];             // authentication token
+    char command[];                 // command string (null terminate string)
 };
 
 /*

@@ -1180,7 +1180,6 @@ void CNvmfhost::cleanup() {
 	}
 
 	struct spdk_nvme_detach_ctx** detach_ctx = new spdk_nvme_detach_ctx* [devices.size()] { nullptr };
-	int rc = 0;
 	int i = 0;
 
 	sync();

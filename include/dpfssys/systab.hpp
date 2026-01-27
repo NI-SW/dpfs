@@ -3,57 +3,77 @@
 #include <collect/bp.hpp>
 
 
+#define __DPFSSYS_SYSTAB_DEBUG__
+
+#ifdef __DPFSSYS_SYSTAB_DEBUG__
+#include <dpfsdebug.hpp>
+#endif
+
+
 class CSysSchemas {
 public:
-    CSysSchemas(CDiskMan& diskman, CPage& page) : m_diskman(diskman), m_page(page)
-    , systemboot(m_diskman, m_page) {
+    CSysSchemas(CDiskMan& diskman, CPage& page) : 
+    m_diskman(diskman), 
+    m_page(page), 
+    systemboot(m_diskman, m_page),
+    systables(m_diskman, m_page),
+    syscolumns(m_diskman, m_page),
+    sysconstraints(m_diskman, m_page),
+    sysindexes(m_diskman, m_page),
+    sysusers(m_diskman, m_page),
+    sysschemas(m_diskman, m_page),
+    sysauths(m_diskman, m_page) {
         
     };
     ~CSysSchemas() {};
-    std::vector<CCollection*> collections; // system collection list
+    
 
-    CCollection systemboot;
+    /*
+        @note init the system tables, create necessary system collections on disk
+        @return 0 on success, else on failure
+        @warning this function should be called only once when the database is created, if is data partitioned, should get nodeId first
+    */
+    int init();
 
-    int init() {
-        // initialize system boot collection
-        CCollectionInitStruct initstruct;
-        initstruct.id = 0;
-        initstruct.name = "systemboot";
-        initstruct.m_perms.perm.m_systab = 1;
-        initstruct.m_perms.perm.m_ddl = 0;
-        initstruct.m_perms.perm.m_select = 1;
-        initstruct.m_perms.perm.m_insertable = 0;
-        initstruct.m_perms.perm.m_updatable = 0;
-        initstruct.m_perms.perm.m_deletable = 0;
-        systemboot.initialize(initstruct);
-        systemboot.addCol("KEY", dpfs_datatype_t::TYPE_CHAR, 64);
-        systemboot.addCol("VALUE", dpfs_datatype_t::TYPE_CHAR, 64);
-        systemboot.initBPlusTreeIndex();
-        systemboot.saveTo({0, 1});
-
-        const auto& cols = systemboot.m_collectionStruct->m_cols; 
-        
-        CItem* itm = CItem::newItem(systemboot.m_collectionStruct->m_cols);
-        itm->updateValue(0, "CODESET", sizeof("CODESET"));
-        itm->updateValue(1, "UTF-8", sizeof("UTF-8"));
-                
-        systemboot.addItem(*itm);
-        
-        systemboot.addItem(*itm);
-
-        collections.push_back(&systemboot);
-        return true;
-    }
-
+    /*
+        @note load the system table from the storage engine, and load the collections
+        @return 0 on success, else on failure
+    */
+    int load();
+     
     /*
         @note read the system table from the storage engine, and load the collections
         @return 0 on success, else on failure
     */
     bool readSuper() { return true; }
 
-    bool load() { return true; }
+    /*
+    
+    */
+    int initBootTab(const bidx& sysBidx);
+    int initTableTab(const bidx& sysBidx);
+    int initColTab(const bidx& sysBidx);
+    int initConTab(const bidx& sysBidx);
+    int initIdxTab(const bidx& sysBidx);
+    int initUserTab(const bidx& sysBidx);
+    int initSchemaTab(const bidx& sysBidx);
+    int initAuthTab(const bidx& sysBidx);
+
     CDiskMan& m_diskman;
     CPage& m_page;
+    // tables that always exist in memory
+    CCollection systemboot;
+    CCollection systables;
+    CCollection syscolumns;
+    CCollection sysconstraints;
+    CCollection sysindexes;
+    // privilege control
+    CCollection sysusers;
+    // schema control
+    CCollection sysschemas;
+    // authentication control
+    CCollection sysauths;
+
 };
 
 

@@ -4,9 +4,9 @@
 #include <unordered_map>
 #include <threadlock.hpp>
 // #define __DPFS_CACHE_DEBUG__
-#define __DEBUG__
+#define __DPCACHE_DEBUG__
 
-#ifdef __DEBUG__
+#ifdef __DPCACHE_DEBUG__
 #include <iostream>
 using namespace std;
 #endif
@@ -71,7 +71,7 @@ public:
             int finish_indicator = 0;
             for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
 
-                #ifdef __DEBUG__
+                #ifdef __DPCACHE_DEBUG__
                 cout << "Deleting cache idx: " << (*cacheIt).first.bid << " cache: " << (*cacheIt).second->cache->getPtr() << endl;
                 cout << "size = " << sz << endl;
                 #endif
@@ -85,7 +85,13 @@ public:
             }
             
             while(finish_indicator == 0) {
-                
+                if(finish_indicator < 0) {
+                    // error occurred TODO:: PROCESS ERROR
+                    #ifdef __DPCACHE_DEBUG__
+                    abort();
+                    #endif
+                    break;
+                }
             }
         }
         

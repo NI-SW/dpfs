@@ -44,11 +44,10 @@ public:
     uint32_t collectionCount = 0;
     CCollection* collections = nullptr;
 
-    CCollection fixedInfo;
-    CCollection products;
-
     CPage& m_page;
     CDiskMan& m_diskMan;
+    CCollection fixedInfo;
+    CCollection products;
 
     int save() {
         // TODO save product info to disk

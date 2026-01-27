@@ -1,9 +1,11 @@
 
 #include <dpfssys/dpfssys.hpp>
+#include <dpfssys/dpfsdata.hpp>
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
 #include <fstream>
+#include <string>
 
 dpfs_rsp error_rsp = {dpfsrsp::DPFS_RSP_SYSTEMERROR, 0, {}};
 
@@ -158,6 +160,11 @@ int dpfsSystem::cleanup() {
         repSvr = nullptr;
     }
 
+    if(dataService) {
+        delete dataService;
+        dataService = nullptr;
+    }
+
     if(!engine_list.empty()) {
         for(auto& eng : engine_list) {
             delete eng;
@@ -278,6 +285,12 @@ int dpfsSystem::init() {
         goto errinit; // Return error if server creation fails
     }
 
+    dataService = new CDatasvc(engine_list, 4096, log); // 4K block cache size
+    if(!dataService) {
+        rc = -ENOMEM;
+        goto errinit; // Return error if data service creation fails
+    }
+
     // use default configurations if no file is provided
     return 0; // Return 0 on success
 
@@ -287,6 +300,20 @@ errinit:
     return rc;
     
 
+}
+
+int dpfsSystem::initDataSvc() {
+    CRecursiveGuard guard(m_lock);
+
+    if(!dataService) {
+        return -EINVAL;
+    }
+
+    int rc = dataService->init();
+    if(rc != 0) {
+        return rc; // Return error if initialization fails
+    }
+    return 0; // Return 0 on success
 }
 
 int dpfsSystem::readConfig() {

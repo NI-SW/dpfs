@@ -1,0 +1,380 @@
+#include <dpfssys/systab.hpp>
+
+// node id to determine which nvmfhost belongs to this instance 
+extern uint64_t nodeId;
+using cf = CColumn::constraint_flags;
+
+int CSysSchemas::init() {
+    int rc = 0;
+    bidx sysBidx = {nodeId, 16};
+    bidx tmpbid = {nodeId, 20};
+    CItem* itm = nullptr;
+    char version[4] = {dpfsVersion[0] + 0x30, dpfsVersion[1] + 0x30, dpfsVersion[2] + 0x30, dpfsVersion[3] + 0x30};
+
+    rc = initBootTab(sysBidx); if (rc != 0) { goto errReturn; }
+
+    itm = CItem::newItems(systemboot.m_collectionStruct->m_cols, 16);    if (itm == nullptr) { rc = -ENOMEM; goto errReturn; }
+
+    // VERSION
+    rc = itm->updateValue(0, "VERSION", sizeof("VERSION"));              if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, version, sizeof(version));                  if (rc < 0) { goto errReturn; }
+
+
+    // CODESET      
+    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "CODESET", sizeof("CODESET"));              if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, "UTF-8", sizeof("UTF-8"));                  if (rc < 0) { goto errReturn; }
+
+    // DPFS_NODE_ID
+    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));    if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, &nodeId, sizeof(nodeId));                   if (rc < 0) { goto errReturn; }
+
+    // SYSTABLES ROOT BIDX
+    tmpbid = {nodeId, 20};
+    rc = initTableTab(tmpbid);                                           if (rc != 0) { goto errReturn; }
+    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "SYSTABLESRT", sizeof("SYSTABLESRT"));      if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+
+    // SYSCOLUMNS ROOT BIDX
+    tmpbid = {nodeId, 24};
+    rc = initColTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
+    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "SYSCOLUMNSRT", sizeof("SYSCOLUMNSRT"));    if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+    
+    // SYSCONSTRAINTS ROOT BIDX
+    tmpbid = {nodeId, 28};
+    rc = initConTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
+    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "SYSCONSTRT", sizeof("SYSCONSTRT"));        if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+    
+    // SYSINDEXES ROOT BIDX
+    tmpbid = {nodeId, 32};
+    rc = initIdxTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
+    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "SYSINDEXRT", sizeof("SYSINDEXRT"));        if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+
+    // SYSUSERS ROOT BIDX
+    tmpbid = {nodeId, 36};
+    rc = initUserTab(tmpbid);                                            if (rc != 0) { goto errReturn; }
+    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "SYSUSERSRT", sizeof("SYSUSERSRT"));        if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+
+    // SYSSCHEMAS ROOT BIDX
+    tmpbid = {nodeId, 40};
+    rc = initSchemaTab(tmpbid);                                          if (rc != 0) { goto errReturn; }
+    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "SYSSCHEMASRT", sizeof("SYSSCHEMASRT"));    if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+
+    // SYSAUTHS ROOT BIDX
+    tmpbid = {nodeId, 44};
+    rc = initAuthTab(tmpbid);                                           if (rc != 0) { goto errReturn; }
+    rc = itm->nextRow();                                                if (rc != 0) { goto errReturn; }
+    rc = itm->updateValue(0, "SYSAUTHRT", sizeof("SYSAUTHRT"));         if (rc < 0) { goto errReturn; }
+    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                  if (rc < 0) { goto errReturn; }
+
+    // itm->resetScan();
+    // systemboot.addItem(*itm); if (rc < 0) { goto errReturn; }
+
+    #ifdef __DPFSSYS_SYSTAB_DEBUG__
+    cout << "System Boot Info Inserted:" << endl;
+    #endif
+    rc = systemboot.addItem(*itm); if (rc != 0) { goto errReturn; }
+
+
+    if(itm) {
+        CItem::delItem(itm);
+        itm = nullptr;
+    }
+
+    return 0;
+errReturn:
+    if(itm) {
+        CItem::delItem(itm);
+        itm = nullptr;
+    }
+    return rc;
+}
+
+int CSysSchemas::load() {
+    int rc = 0;
+    return rc;
+}
+
+int CSysSchemas::initBootTab(const bidx& sysBidx) {
+    int rc = 0;
+    CCollectionInitStruct initstruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSTEM";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = systemboot.initialize(initstruct);                                                                   if (rc != 0) { goto errReturn; }
+    rc = systemboot.addCol("KEY", dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);         if (rc != 0) { goto errReturn; }
+    rc = systemboot.addCol("VALUE", dpfs_datatype_t::TYPE_BINARY, 64, 0, cf::NOT_NULL);                       if (rc != 0) { goto errReturn; }
+    rc = systemboot.initBPlusTreeIndex();                                                                     if (rc != 0) { goto errReturn; }
+    rc = systemboot.saveTo(sysBidx);                                                                          if (rc != 0) { goto errReturn; }
+    
+    return 0;
+errReturn:
+    if(systemboot.m_btreeIndex) {
+        delete systemboot.m_btreeIndex;
+        systemboot.m_btreeIndex = nullptr;
+    }
+    systemboot.m_collectionStruct->m_cols.clear();
+    if(systemboot.m_btreeIndex) {
+        delete systemboot.m_btreeIndex;
+        systemboot.m_btreeIndex = nullptr;
+    }
+    return rc;
+}
+
+int CSysSchemas::initTableTab(const bidx& sysBidx) {
+    int rc = 0;
+    CCollectionInitStruct initstruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSTABLES";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = systables.initialize(initstruct);                                                                          if (rc != 0) { goto errReturn; }
+    rc = systables.addCol("TABLE_SCHEMA", dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);  if (rc != 0) { goto errReturn; }
+    rc = systables.addCol("TABLE_NAME",   dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);  if (rc != 0) { goto errReturn; }
+    rc = systables.addCol("CREATE_TIME",  dpfs_datatype_t::TYPE_TIMESTAMP, 64, 0, cf::NOT_NULL);                    if (rc != 0) { goto errReturn; }
+    // rc = systables.addCol("COLCOUNT",     dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL);                    if (rc != 0) { goto errReturn; }
+    // this column indicates how many primary key columns in the table
+    rc = systables.addCol("KEYCOLUMNS",   dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL);                    if (rc != 0) { goto errReturn; }
+    rc = systables.addCol("TABLE_ID",     dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL | cf::UNIQUE);       if (rc != 0) { goto errReturn; }
+    rc = systables.addCol("ROOT",         dpfs_datatype_t::TYPE_BINARY,    16, 0, cf::NOT_NULL);                    if (rc != 0) { goto errReturn; }
+    rc = systables.initBPlusTreeIndex();                                                                            if (rc != 0) { goto errReturn; }
+    rc = systables.saveTo(sysBidx);                                                                                 if (rc != 0) { goto errReturn; }
+    
+    return 0;
+errReturn:
+    if(systables.m_btreeIndex) {
+        delete systables.m_btreeIndex;
+        systables.m_btreeIndex = nullptr;
+    }
+    systables.m_collectionStruct->m_cols.clear();
+    if(systables.m_btreeIndex) {
+        delete systables.m_btreeIndex;
+        systables.m_btreeIndex = nullptr;
+    }
+    return rc;
+}
+
+int CSysSchemas::initColTab(const bidx& sysBidx) {
+    int rc = 0;
+    CCollectionInitStruct initstruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSCOLUMNS";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = syscolumns.initialize(initstruct);                                                                           if (rc != 0) { goto errReturn; }
+    rc = syscolumns.addCol("TABLE_SCHEMA",      dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = syscolumns.addCol("TABLE_NAME",        dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = syscolumns.addCol("COLUMN_NAME",       dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = syscolumns.addCol("ORDINAL_POSITION",  dpfs_datatype_t::TYPE_INT,  4,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = syscolumns.addCol("IS_NULLABLE",       dpfs_datatype_t::TYPE_CHAR, 1,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = syscolumns.addCol("DATA_TYPE",         dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = syscolumns.addCol("COLUMN_DEFAULT",    dpfs_datatype_t::TYPE_CHAR, 64, 0);                                   if (rc != 0) { goto errReturn; }
+    rc = syscolumns.initBPlusTreeIndex();                                                                             if (rc != 0) { goto errReturn; }
+    rc = syscolumns.saveTo(sysBidx);                                                                                  if (rc != 0) { goto errReturn; }
+    
+    return 0;
+errReturn:
+    if(syscolumns.m_btreeIndex) {
+        delete syscolumns.m_btreeIndex;
+        syscolumns.m_btreeIndex = nullptr;
+    }
+    syscolumns.m_collectionStruct->m_cols.clear();
+    // if(syscolumns.m_collectionStruct) {
+    //     if(!syscolumns.m_cltInfoCache) {
+    //         m_page.freezptr(syscolumns.m_collectionStruct->data, MAX_CLT_INFO_LBA_LEN);
+    //     } else {
+    //         syscolumns.m_cltInfoCache->release();
+    //         syscolumns.m_cltInfoCache = nullptr;
+    //     }
+    //     delete syscolumns.m_collectionStruct;
+    //     syscolumns.m_collectionStruct = nullptr;
+    // }
+    return rc;
+}
+
+int CSysSchemas::initConTab(const bidx& sysBidx) {
+    int rc = 0;
+    
+    CCollectionInitStruct initstruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSTABCONSTRAINTS";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = sysconstraints.initialize(initstruct);                                                                                                                         if (rc != 0) { goto errReturn; }
+    rc = sysconstraints.addCol("TABLE_SCHEMA",      dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = sysconstraints.addCol("TABLE_NAME",        dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = sysconstraints.addCol("CONSTRAINT_NAME",   dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = sysconstraints.addCol("CONTENT",           dpfs_datatype_t::TYPE_CHAR, 64, 0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysconstraints.initBPlusTreeIndex();                                                                                                                           if (rc != 0) { goto errReturn; }
+    rc = sysconstraints.saveTo(sysBidx);                                                                                                                                if (rc != 0) { goto errReturn; }
+    
+    return 0;
+errReturn:
+    if(sysconstraints.m_btreeIndex) {
+        delete sysconstraints.m_btreeIndex;
+        sysconstraints.m_btreeIndex = nullptr;
+    }
+    return rc;
+}
+
+int CSysSchemas::initIdxTab(const bidx& sysBidx) {
+    int rc = 0;
+    CCollectionInitStruct initstruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSINDEXES";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = sysindexes.initialize(initstruct);                                                                                 if (rc != 0) { goto errReturn; }
+    rc = sysindexes.addCol("TABLE_SCHEMA",      dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = sysindexes.addCol("TABLE_NAME",        dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = sysindexes.addCol("INDEX_NAME",        dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    // rc = sysindexes.addCol("COLNAMES",          dpfs_datatype_t::TYPE_CHAR,      128, 0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysindexes.addCol("COLCOUNT",          dpfs_datatype_t::TYPE_INT,       4,   0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysindexes.addCol("CREATE_TIME",       dpfs_datatype_t::TYPE_TIMESTAMP, 10,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysindexes.addCol("LASTUSED",          dpfs_datatype_t::TYPE_TIMESTAMP, 10,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysindexes.addCol("ROOT",              dpfs_datatype_t::TYPE_BINARY,    16,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysindexes.initBPlusTreeIndex();                                                                                   if (rc != 0) { goto errReturn; }
+    rc = sysindexes.saveTo(sysBidx);                                                                                        if (rc != 0) { goto errReturn; }
+    
+    return 0;
+errReturn:
+    if(sysindexes.m_btreeIndex) {
+        delete sysindexes.m_btreeIndex;
+        sysindexes.m_btreeIndex = nullptr;
+    }
+    sysindexes.m_collectionStruct->m_cols.clear();
+    return rc;
+}
+
+int CSysSchemas::initUserTab(const bidx& sysBidx) {
+    int rc = 0;
+    CCollectionInitStruct initstruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSUSERS";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = sysusers.initialize(initstruct);                                                                                 if (rc != 0) { goto errReturn; }
+    rc = sysusers.addCol("USER_NAME",         dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    // privilege to access or control all object of database
+    rc = sysusers.addCol("DBPRIVILEGE",       dpfs_datatype_t::TYPE_BINARY,    1,   0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysusers.addCol("CREATE_TIME",       dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysusers.addCol("LAST_LOGIN",        dpfs_datatype_t::TYPE_TIMESTAMP, 10,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysusers.addCol("PASSWORD",          dpfs_datatype_t::TYPE_BINARY,    128, 0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysusers.initBPlusTreeIndex();                                                                                   if (rc != 0) { goto errReturn; }
+    rc = sysusers.saveTo(sysBidx);                                                                                        if (rc != 0) { goto errReturn; }
+
+    
+    return 0;
+errReturn:
+    if(sysusers.m_btreeIndex) {
+        delete sysusers.m_btreeIndex;
+        sysusers.m_btreeIndex = nullptr;
+    }
+    return rc;
+}
+
+int CSysSchemas::initSchemaTab(const bidx& sysBidx) {
+    int rc = 0;
+    CCollectionInitStruct initstruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSSCHEMAS";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = sysschemas.initialize(initstruct);                                                                                 if (rc != 0) { goto errReturn; }
+    // product name
+    rc = sysschemas.addCol("SCHEMA_NAME",       dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    // privilege to access or control all object of database
+    rc = sysschemas.addCol("TABLE_COUNT",       dpfs_datatype_t::TYPE_BINARY,    1,   0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysschemas.addCol("CREATE_TIME",       dpfs_datatype_t::TYPE_TIMESTAMP, 10,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    // disk groupid + disk logic block address
+    rc = sysschemas.addCol("ROOT",              dpfs_datatype_t::TYPE_BINARY,    16,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysschemas.initBPlusTreeIndex();                                                                                   if (rc != 0) { goto errReturn; }
+    rc = sysschemas.saveTo(sysBidx);                                                                                        if (rc != 0) { goto errReturn; }
+
+
+    
+    return 0;
+errReturn:
+    if(sysschemas.m_btreeIndex) {
+        delete sysschemas.m_btreeIndex;
+        sysschemas.m_btreeIndex = nullptr;
+    }
+    sysschemas.m_collectionStruct->m_cols.clear();
+    return rc;
+}
+
+int CSysSchemas::initAuthTab(const bidx& sysBidx) {
+    int rc = 0;
+    CCollectionInitStruct initstruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSAUTHS";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = sysauths.initialize(initstruct);                                                                                 if (rc != 0) { goto errReturn; }
+
+    // grant ... TODO:: finish grant clause
+    // 为尽量保证前缀命中，ID不作为第一主键列
+    rc = sysauths.addCol("USER_NAME",         dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = sysauths.addCol("TABLE_SCHEMA",      dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = sysauths.addCol("TABLE_NAME",        dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
+    rc = sysauths.addCol("USER_ID",           dpfs_datatype_t::TYPE_INT,       4,   0, cf::NOT_NULL | cf::UNIQUE);        if (rc != 0) { goto errReturn; }
+    // privilege to access or control all object of database
+    rc = sysauths.addCol("TBPRIVILEGE",       dpfs_datatype_t::TYPE_BINARY,    1,   0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysauths.initBPlusTreeIndex();                                                                                   if (rc != 0) { goto errReturn; }
+    rc = sysauths.saveTo(sysBidx);                                                                                        if (rc != 0) { goto errReturn; }
+
+    
+    return 0;
+errReturn:
+    if(sysauths.m_btreeIndex) {
+        delete sysauths.m_btreeIndex;
+        sysauths.m_btreeIndex = nullptr;
+    }
+    sysauths.m_collectionStruct->m_cols.clear();
+    return rc;
+}

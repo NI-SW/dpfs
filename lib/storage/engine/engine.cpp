@@ -5,13 +5,13 @@
 // defination in nvmf.cpp (-ldpfs_nvmf)
 void* newNvmf();
 
-std::unordered_map<std::string, void* (*)()> engineTyps {{"nvmf", newNvmf}};
+std::unordered_map<std::string, void* (*)()> engineTypes {{"nvmf", newNvmf}};
 
 
 dpfsEngine* newEngine(const std::string& engine_type) {
 
-    if(engineTyps.find(engine_type) != engineTyps.end()) {
-        return reinterpret_cast<dpfsEngine*>(engineTyps[engine_type]());
+    if(engineTypes.find(engine_type) != engineTypes.end()) {
+        return reinterpret_cast<dpfsEngine*>(engineTypes[engine_type]());
     } else {
         return nullptr; // or throw an exception
     }

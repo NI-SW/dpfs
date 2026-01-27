@@ -4,7 +4,7 @@
  */
 #pragma once
 #include <cstring>
-static bool B_END = true;
+static bool B_END = false;
 // cpu register max length in bytes
 constexpr int maxRegisterLen = 8;
 
@@ -32,7 +32,7 @@ static getEndian globalEndian;
     @param scale: number of bytes to copy
     @note copy data from src to dest with endian convertion
 */
-static int cpy2le(char* dest, const char* src, int scale) {
+inline int cpy2le(char* dest, const char* src, int scale) noexcept {
     if(scale <= 0) {
         return -1;
     }
@@ -61,8 +61,7 @@ static int cpy2le(char* dest, const char* src, int scale) {
     @param scale: number of bytes to copy
     @note copy data from src to dest with endian convertion
 */
-static int cpyFromle(char* dest, const char* src, int scale) {
-
+inline int cpyFromle(char* dest, const char* src, int scale) noexcept {
     return cpy2le(dest, src, scale);
 }
  
@@ -71,7 +70,7 @@ static int cpyFromle(char* dest, const char* src, int scale) {
     @warning only allow T is basic data type like uint32_t, uint16_t, float, double, etc.
 */
 template<typename T, unsigned char Tscale = sizeof(T)>
-static int cpyFromleTp(T& __dest, const T& __src) {
+inline int cpyFromleTp(T& __dest, const T& __src) noexcept {
     if(Tscale <= 0 || Tscale > maxRegisterLen) {
         // -EINVAL
         return -22;
@@ -124,7 +123,7 @@ static int cpyFromleTp(T& __dest, const T& __src) {
 }
 
 template<typename T, unsigned char Tscale = sizeof(T)>
-static int cpy2leTp(T& __dest, const T& __src) {
+inline int cpy2leTp(T& __dest, const T& __src) noexcept {
     return cpyFromleTp(__dest, __src);
 }
 

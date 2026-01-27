@@ -45,6 +45,12 @@ public:
         @return 0 on success, else on failure
     */
     int init();
+
+    /*
+        @note initialize data services.
+        @return 0 on success, else on failure
+    */
+    int initDataSvc();
     
     /*
         read configuration from the file

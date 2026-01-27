@@ -291,7 +291,9 @@ public:
     uint32_t m_getCount;
 
 private:
-    
+    friend PageClrFn;
+    friend cacheStruct;
+
     /*
         @note free cache struct memory
     */
@@ -300,45 +302,38 @@ private:
         @note alloc cache struct memory
     */
     cacheStruct* alloccs();
-
-
     void freecbs(dpfs_engine_cb_struct* cbs);
     dpfs_engine_cb_struct* alloccbs();
-
-    // friend void page_get_cb(void* arg, const dpfs_compeletion* dcp);
     
-    // 8B
+
+    // 24B + 3B
+    std::vector<CSpin> m_zptrLock;
+    CSpin m_csmLock;
+    CSpin m_cbmLock;
+    bool m_exit;
+
+    // 8B (reference)
+    logrecord& m_log;
+
+    // 8B (reference)
     std::vector<dpfsEngine*>& m_engine_list;
 
-
-
-    // 8B
-    logrecord& m_log;
-    friend PageClrFn;
-    friend cacheStruct;
-
+    // 24B
     // map length to ptr, alloc by dpfsEngine::zmalloc length = (dpfs_lba_size * index)
-    // 24B + 24B
     std::vector<std::queue<void*>> m_zptrList;
-    std::vector<CSpin> m_zptrLock;
-
 
     // storage cacheStruct malloced by get and put
-    // 24B + 24B
+    // 80B + 80B
     std::queue<cacheStruct*> m_cacheStructMemList;
     // std::list<cacheStruct*> m_cacheStructMemList;
     std::queue<dpfs_engine_cb_struct*> m_cbMemList;
     // std::list<dpfs_engine_cb_struct*> m_cbMemList;
-    // 1B + 1B
-    CSpin m_csmLock;
-    CSpin m_cbmLock;
-    bool m_exit;
-    
+
+
     // 104B
     // search data by disk group id and disk block id, deconstruct first, or may cause crash(PageClrFn use some func of CPage)
+    // make sure m_cache is destructed first when destruct CPage
     CDpfsCache<bidx, cacheStruct*, PageClrFn> m_cache;
-
-
 
 };
 
@@ -352,4 +347,6 @@ private:
 //     sizeof(std::shared_mutex);
 //     sizeof(std::atomic<uint16_t>);
 //     sizeof(cacheStruct);
+//     sizeof(std::queue<cacheStruct*>);
+//     sizeof(std::vector<CSpin>);
 // }
