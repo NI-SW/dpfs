@@ -50,80 +50,126 @@ int main() {
 	// rc = engine->attach_device("trtype:pcie traddr:0000.1b.00.0");  engine->attach_device("trtype:pcie traddr:0000.13.00.0");
 	if(rc) {
 		cout << " attach device fail " << endl;
-		goto errReturn;
+        
 	}
 
 
 
 
 	
-	pge = new CPage(engList, 50000, testLog);
+	pge = new CPage(engList, 100, testLog);
 
 
 	cout << "engine size = " << engList[0]->size() << endl;
 
+    map<int64_t, int64_t> bidx;
+    /*
+    初始化
+    */
     dskman = new CDiskMan(pge);
-
-    tempstor = new CTempStorage(*pge, *dskman);
-
-
-    cout << "init complete" << endl;
-    
-
-    memset(data, 'A', dpfs_lba_size * 3);
-    rc = tempstor->pushBackData(data, 3);
-    if(rc) {
-        cout << "pushBackData error rc = " << rc << endl;
-        goto errReturn;
-    }
-    memset(data, 'B', dpfs_lba_size * 3);
-    rc = tempstor->pushBackData(data, 3);
-    if(rc) {
-        cout << "pushBackData error rc = " << rc << endl;
-        goto errReturn;
-    }
-
-    memset(data, 'C', dpfs_lba_size * 6);
-    rc = tempstor->updateData(2, data, 3);
-    if(rc < 0) {
-        cout << "updateData error rc = " << rc << endl;
-        goto errReturn;
-    }
-
-    memset(data, 0, dpfs_lba_size * 6);
-
-    tempstor->getData(0, data, 6);
-
-    cout << "data at pos 0: " << string(data, dpfs_lba_size * 3).substr(0, 20) << "..." << endl;
-    cout << "data at pos 2: " << string(data + dpfs_lba_size * 2, dpfs_lba_size * 3).substr(0, 20) << "..." << endl;
-    cout << "data at pos 3: " << string(data + dpfs_lba_size * 3, dpfs_lba_size * 3).substr(0, 20) << "..." << endl;
-    cout << "data at pos 5: " << string(data + dpfs_lba_size * 5, dpfs_lba_size * 1).substr(0, 20) << "..." << endl;
-    
-
-    delete tempstor;
+    dskman->init(0, 1048576);
+    dskman->print();
     delete dskman;
+
+    /*
+    新加一块磁盘
+    */
+    dskman = new CDiskMan(pge);
+    dskman->addBidx(0, 1048576);
+    dskman->init(1, 1048576);//新增一块磁盘
+    dskman->load();
+    
+    dskman->print();
+    delete dskman;
+
+    /*
+    普通重启加载
+    */
+    dskman = new CDiskMan(pge);
+    dskman->addBidx(0, 1048576);
+    dskman->load();
+    
+    dskman->print();
+    delete dskman;
+
+
+     /*
+    改变git=0的大小
+    */
+    dskman = new CDiskMan(pge);
+    dskman->addBidx(0, 1048576);
+    dskman->init(0, 2097152);
+    dskman->load();
+    
+    dskman->print();
+    delete dskman;
+
+    /*
+    分配    
+    */
+    dskman = new CDiskMan(pge);
+    dskman->addBidx(0, 1048576);
+    dskman->load();
+    {
+        size_t pos = dskman->balloc(8);
+        cout << "alloc pos=" << pos << ", len=" << 8 << endl;
+        bidx[pos] = 8;
+    }
+
+    dskman->print();
+
+    {
+        size_t pos = dskman->balloc(8);
+        cout << "alloc pos=" << pos << ", len=" << 8 << endl;
+        bidx[pos] = 8;
+    }
+
+    dskman->print();
+    delete dskman;
+
+    /*
+    随机分配释放10000次
+    */
+   
+    dskman = new CDiskMan(pge);
+    dskman->addBidx(0, 1048576);
+    dskman->load();
+    dskman->print();
+    for(int i = 0; i < 10000; i++) {
+        int isFree = random() % 2;
+        size_t len1 = (random() % 10);
+        size_t len2 = 1;
+        while(len1--)
+        {
+            len2 *= 2;
+        }
+        if(isFree == 0) {
+            size_t pos = dskman->balloc(len2);
+            cout << "alloc pos=" << pos << ", len=" << len2 << endl;
+            bidx[pos] = len2;
+        } else {    
+            isFree = random() % 2;
+            if(isFree != 0)
+            {
+                if(!bidx.empty()) {
+                    size_t pos =random() % bidx.size();
+                    auto it = bidx.begin();
+                    advance(it, (int)pos);
+                    dskman->bfree(it->first, it->second);
+                    cout << "free pos=" << it->first << ", len=" << it->second << endl;
+                    bidx.erase(it);
+                }
+            }
+        }
+        dskman->print();
+    }
+    delete dskman;
+
     delete pge;
     delete engine;
     delete[] data;
 
 	return 0;
 
-    errReturn:
-    if(tempstor) {
-        delete tempstor;
-    }
-    if(dskman) {
-        delete dskman;
-    }
-    if(pge) {
-        delete pge;
-    }
-    if(engine) {
-        delete engine;
-    }
-    if(data) {
-        delete[] data;
-    }
-    return -1;
 }
 

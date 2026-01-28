@@ -8,6 +8,7 @@ struct CbtHeader {
     std::vector<bidx> Cbtbid;
 	std::vector<bidx> LastCbttbid;
 	int64_t item = 0;
+	int64_t lastSize = 0;
 };
 
 class CbtItem {
@@ -39,23 +40,36 @@ private:
 
 class Cbt {
 public:
-	Cbt(){};
-	void Init();
+	Cbt(CPage* page){
+		m_page = page;
+	};
+	~Cbt(){Save();};
 	void Put(int64_t offset, int64_t size);
 	void OnlyPut(int64_t offset, int64_t size);
 	bool Save();
 	bool Load();
 	int64_t Get(int64_t size);
 	int64_t OnlyGet(int64_t size);
+	void Init(uint64_t gid, int64_t count);
+
 	void AddBidx(uint64_t gid, int64_t count);
 
 	int64_t bidxToOffset(bidx bid);
 	bidx offsetToBid(int64_t offset);
+
+	void Print() {
+		std::lock_guard<std::mutex> lock(m_mutex);
+		cout << "cbt count: " << m_header.item <<  "  cbt last_size: " << m_header.lastSize <<endl;
+		for (const auto& item : m_cbtVec) {
+			cout << "Offset: " << item.GetOffset() << ", Size: " << item.GetSize() << endl;
+		}
+
+		cout << endl;
+	}
 private:
 	void merge();
 	bool m_change; 
 	CbtHeader m_header;
-	int64_t m_cbtCount;
 	std::vector<CbtItem> m_cbtVec;
 	std::mutex m_mutex;
 	CPage* m_page;

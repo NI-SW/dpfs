@@ -19,11 +19,38 @@ void CbtItem::mergeWith(const CbtItem& other) noexcept {
 }
 
 void Cbt::AddBidx(uint64_t gid, int64_t count) {
-    m_gidOffset.emplace(m_gidOffset.rbegin()->first + count, gid);
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if(m_gidOffset.empty()){
+        m_header.lastSize = count;
+        m_gidOffset.emplace(0, gid);
+    }
+    else{
+        m_gidOffset.emplace(m_header.lastSize, gid);
+        m_header.lastSize += count;
+    }
+    Save();
 }
 
-void Cbt::Init() {
-    Load();
+void Cbt::Init(uint64_t gid, int64_t count) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if(m_gidOffset.empty()){
+        OnlyPut(1001, count - 1001);
+        m_header.lastSize = count;
+        m_gidOffset.emplace(0, gid);
+    }
+    else{
+        if(m_gidOffset.find(gid) != m_gidOffset.end() && m_gidOffset.size() == 1){
+            m_gidOffset[gid] = count;
+            OnlyPut(m_header.lastSize, count - m_header.lastSize);
+            m_header.lastSize = count;
+        }
+        else{
+            m_gidOffset.emplace(m_header.lastSize, gid);
+            OnlyPut(m_header.lastSize, count);
+            m_header.lastSize += count;
+        }
+    }
+    Save();
 }
 
 void Cbt::Put(int64_t offset, int64_t size)
@@ -31,26 +58,24 @@ void Cbt::Put(int64_t offset, int64_t size)
     std::lock_guard<std::mutex> lock(m_mutex);
     m_cbtVec.emplace_back(offset, size);
     m_change = true;
-    m_cbtCount++;
+    m_header.item++;
     Save();
 }
 
 void Cbt::OnlyPut(int64_t offset, int64_t size)
 {
-    std::lock_guard<std::mutex> lock(m_mutex);
     m_cbtVec.emplace_back(offset, size);
     m_change = true;
-    m_cbtCount++;
+    m_header.item++;
 }
 
 int64_t Cbt::OnlyGet(int64_t size) {
-    std::lock_guard<std::mutex> lock(m_mutex);
     for(auto it = m_cbtVec.begin(); it != m_cbtVec.end(); ++it) {
         if((*it).GetSize() >= size) {
             int64_t offset = (*it).GetOffset();
             if((*it).GetSize() == size) {
                 m_cbtVec.erase(it);
-                m_cbtCount--;
+                m_header.item--;
             }
             else {
                 (*it) = CbtItem(offset + size, (*it).GetSize() - size);
@@ -70,7 +95,7 @@ int64_t Cbt::Get(int64_t size) {
             int64_t offset = (*it).GetOffset();
             if((*it).GetSize() == size) {
                 m_cbtVec.erase(it);
-                m_cbtCount--;
+                m_header.item--;
             }
             else {
                 (*it) = CbtItem(offset + size, (*it).GetSize() - size);
@@ -102,7 +127,7 @@ void Cbt::merge() {
             ++it;
         }
     }
-    m_cbtCount = m_cbtVec.size();
+    m_header.item = m_cbtVec.size();
 }
 
 /*
@@ -150,7 +175,10 @@ bool Cbt::Save() {//写整个cbt到磁盘
     /*释放上上次的cbt块*/
     for(auto& it:m_header.LastCbttbid)
     {
-        OnlyPut(bidxToOffset(it),1);
+        if(it.bid != 1000 && it.gid != nodeId)
+        {
+            OnlyPut(bidxToOffset(it),1);
+        }
     }
     
     int pageCount = m_cbtVec.size() / ((4096 - sizeof(bidx)) / sizeof(CbtItem)) + 1;
@@ -172,7 +200,6 @@ bool Cbt::Save() {//写整个cbt到磁盘
     
     /*获取本次要写的整个cbt*/
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
         merge();
         cbtVec = m_cbtVec;
     }
@@ -181,14 +208,20 @@ bool Cbt::Save() {//写整个cbt到磁盘
     // 针对一个CBT可以只使用一个磁盘组号
     bidx testbid;
     // 磁盘组号
-    testbid.gid = nodeId;
+    if(!m_gidOffset.empty())
+    {
+        testbid.gid = m_gidOffset[0];
+    }else{
+        testbid.gid = nodeId;
+    }
     // 磁盘块号
-    testbid.bid = 0;
+    testbid.bid = 1000;
 
     m_header.Cbtbid.push_back(testbid);
     int cbtCount = cbtVec.size();    
     int cbtOffset = 0;
     vector<int> finish_indicator;
+    finish_indicator.reserve(pageCount+1);
     for(int i = 0; i < pageCount; i++) 
     {
         void* zptr = m_page->alloczptr(1 /* 块数量 1个块4096B*/);
@@ -214,7 +247,7 @@ bool Cbt::Save() {//写整个cbt到磁盘
     m_header.item = cbtCount;
     memcpy(zptr, &m_header.Cbtbid[0], sizeof(bidx));
     memcpy(static_cast<uint8_t*>(zptr) + sizeof(bidx), &m_header.item, sizeof(int64_t));
-
+    memcpy(static_cast<uint8_t*>(zptr) + sizeof(bidx) + sizeof(int64_t), &m_header.lastSize, sizeof(int64_t));
     finish_indicator.push_back(0);
     // write to disk
     int rc = m_page->put(testbid, zptr, &finish_indicator[finish_indicator.size() - 1], 1 /* 写入的块数量 */, true /* 立即写回磁盘 */);
@@ -222,12 +255,15 @@ bool Cbt::Save() {//写整个cbt到磁盘
         // 写入失败，处理错误
         return false;
     }
-    while(finish_indicator.size() != 0) {
+
+    bool success = false;
+    while(!success) {
+        success = true;
         for(auto it = finish_indicator.begin(); it != finish_indicator.end(); ++it) {
-            if(*it == 1)
+            if(*it == 0)
             {
-                finish_indicator.erase(it);
-                break;
+                success = false;
+                continue;
             }
             else if(*it == -1) {
                 // 写入错误，处理错误
@@ -239,13 +275,22 @@ bool Cbt::Save() {//写整个cbt到磁盘
     return true;
 }
 
+/**
+ * @brief 从磁盘加载CBT(Change Tracking Table)数据
+ * @return bool 加载成功返回true，失败返回false
+ */
 bool Cbt::Load() {
     //read
     bidx testbid;
     // 磁盘组号
-    testbid.gid = nodeId;
+    if(!m_gidOffset.empty())
+    {
+        testbid.gid = m_gidOffset[0];
+    }else{
+        testbid.gid = nodeId;
+    }
     // 磁盘块号
-    testbid.bid = 0;
+    testbid.bid = 1000;
 
     // 保存读取出来数据的结构，可以考虑写死在cbt里？
     // cacheStruct* m_pagePtr[cbtMaxBlocks];
@@ -278,6 +323,7 @@ bool Cbt::Load() {
     m_header.Cbtbid.emplace_back();
     m_header.Cbtbid[0] = *reinterpret_cast<const bidx*>(cachePtr);
     memcpy(&m_header.item, static_cast<uint8_t*>(cachePtr) + sizeof(bidx), sizeof(int64_t));
+    memcpy(&m_header.lastSize, static_cast<uint8_t*>(cachePtr) + sizeof(bidx) + sizeof(int64_t), sizeof(int64_t));
 
     ptr[0]->read_unlock();
 
@@ -286,10 +332,16 @@ bool Cbt::Load() {
 
     delete ptr;
 
+    if(m_header.lastSize == 0){
+        return true;
+    }
+
     int nowCbtPages = 0;
     int cbtOffset = 0;
     CbtItem item(0,0);
-    while(m_header.Cbtbid[nowCbtPages].gid != testbid.gid && m_header.Cbtbid[nowCbtPages].gid != testbid.bid && cbtOffset < m_header.item)
+    while((m_header.Cbtbid[nowCbtPages].gid != testbid.gid ||
+         m_header.Cbtbid[nowCbtPages].bid != testbid.bid) &&
+          cbtOffset < m_header.item)
     {
         auto ptr = new cacheStruct*[1];
 
@@ -325,6 +377,7 @@ bool Cbt::Load() {
             memcpy(&item, static_cast<uint8_t*>(cachePtr) + offset, sizeof(CbtItem));
             m_cbtVec.push_back(item);
             cbtOffset++;
+            offset += sizeof(CbtItem);
         }
 
         ptr[0]->read_unlock();
