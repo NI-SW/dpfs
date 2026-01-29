@@ -1,5 +1,24 @@
 DPFS
 Data Partitioned Foodtrace System
+
+spdk编译参数：
+./configure --with-fio=../fio --with-rdma --with-shared
+
+加载内核模块：
+modprobe nvme_fabrics
+modprobe nvme_tcp
+modprobe nvme_rdma
+modprobe nvmet
+modprobe nvmet_rdma
+modprobe rdma_rxe
+rdma link add rxe_0 type rxe netdev ens160
+
+ens160改成你的网卡名
+
+初始化SPDK环境：
+thirdparty/spdk/scripts/setup.sh
+
+
 需求：
 1、较低的成本
 2、较高的性能
@@ -59,4 +78,7 @@ yum install kernel-headers
 TODO:
 创建系统表，剩余user部分
 完善parser
+
+
+
 
