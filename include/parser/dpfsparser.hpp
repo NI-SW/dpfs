@@ -8,8 +8,9 @@
 #include <vector>
 #include <utility>
 #include <string>
+#include <dpfssys/dpfsdata.hpp>
 #include <collect/where.hpp>
-#include <collect/collect.hpp>
+#include <dpfssys/user.hpp>
 
 enum ParserOption : int {
     ParserOptionNone = 0,
@@ -52,7 +53,7 @@ struct ParserParam {
     // temp table to store the selected
     std::vector<CCollection*> collections;
     // CCollection* collection = nullptr;
-    std::vector<CWhere*> wheres;
+    // std::vector<CWhere*> wheres;
     void clear() {
         objType = ParserOptionNone;
         opType = ParserOperationIRP;
@@ -130,10 +131,13 @@ namespace yy {
     class CParser {
     public:
         
-        using byte = unsigned char;
+        // using byte = unsigned char;
         ::ParserParam m_parms;
         std::string message;
-        CParser();
+        const CUser& user;
+        CDatasvc* dataSvc = nullptr;
+
+        CParser(const CUser& user);
         /*
             @param sql: SQL string to parse
             @return 0 on success, else on failure
@@ -141,6 +145,19 @@ namespace yy {
         */
         int operator()(const std::string& sql);
 
+        /*
+            @note judge the condition between left and right cmpunit with cmp type ct
+            @return 0 on success, else on failure
+        */
+        int judge(const CmpUnit& left, dpfsCmpType ct, const CmpUnit& right);
+
+        /*
+            check user privilege for the given schema and object
+            @param schemaName: name of the schema
+            @param objName: name of the object
+            @return 0 on success, else on failure
+        */
+        int checkPrivilege(const std::string& schemaName, const std::string& objName, tbPrivilege requiredPrivilege);
     };
 
 

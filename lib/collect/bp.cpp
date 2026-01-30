@@ -1,5 +1,8 @@
 #include <collect/bp.hpp>
 
+constexpr size_t BIGROWLENTHRESHOLD =  1024 * 1024; // 1MB
+
+
 CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& treeHigh, bidx& root, bidx& begin, bidx& end, uint16_t okeyLen, uint32_t orowLen, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTypes)
     :   m_page(pge),
         m_diskman(cdm),
@@ -11,13 +14,31 @@ CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& tree
         cmpTyps(cmpTypes) {
 
 
+    // if table change is happend, should change the tree structure
     keyLen = okeyLen;
     m_rowLen = orowLen;
 
     maxkeyCount = ((m_pageSize * dpfs_lba_size - sizeof(NodeData::nd::hdr_t)) - sizeof(uint64_t)) / (keyLen + sizeof(uint64_t));
+    // if row len is toooooooooooo big, change order to smaller value max block = 256MB
+    if (m_rowLen > BIGROWLENTHRESHOLD * 8) {
+        if (maxkeyCount > 16) maxkeyCount = 16;
+    } else if (m_rowLen > BIGROWLENTHRESHOLD * 4) {
+        if (maxkeyCount > 32) maxkeyCount = 32;
+    } else if (m_rowLen > BIGROWLENTHRESHOLD * 2) {
+        if (maxkeyCount > 64) maxkeyCount = 64;
+    } else if (m_rowLen > BIGROWLENTHRESHOLD) {
+        if (maxkeyCount > 128) maxkeyCount = 128;
+    }
+
+
+    if (m_rowLen > MAXROWLEN) {
+        // should not happen
+        throw std::runtime_error("Row length exceeds maximum allowed size in BPlusTree constructor");
+    }
 
     // reserve 1 for split
     m_indexOrder = static_cast<size_t>(maxkeyCount) - 1;
+    m_rowOrder = m_indexOrder; // ((m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen)) - 1;
 
     // m_leafRowCount = (m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen);
     size_t rowLenInByte = m_indexOrder * (keyLen + m_rowLen) + sizeof(NodeData::nd::hdr_t);
@@ -25,7 +46,6 @@ CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& tree
     
     
     m_rowPageSize = static_cast<uint8_t>( rowLenInByte % dpfs_lba_size == 0 ? rowLenInByte / dpfs_lba_size : (rowLenInByte / dpfs_lba_size) + 1 );
-    m_rowOrder = m_indexOrder; // ((m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen)) - 1;
 
 #ifdef __BPDEBUG__
 
@@ -281,6 +301,63 @@ CBPlusTree::iterator CBPlusTree::search(const KEY_T& key) {
 return it;
 }
 
+// TODO :: TEST THIS FUNCTION
+int CBPlusTree::update(const KEY_T& key, const void* input, uint32_t len) {
+    CSpinGuard g(m_lock);
+    if (m_root.bid == 0) return -ENOENT;
+    bidx cur = m_root;
+    NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+    bool nextIsLeaf = high == 1 ? true : false;
+    int rc = 0;
+    while (true) {
+        rc = node.deInitNode();
+        if (rc != 0) return rc;
+        
+        rc = load_node(cur, node, nextIsLeaf);
+        if (rc != 0) return rc;
+
+        CTemplateReadGuard g(*node.pCache);
+        if (g.returnCode() != 0) {
+            return g.returnCode();
+        }
+
+        if (node.nodeData->hdr->leaf) {
+            int pos = node.keyVec->search(key);
+
+            KEY_T foundKey(cmpTyps);
+            rc = node.keyVec->at(pos, foundKey);
+            if (!(rc == 0 && key == foundKey)) {
+                return -ENOENT;
+            }
+            
+            uint8_t* rdata = nullptr;
+            uint32_t actualLen = 0;
+            // TODO :: check if primarykey is change?
+            rc = node.rowVec->reference_at(pos, rdata, &actualLen);
+            if (rc != 0) {
+                return rc;
+            }
+
+            if (len > actualLen) {
+                return -E2BIG;
+            }
+
+            std::memcpy(rdata, input, len);
+
+            return 0;
+        }
+
+        if (node.nodeData->hdr->childIsLeaf) {
+            nextIsLeaf = true;
+        }
+
+        size_t idx = child_index(node, key);
+        cur.bid = node.childVec->at(idx);
+    }
+
+    return 0;
+}
+
 int CBPlusTree::remove(const KEY_T& key) {
     CSpinGuard g(m_lock);
     if (m_root.bid == 0) return -ENOENT;
@@ -366,7 +443,7 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
     if (rc != 0) return rc;
 
     int32_t idxChild = child_index(node, key);
-    // TODO CREATE NEW NODE?
+
     if (idxChild == -ERANGE) {
         // key not found, no need to delete
         node.pCache->read_unlock();
@@ -760,7 +837,7 @@ void CBPlusTree::printTree() {
         std::cout << "B+ Tree is empty." << std::endl;
         return;
     }
-    std::cout << "B+ Tree Structure (Height: " << high << "):(Begin: " << m_begin.bid << ")" << std::endl;
+    std::cout << "B+ Tree Structure (Height: " << (uint32_t)high << "):(Begin: " << m_begin.bid << ")" << std::endl;
     printTreeRecursive(m_root, high == 1 ? true : false, high);
 
 }

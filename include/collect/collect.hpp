@@ -26,12 +26,13 @@ class KEY_T;
 constexpr size_t MAX_COL_NAME_LEN = 64;
 constexpr size_t MAX_NAME_LEN = 128;
 constexpr size_t MAX_COL_NUM = 128;
-constexpr size_t MAX_COLLECTION_INFO_LBA_SIZE = 4;
+constexpr size_t MAX_COLLECTION_INFO_LBA_SIZE = 8;
 // max index number for one collection
 constexpr size_t MAX_INDEX_NUM = 16;
 // indicate max index column number
 constexpr size_t MAX_INDEX_COL_NUM = 16;
-
+// very very very lang col length is prohibited
+constexpr size_t MAX_COL_LEN =  1 * 1024 * 1024; // 1MB
 /*
 COLCOUNT : 4B
 COL1 : |NAMELEN|COLTYPE|COLLEN|COLSCALE|COLNAME|
@@ -198,7 +199,7 @@ private:
 */
 class CValue {
 public:
-    CValue(){};
+    CValue() : data(nullptr) {};
     CValue(uint32_t sz) {
         data = (char*)malloc(sz);
         if(!data) {
@@ -240,13 +241,33 @@ public:
         other.maxLen = 0;
     }
 
-    CValue& operator=(const CValue& other) noexcept {
-        if (this != &other) {
-            len = other.len;
-            data = other.data;
-        }
-        return *this;
-    }
+    CValue& operator=(const CValue& other) noexcept = delete;
+    // CValue& operator=(const CValue& other) noexcept {
+    //     if (this != &other) {
+    //         if (!data) {
+    //             data = (char*)malloc(other.maxLen);
+    //             if(!data) {
+    //                 len = 0;
+    //                 maxLen = 0;
+    //                 return *this;
+    //             }
+    //             maxLen = other.maxLen;
+    //         } else if (maxLen < other.len) {
+    //             // reallocate memory
+    //             char* newData = (char*)realloc(data, other.maxLen);
+    //             if(!newData) {
+    //                 len = 0;
+    //                 maxLen = 0;
+    //                 return *this;
+    //             }
+    //             data = newData;
+    //             maxLen = other.maxLen;
+    //         }
+    //         len = other.len;
+    //         memcpy(data, other.data, other.len);
+    //     }
+    //     return *this;
+    // }
 
 
 
@@ -295,7 +316,7 @@ public:
 
 
     /*
-        @param pos: position of the col in one item list
+        @param pos: position of the col in one item list, begin with 0
         @return valid CValue on success, else failure
     */
     CValue getValue(size_t pos) const noexcept;
@@ -338,7 +359,7 @@ public:
         write commit log, and then write data, finally update the index
     */
     // int commit(bool writeBack = false);
-    
+private:
     /*
         @param cs: column info
         @return CItem pointer on success, else nullptr
@@ -354,7 +375,7 @@ public:
     */
     static CItem* newItems(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber) noexcept;
     static void delItem(CItem*& item) noexcept;
-
+public:
     /*
         @note switch to next row
         @return 0 on success, else on failure
@@ -502,9 +523,12 @@ private:
         @param cs column info
         @param value of row data
     */
+public:
     CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs);
+    CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber);
     CItem(const CItem& other) = delete;
     ~CItem();
+private:
     int dataCopy(size_t pos, const CValue& value) noexcept;
     int dataCopy(size_t pos, const void* ptr, size_t len) noexcept;
     size_t getDataOffset(size_t pos) const noexcept;
@@ -525,7 +549,7 @@ private:
     size_t validLen = 0;
     char* rowPtr = nullptr;
     std::vector<size_t> rowOffsets;
-    char data[];
+    char* data = nullptr;
 
     // CValue* values = nullptr;
 };
@@ -636,6 +660,7 @@ struct cmpType {
 
 struct CCollectIndexInfo {
 
+    // index bplustree root
     bidx indexRoot {0, 0};
     bidx indexBegin {0, 0};
     bidx indexEnd {0, 0};
@@ -645,14 +670,22 @@ struct CCollectIndexInfo {
     
     //0 or 1 or 2
     uint8_t idxColNum = 0;
-    // one for index, one for pk
+    uint32_t indexKeyLen = 0;
+    uint32_t indexRowLen = 0;
+    // the first key is primary key of the index, the second is primary key for collections
     CColumn indexCol[2];
     
-    // key sequence for multi column index
+    // key sequence for multi column index, for example keySequence[0] = 2 means the first column of the index is the 3rd column of the collection
     uint8_t keySequence[MAX_INDEX_COL_NUM] = {0};
-    // use CFixLenVec<cmpType, uint8_t, MAX_INDEX_COL_NUM> m_cmpTyps(cmpTypes, idxColNum); to init index tree
+    // use CFixLenVec<cmpType, uint8_t, MAX_INDEX_COL_NUM> m_cmpTyps(cmpTypes, cmpKeyColNum); to init index tree
+
+    // number of compare key types
     uint8_t cmpKeyColNum = 0;
+
+    // compare key types. [length, dataType]
     cmpType cmpTypes[MAX_INDEX_COL_NUM];
+
+    // name of the index
     char name[MAX_NAME_LEN];
 };
 
@@ -728,7 +761,17 @@ public:
         @return CItem pointer on success, else nullptr
         @note this key must be the primary key of the collection
     */
-    int getRow(KEY_T key, CItem* out) const noexcept;
+    int getRow(KEY_T key, CItem* out) const;
+
+    int searchByIndex(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CItem& out) const;
+
+    /*
+        @param colNames: column names to search
+        @param keyVals: key values to search
+        @param indexIter: b plus tree iterator to store the result
+        @return number of items found on success, else on failure
+    */
+    // int searchByIndex(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CBPlusTree::iterator& indexIter) const;
 
     /*
         @return total items in the collection
@@ -740,15 +783,16 @@ public:
         @param value: CValue reference to search
         @return number of items found on success, else on failure
     */
-    int searchItem(const std::vector<std::string>& colNames, CItem* out);// conditions
+    // int searchItem(const std::vector<std::string>& colNames, CItem* out);// conditions
 
     /*
+    TODO:: NOT IMPLEMENTED YET
         @param results: vector of CItem pointers to store the results
         @param number: number of items to get
         @return number of item on success, 0 on no more items, else on failure
         @note this function will get the result items from the collection
     */
-    int getResults(std::vector<CItem*>& results, size_t number);
+    // int getResults(std::vector<CItem*>& results, size_t number);
 
     /*
         @return 0 on success, else on failure
@@ -783,6 +827,12 @@ public:
     int loadFrom(const bidx& head);
 
     /*
+        @return 0 on success, else on failure
+        @note destroy the collection and free the resources
+    */
+    int destroy();
+
+    /*
         @param id: CCollection ID, used to identify the collection info
         @return 0 on success, else on failure
         @note initialize the collection with the given id
@@ -799,7 +849,7 @@ public:
         create a new index for the collection
         @return index id on success, else on failure
     */
-    int createIdx(const CIndexInitStruct& initStruct) noexcept;
+    int createIdx(const CIndexInitStruct& initStruct);
 
 private:
     /*
@@ -844,10 +894,13 @@ public:
 
             //above 1B
             // 16B
+            // b plus tree root 
             bidx m_dataRoot {0, 0};
             // 16B
+            // b plus tree leaf begin and end
             bidx m_dataBegin {0, 0};
             bidx m_dataEnd {0, 0};
+            CCollectIndexInfo m_indexInfos[MAX_INDEX_NUM];
             // ccid: CCollection ID, used to identify the collection info 4B
             uint32_t m_ccid = 0;
             union{
@@ -870,17 +923,17 @@ public:
                 uint16_t permByte = 0;
             } m_perms;
 
-            CCollectIndexInfo m_indexInfos[MAX_INDEX_NUM];
+            
             uint8_t m_indexSize = 0;
             // b plus tree high level
-
             uint8_t m_btreeHigh = 0;
+
+            CColumn m_colsData[MAX_COL_NUM];
             // default b plus tree index page size 4 * 4096 = 16KB
             uint8_t m_indexPageSize = 4;
-            // name of the collection
-            CColumn m_colsData[MAX_COL_NUM];
             uint8_t m_colSize = 0;
             uint8_t m_nameLen = 0;
+            // name of the collection
             char m_name[MAX_NAME_LEN];
         }* ds = nullptr;
         uint8_t* data = nullptr;
@@ -899,8 +952,8 @@ public:
     // columns in the collection
     // primary key position in the columns
     uint8_t m_pkPos = 0;
-    std::string message;
-    // first -> col len, second -> col type
+    mutable std::string message;
+    // first -> col len, second -> col type, use for key compare in b plus tree
     std::vector<std::pair<uint8_t, dpfs_datatype_t>> m_cmpTyps;
     uint16_t m_keyLen = 0;
     uint32_t m_rowLen = 0;
@@ -909,8 +962,13 @@ public:
     // b plus tree head pointer or head block of seq storage
 
     cacheStruct* m_cltInfoCache = nullptr;
+    bidx m_collectionBid {0, 0};
 
 };
 
 
-
+// inline void testsize() {
+//     sizeof(CCollectIndexInfo);
+//     sizeof(CColumn);
+//     sizeof(CCollection::collectionStruct::dataStruct_t);
+// }

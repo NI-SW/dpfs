@@ -3,15 +3,15 @@
 #include <parser/dpfsparser.hpp>
 
 class dpfsDriver {
-
-    dpfsDriver() = default;
+public:
+    dpfsDriver(CUser& usr);
     ~dpfsDriver();
 
     /*
-        @param query: query string to execute
+        @param sql: SQL string to execute
         @return 0 on success, else on failure
     */
-    int executeQuery(const std::string& query);
+    int execute(const std::string& sql);
 
     /*
         @note fetch next row

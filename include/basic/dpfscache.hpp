@@ -72,8 +72,8 @@ public:
             for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
 
                 #ifdef __DPCACHE_DEBUG__
-                cout << "Deleting cache idx: " << (*cacheIt).first.bid << " cache: " << (*cacheIt).second->cache->getPtr() << endl;
-                cout << "size = " << sz << endl;
+                // cout << "Deleting cache idx: " << (*cacheIt).first.bid << " cache: " << (*cacheIt).second->cache->getPtr() << endl;
+                // cout << "size = " << sz << endl;
                 #endif
 
                 if(sz <= 1) {

@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include <string>
+#include <basic/dpfscache.hpp>
+
 // privilege to db
 enum dbPrivilege : uint8_t {
     DBPRIVILEGE_NONE = 0,   // no privilege to any other objects
@@ -20,15 +22,46 @@ enum tbPrivilege : uint16_t {
 };
 
 // user login status
+// when connect, use key to find user record in USERAUTH table
 class CUser {
 public:
-    CUser() {};
-    ~CUser() {};
-    int32_t userid = 0;
+    CUser() : privilegeCache(100, &clrfunction) {};
+    ~CUser() {
+        
+    };
+    int32_t userid = 1000;
+    std::string username = "NULLID";
+    std::string currentSchema = "NULLID";
+    dbPrivilege dbprivilege = DBPRIVILEGE_NONE;
 
-    std::string username;
-    dbPrivilege dbprivilege;
+    /*
+        dbprivilege
+        tbprivilege
+        tempTable Pointer
+    */
+    struct cacheStruct {
+        uint32_t tid = 0;
+        // CCollection* collection = nullptr;
+        uint16_t privilege = 0;
+    };
 
-    
+    class clrfn {
+        public:
+        clrfn(void* arg = nullptr) {
+
+        }
+        ~clrfn() {}
+        void operator()(cacheStruct , int* finish_indicator = nullptr) { 
+            if (finish_indicator) *finish_indicator = 1;
+            return; 
+        }
+        void flush(const std::list<void*>& cacheList) {
+            return;
+        }
+    };
+
+    // table id - privilege number
+    clrfn clrfunction;
+    CDpfsCache<uint64_t, cacheStruct, clrfn> privilegeCache;
 
 };

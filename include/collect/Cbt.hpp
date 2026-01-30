@@ -40,7 +40,7 @@ private:
 
 class Cbt {
 public:
-	Cbt(CPage* page){
+	Cbt(CPage* page) {
 		m_page = page;
 	};
 	~Cbt(){Save();};

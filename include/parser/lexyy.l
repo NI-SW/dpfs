@@ -203,12 +203,12 @@ KEY { return yy::parser::make_PARS_KEY_TOKEN(); }
 SELECT { return yy::parser::make_PARS_SELECT_TOKEN(); }
 FROM { return yy::parser::make_PARS_FROM_TOKEN(); }
 WHERE { return yy::parser::make_PARS_WHERE_TOKEN(); }
-"="  { return yy::parser::make_EQ(); } 
-"!=" { return yy::parser::make_NE(); } 
-"<"  { return yy::parser::make_LT(); } 
-">"  { return yy::parser::make_GT(); } 
-"<=" { return yy::parser::make_LE(); } 
-">=" { return yy::parser::make_GE(); } 
+"="  { return yy::parser::make_EQ(DPFS_WHERE_EQ); } 
+"!=" { return yy::parser::make_NE(DPFS_WHERE_NE); } 
+"<"  { return yy::parser::make_LT(DPFS_WHERE_LT); } 
+">"  { return yy::parser::make_GT(DPFS_WHERE_GT); } 
+"<=" { return yy::parser::make_LE(DPFS_WHERE_LE); } 
+">=" { return yy::parser::make_GE(DPFS_WHERE_GE); } 
 
 
 ","        { return yy::parser::make_PARS_COMMA_TOKEN(); }

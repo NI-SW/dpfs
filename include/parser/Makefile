@@ -8,7 +8,7 @@ DPFS_ROOT_DIR := $(abspath $(CURDIR)/../..)
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 
-FLEXSRC := lexyy.cpp
+FLEXSRC := $(DPFS_ROOT_DIR)/lib/parser/lexyy.cpp
 BISONSRC := $(DPFS_ROOT_DIR)/lib/parser/parser.cpp 
 
 OBJS += parser.o lexyy.o

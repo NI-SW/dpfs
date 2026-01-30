@@ -22,7 +22,7 @@ extern const uint64_t tmpBlockLen;
 class CDiskMan {
 public:
     CDiskMan() = delete;
-    CDiskMan(CPage* pge) : m_page(pge) {};
+    CDiskMan(CPage* pge) : m_page(pge), m_cbt(pge){};
     ~CDiskMan() = default;
 
     /*
@@ -59,7 +59,27 @@ public:
         @return 0 on success, else on failure
         @note init a new disk or load disk space information from the engine
     */
-    int init();
+    int load()
+    {
+        m_cbt.Load();
+        return 0;
+    }
+
+    int init(uint64_t gid, int64_t count)
+    {
+        m_cbt.Init(gid, count);
+        return 0;
+    }
+
+     int addBidx(uint64_t gid, int64_t count)
+    {
+        m_cbt.AddBidx(gid, count);
+        return 0;
+    }
+
+    void print() {
+        m_cbt.Print();
+    }
     Cbt m_cbt;
     CPage* m_page;
 

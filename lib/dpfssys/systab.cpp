@@ -8,97 +8,91 @@ int CSysSchemas::init() {
     int rc = 0;
     bidx sysBidx = {nodeId, 16};
     bidx tmpbid = {nodeId, 20};
-    CItem* itm = nullptr;
+    CItem itm(systemboot.m_collectionStruct->m_cols, 16);
     char version[4] = {dpfsVersion[0] + 0x30, dpfsVersion[1] + 0x30, dpfsVersion[2] + 0x30, dpfsVersion[3] + 0x30};
 
     rc = initBootTab(sysBidx); if (rc != 0) { goto errReturn; }
 
-    itm = CItem::newItems(systemboot.m_collectionStruct->m_cols, 16);    if (itm == nullptr) { rc = -ENOMEM; goto errReturn; }
+    // itm = CItem::newItems(systemboot.m_collectionStruct->m_cols, 16);    if (itm == nullptr) { rc = -ENOMEM; goto errReturn; }
 
     // VERSION
-    rc = itm->updateValue(0, "VERSION", sizeof("VERSION"));              if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, version, sizeof(version));                  if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(0, "VERSION", sizeof("VERSION"));              if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, version, sizeof(version));                  if (rc < 0) { goto errReturn; }
 
 
     // CODESET      
-    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "CODESET", sizeof("CODESET"));              if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, "UTF-8", sizeof("UTF-8"));                  if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "CODESET", sizeof("CODESET"));              if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, "UTF-8", sizeof("UTF-8"));                  if (rc < 0) { goto errReturn; }
 
     // DPFS_NODE_ID
-    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));    if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, &nodeId, sizeof(nodeId));                   if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));    if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &nodeId, sizeof(nodeId));                   if (rc < 0) { goto errReturn; }
 
     // SYSTABLES ROOT BIDX
     tmpbid = {nodeId, 20};
     rc = initTableTab(tmpbid);                                           if (rc != 0) { goto errReturn; }
-    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "SYSTABLESRT", sizeof("SYSTABLESRT"));      if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "SYSTABLESRT", sizeof("SYSTABLESRT"));      if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
 
     // SYSCOLUMNS ROOT BIDX
     tmpbid = {nodeId, 24};
     rc = initColTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
-    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "SYSCOLUMNSRT", sizeof("SYSCOLUMNSRT"));    if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "SYSCOLUMNSRT", sizeof("SYSCOLUMNSRT"));    if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
     
     // SYSCONSTRAINTS ROOT BIDX
     tmpbid = {nodeId, 28};
     rc = initConTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
-    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "SYSCONSTRT", sizeof("SYSCONSTRT"));        if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "SYSCONSTRT", sizeof("SYSCONSTRT"));        if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
     
     // SYSINDEXES ROOT BIDX
     tmpbid = {nodeId, 32};
     rc = initIdxTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
-    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "SYSINDEXRT", sizeof("SYSINDEXRT"));        if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "SYSINDEXRT", sizeof("SYSINDEXRT"));        if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
 
     // SYSUSERS ROOT BIDX
     tmpbid = {nodeId, 36};
     rc = initUserTab(tmpbid);                                            if (rc != 0) { goto errReturn; }
-    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "SYSUSERSRT", sizeof("SYSUSERSRT"));        if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "SYSUSERSRT", sizeof("SYSUSERSRT"));        if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
 
     // SYSSCHEMAS ROOT BIDX
     tmpbid = {nodeId, 40};
     rc = initSchemaTab(tmpbid);                                          if (rc != 0) { goto errReturn; }
-    rc = itm->nextRow();                                                 if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "SYSSCHEMASRT", sizeof("SYSSCHEMASRT"));    if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "SYSSCHEMASRT", sizeof("SYSSCHEMASRT"));    if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
 
     // SYSAUTHS ROOT BIDX
     tmpbid = {nodeId, 44};
     rc = initAuthTab(tmpbid);                                           if (rc != 0) { goto errReturn; }
-    rc = itm->nextRow();                                                if (rc != 0) { goto errReturn; }
-    rc = itm->updateValue(0, "SYSAUTHRT", sizeof("SYSAUTHRT"));         if (rc < 0) { goto errReturn; }
-    rc = itm->updateValue(1, &tmpbid, sizeof(tmpbid));                  if (rc < 0) { goto errReturn; }
+    rc = itm.nextRow();                                                if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "SYSAUTHRT", sizeof("SYSAUTHRT"));         if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                  if (rc < 0) { goto errReturn; }
 
-    // itm->resetScan();
+    // itm.resetScan();
     // systemboot.addItem(*itm); if (rc < 0) { goto errReturn; }
 
     #ifdef __DPFSSYS_SYSTAB_DEBUG__
     cout << "System Boot Info Inserted:" << endl;
     #endif
-    rc = systemboot.addItem(*itm); if (rc != 0) { goto errReturn; }
+    rc = systemboot.addItem(itm); if (rc != 0) { goto errReturn; }
 
 
-    if(itm) {
-        CItem::delItem(itm);
-        itm = nullptr;
-    }
+
 
     return 0;
 errReturn:
-    if(itm) {
-        CItem::delItem(itm);
-        itm = nullptr;
-    }
+
     return rc;
 }
 

@@ -1,4 +1,7 @@
-﻿#include <collect/bp.hpp>
+﻿#pragma once
+
+
+#include <collect/bp.hpp>
 #include <collect/collect.hpp>
 enum dpfsCmpType {
     DPFS_WHERE_EQ = 0,
@@ -56,13 +59,6 @@ struct predictNode {
     CmpUnit left;
     CmpUnit right;
 
-    union {
-        std::string* strVal;
-        int64_t intVal;
-        double doubleVal;
-        
-    } leftData, rightData;
-
 };
 
 struct conditionNode {
@@ -84,52 +80,64 @@ public:
     conditionNode* left = nullptr;
     conditionNode* right = nullptr;
 
+    
 
 };
 
-class CWhere {
-public:
+// class CWhere {
+// public:
 
-    CWhere(const CCollection& clt) : m_clt(clt) {
+//     CWhere(const CCollection& clt) : m_clt(clt) {
 
-    }
+//     }
 
-    ~CWhere() {
+//     ~CWhere() {
 
-    }
+//     }
 
-    class condition {
-    public:
-        condition(const std::string& col, dpfsCmpType ct, const std::string& val) : columnName(col), cmpType(ct), value(val) {
-
-        }
+//     class condition {
+//     public:
+//         condition() {}
+//         ~condition() {}
         
-        condition(const condition& other) : columnName(other.columnName), value(other.value), cmpType(other.cmpType) {
+//         condition(const std::string& col, dpfsCmpType ct, const std::string& val) : columnName(col), cmpType(ct), value(val) {
 
-        }
-        condition(condition&& other) {
-            columnName.swap(other.columnName);
-            value.swap(other.value);
-        }
+//         }
+        
+//         condition(const condition& other) : columnName(other.columnName), value(other.value), cmpType(other.cmpType) {
 
-        condition& operator=(const condition& other) {
-            if (this != &other) {
-                columnName = other.columnName;
-                value = other.value;
-                cmpType = other.cmpType;
-            }
-            return *this;
-        }
+//         }
+//         condition(condition&& other) {
+//             columnName.swap(other.columnName);
+//             value.swap(other.value);
+//         }
 
+//         condition& operator=(const condition& other) {
+//             if (this != &other) {
+//                 columnName = other.columnName;
+//                 value = other.value;
+//                 cmpType = other.cmpType;
+//             }
+//             return *this;
+//         }
 
-    private:
-        std::string columnName;
-        std::string value;
-        dpfsCmpType cmpType;
+//         condition& operator=(condition&& other) {
+//             if (this != &other) {
+//                 columnName.swap(other.columnName);
+//                 value.swap(other.value);
+//                 cmpType = other.cmpType;
+//             }
+//             return *this;
+//         }
 
-    };
+//     private:
+//         std::string columnName;
+//         std::string value;
+//         dpfsCmpType cmpType;
 
-private:
-    const CCollection& m_clt;
-    std::vector<condition> conditions;
-};
+//     };
+
+// private:
+//     const CCollection& m_clt;
+//     std::vector<condition> conditions;
+// };

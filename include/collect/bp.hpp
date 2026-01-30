@@ -34,7 +34,7 @@ extern const char hex_chars[];
 // if key length exceed maxKeyLen, when search compare only first maxKeyLen bytes
 constexpr uint16_t maxSearchKeyLen = 1024; // 1024B
 constexpr uint32_t maxInrowLen = 32768; // 32KB
-
+constexpr size_t MAXROWLEN =  16 * 1024 * 1024; // 16MB 
 // constexpr uint8_t PAGESIZE = 4;
 // constexpr uint32_t ROWPAGESIZE = 32; 
 // constexpr int ROWLEN = 512; // default row length
@@ -572,6 +572,7 @@ public:
         @return 0 on success, else on failure
     */
     int update(const KEY_T& key, const void* input, uint32_t len);
+
     /*
         @param key: key to search
         @param out: output value
@@ -1383,7 +1384,48 @@ address         0 1 2 3 4 5 6 7 8
         return 0;
     }
 
-    
+    int destroy() {
+        if (m_root.bid == 0) {
+            return 0;
+        }
+        int rc = 0;
+        bool isLeaf = high == 1 ? true : false;
+        rc = destroy_recursive(m_root, isLeaf);
+        if (rc != 0) return rc;
+        m_root = {0, 0};
+        m_begin = {0, 0};
+        m_end = {0, 0};
+        high = 0;
+        return 0;
+    }
+
+    int destroy_recursive(const bidx& idx, bool isLeaf) {
+        NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+        int rc = load_node(idx, node, isLeaf);
+        if (rc != 0) return rc;
+
+        if (!node.nodeData->hdr->leaf) {
+            // internal node, need destroy child nodes first
+            for (uint32_t i = 0; i < node.childVec->size(); ++i) {
+                bidx childIdx{nodeId, node.childVec->at(i)};
+                rc = destroy_recursive(childIdx, node.nodeData->hdr->childIsLeaf);
+                if (rc != 0) return rc;
+            }
+        }
+
+        // free current node
+        rc = free_node(idx, isLeaf);
+        if (rc != 0)  { 
+            #ifdef __BPDEBUG__
+            cout << "Failed to free node gid: " << idx.gid << " bid: " << idx.bid << endl;
+            abort();
+            #endif
+            return rc;
+        }
+
+        node.pCache->release();
+        return 0;
+    }
 
     /*
         @param idx: node index to remove

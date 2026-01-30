@@ -1,20 +1,21 @@
-#include <collect/driver.hpp>
-#include <collect/bp.hpp>
-#include <parser/dpfsparser.hpp>
+#include <parser/driver.hpp>
 
+dpfsDriver::dpfsDriver(CUser& usr) : parser(usr) {
+
+};
 
 dpfsDriver::~dpfsDriver() {
 
 }
 
 /*
-    @param query: query string to execute
+    @param sql: SQL string to execute
     @return 0 on success, else on failure
 */
-int dpfsDriver::executeQuery(const std::string& query) {
+int dpfsDriver::execute(const std::string& sql) {
     int rc = 0;
     // create temp collection and get first iterator
-    rc = parser(query);
+    rc = parser(sql);
     if (rc != 0) {
         goto errReturn;
     }

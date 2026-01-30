@@ -106,7 +106,7 @@
 
 // where clause
 //     =  != <  >  <= >= 
-%token EQ NE LT GT LE GE  
+%token <dpfsCmpType> EQ NE LT GT LE GE  
 
 %left PARS_OR_TOKEN
 %left PARS_AND_TOKEN
@@ -140,6 +140,8 @@
 %type <uint8_t> primary_key_definition
 %type <uint8_t> col_constraint_definition
 %type <CmpUnit> cmpunit_clause
+
+%type <conditionNode> search_condition
 
 %%
 
@@ -399,21 +401,40 @@ cmpunit_clause:
         PARS_STR_TOKEN { $$ = std::move(CmpUnit(cmpUnitType::NODE_STRING, $1)); }
 ;
 
+// predicate_expression:
+//         cmpunit_clause EQ cmpunit_clause {  /* 处理 A =  B */           } | 
+//         cmpunit_clause NE cmpunit_clause {  /* 处理 A != B */           } |
+//         cmpunit_clause LT cmpunit_clause {  /* 处理 A <  B */           } |
+//         cmpunit_clause GT cmpunit_clause {  /* 处理 A >  B */           } |
+//         cmpunit_clause LE cmpunit_clause {  /* 处理 A <= B */           } |
+//         cmpunit_clause GE cmpunit_clause {  /* 处理 A >= B */           }
+// ;
 
 // AND操作优先级更高, todo:: 加载表，索引，列等元数据，进行类型检查等
 search_condition:
-        cmpunit_clause EQ cmpunit_clause { 
-                /* 处理 A = B */ 
-                // CmpUnit
-                
-
-        } | search_condition PARS_AND_TOKEN search_condition { 
+        // 返回满足条件的记录集
+        cmpunit_clause EQ cmpunit_clause {  /* 处理 A =  B 返回结果集 */  pars->judge($1, $2, $3); } | 
+        cmpunit_clause NE cmpunit_clause {  /* 处理 A != B 返回结果集 */           } |
+        cmpunit_clause LT cmpunit_clause {  /* 处理 A <  B 返回结果集 */           } |
+        cmpunit_clause GT cmpunit_clause {  /* 处理 A >  B 返回结果集 */           } |
+        cmpunit_clause LE cmpunit_clause {  /* 处理 A <= B 返回结果集 */           } |
+        cmpunit_clause GE cmpunit_clause {  /* 处理 A >= B 返回结果集 */           } |
+        /*
+                (A < 5)         AND     (A > 1)
+            -1 0 1 2 3 4                1 2 3 4 5 6 7
+            result : (2 3 4 )
+        */
+        search_condition PARS_AND_TOKEN search_condition { 
+                // 存在and条件，在$1的基础上继续添加条件$3，过滤结果集
                 // 遇到 A OR B AND C 时，因为 AND 优先级高，
                 // Bison 会选择将 B AND C 归约成一个整体，而不是先把 A OR B 归约。
                 std::cout << "归约 AND 表达式" << std::endl; 
 
         } | search_condition PARS_OR_TOKEN search_condition { 
+                // 存在or条件，上一个结果集的基础上，合并条件$1与$3，生成新的结果集
+                // example : A = 1 AND (B = 2 OR C = 3) => A = 1 AND B = 2  +  A = 1 AND C = 3
                 std::cout << "归约 OR 表达式" << std::endl;
+                // create new result set
 
         } | PARS_LEFT_BRACKET_TOKEN search_condition PARS_RIGHT_BRACKET_TOKEN { 
                 // $$ = $2; 
@@ -433,21 +454,28 @@ limit_clause:
         PARS_LIMIT_TOKEN PARS_NUMBER_TOKEN { ; }
 ;
 
+table_identifier:
+        PARS_ID_TOKEN { 
+                // search table, search from SYSTABLES if not found in current user's cache
+                pars->m_parms.schemaName = pars->user.currentSchema;
+                pars->m_parms.objName = $1; 
+                // check privilege
+                // pars->checkPrivilege(pars->m_parms.schemaName, pars->m_parms.objName);
+        } | PARS_ID_TOKEN PARS_DOT_TOKEN PARS_ID_TOKEN { 
+                pars->m_parms.schemaName = $1;
+                pars->m_parms.objName = $3;
+                // check privilege
+                // pars->checkPrivilege(pars->m_parms.schemaName, pars->m_parms.objName);
+        }
+;
+
 select_statement: 
-        PARS_SELECT_TOKEN select_list PARS_FROM_TOKEN PARS_ID_TOKEN where_clause limit_clause {
+        PARS_SELECT_TOKEN select_list PARS_FROM_TOKEN table_identifier where_clause limit_clause {
                 pars->m_parms.objType = ParserOptionData;
                 pars->m_parms.opType = ParserOperationQRY;
-                pars->m_parms.schemaName = "";
-                pars->m_parms.objName = $4;
-                YYACCEPT;
-        } |
-        PARS_SELECT_TOKEN select_list PARS_FROM_TOKEN PARS_ID_TOKEN PARS_DOT_TOKEN PARS_ID_TOKEN where_clause limit_clause {
-                pars->m_parms.objType = ParserOptionData;
-                pars->m_parms.opType = ParserOperationQRY;
-                pars->m_parms.schemaName = $4;
-                pars->m_parms.objName = $6;
                 YYACCEPT;
         }
+;
 
 %%
 

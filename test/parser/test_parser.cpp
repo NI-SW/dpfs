@@ -1,5 +1,9 @@
 #include <storage/engine.hpp>
-#include <parser/dpfsparser.hpp>
+
+#define private public
+#include <parser/driver.hpp>
+#undef private
+
 #include <unistd.h>
 #include <iostream>
 #include <log/logbinary.h>
@@ -24,8 +28,15 @@ int main(){
     CPage* page = new CPage(engines, 128, log);
     CDiskMan dman(page);
     CCollection coll(dman, *page);
+    CUser usr;
 
-    yy::CParser parser;
+    usr.userid = 0;
+    usr.username = "SYSTEM";
+    usr.dbprivilege = DBPRIVILEGE_FATAL;
+
+    // yy::CParser parser(usr);
+
+    dpfsDriver driver(usr);
 
     string testa;
     while(1) {
@@ -33,30 +44,31 @@ int main(){
         getline(cin, testa);
         // testa = "CREATE  /*  asd */ FUNCTION --asdlkqwe \n /*   asd qwr gf */  /**s klshf jdhg kjerg*/  /*********/ --asjhqweoioiuou --\n  \" \"\" test \"\"\".\"\"\"\"\"  A\"()";
         cout << "get : " << testa << endl;
-        if(parser(testa) == 0) {
-            printf("Schema Name: %s\n", parser.m_parms.schemaName.c_str());
-            printf("OBJ Name: %s\n", parser.m_parms.objName.c_str());
-            printf("Option: %d\n", parser.m_parms.objType);
+        rc = driver.execute(testa);
+        if(rc == 0) {
+            printf("Schema Name: %s\n", driver.parser.m_parms.schemaName.c_str());
+            printf("OBJ Name: %s\n", driver.parser.m_parms.objName.c_str());
+            printf("Option: %d\n", driver.parser.m_parms.objType);
         } else {
-            printf("Parse error: %s\n", parser.message.c_str());
+            printf("Parse error: %s\n", driver.parser.message.c_str());
         }
 
         
 
-        switch (parser.m_parms.objType)
+        switch (driver.parser.m_parms.objType)
         {
         case ParserOptionTable:
-            if(parser.m_parms.opType == ParserOperationIRP) {
+            if(driver.parser.m_parms.opType == ParserOperationIRP) {
                 CCollectionInitStruct initStruct;
                 initStruct.indexPageSize = 4;
-                initStruct.name = parser.m_parms.objName;
+                initStruct.name = driver.parser.m_parms.objName;
                 rc = coll.initialize(initStruct);
                 if (rc != 0) { 
                     cout << " load collection fail, rc=" << rc << endl;
                 }
 
                 printf("Create Table with cols:\n");
-                for(auto& col : parser.m_parms.cols) {
+                for(auto& col : driver.parser.m_parms.cols) {
                     printf("  Col Name: %s, Type: %d, Len: %u, Scale: %u, Constraint: %d\n", 
                         col.getName(), col.getType(), col.getLen(), col.getScale(), col.getDds().constraints.unionData);
                     coll.addCol(col.getName(), col.getType(), col.getLen(), col.getScale(), col.getDds().constraints.unionData);
@@ -69,10 +81,10 @@ int main(){
             }
             break;
         case ParserOptionIndex:
-            if(parser.m_parms.opType == ParserOperationIRP) {
-                printf("Create Index: %s on Table: %s\n", parser.m_parms.indexName.c_str(), parser.m_parms.objName.c_str());
+            if(driver.parser.m_parms.opType == ParserOperationIRP) {
+                printf("Create Index: %s on Table: %s\n", driver.parser.m_parms.indexName.c_str(), driver.parser.m_parms.objName.c_str());
                 printf("  Cols:\n");
-                for(auto& col : parser.m_parms.cols) {
+                for(auto& col : driver.parser.m_parms.cols) {
                     printf("    Col Name: %s, Type: %d, Len: %u, Scale: %u, Constraint: %d\n", 
                         col.getName(), col.getType(), col.getLen(), col.getScale(), col.getDds().constraints.unionData);
                 }
