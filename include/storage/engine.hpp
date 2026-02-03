@@ -7,6 +7,12 @@
 #include <functional>
 // 4KB
 constexpr size_t dpfs_lba_size = 4096; 
+// max permitted lba size for a single io submission
+constexpr size_t max_permitted_lba_size = 1024; // equal to 1024 * 4096 B; // 4MB
+// relate with max_io_size in config_nvmf.json if use nvmf
+constexpr size_t max_io_size = 131072; // 128KB
+
+constexpr size_t max_data_split_size = max_permitted_lba_size * dpfs_lba_size / max_io_size; // 4MB
 
 struct dpfs_compeletion {
     int return_code = 0;
@@ -56,6 +62,9 @@ public:
 
     // @param async: set asynchronous mode, if true, will use asynchronous I/O, else will use synchronous I/O
     virtual void set_async_mode(bool async) = 0;
+
+    // @param level: log level to set
+    virtual void set_loglevel(int level) = 0;
 
     // @return true if asynchronous mode is set, else false
     virtual bool async() const = 0;

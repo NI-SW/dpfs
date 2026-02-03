@@ -66,7 +66,7 @@ public:
 		}
 		~qpair_status() = default;
 
-		std::atomic<uint16_t> m_reqs = 0;
+		std::atomic<int16_t> m_reqs = 0;
 		volatile nvmfDevice::qpair_use_state state = QPAIR_NOT_INITED;
 		CSpin m_lock;
 	} ;
@@ -167,6 +167,7 @@ public:
  	virtual int detach_device(const std::string& devdesc_str) override;
 	virtual void cleanup() override;
     virtual void set_logdir(const std::string& log_path) override;
+    virtual void set_loglevel(int level) override;
     virtual int read(size_t lbaPos, void* pBuf, size_t len) override;
     virtual int write(size_t lbaPos, void* pBuf, size_t pBufLen) override;
 

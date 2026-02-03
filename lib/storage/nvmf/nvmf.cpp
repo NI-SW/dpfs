@@ -250,6 +250,10 @@ nvmfnsDesc::~nvmfnsDesc() {
 
 int submit_io(nvmfnsDesc* ns, void *buffer, uint64_t lba, uint32_t lba_count, spdk_nvme_cmd_cb cb_fn, void *cb_arg, uint32_t io_flags, int isRead) {
 	int rc = 0;
+	size_t ioCount = 0;
+	size_t ioBytes = dpfs_lba_size * lba_count / ns->lba_bundle;
+	ioCount = ioBytes % max_io_size == 0 ? (ioBytes / max_io_size) : (ioBytes / max_io_size + 1);
+	// ns->dev.nfhost.log.log_error("submit_io called lba: %llu lba_count: %u isRead: %d\n", lba, lba_count, isRead);
 	// std::chrono::microseconds usb;
 	// std::chrono::microseconds us;
 	if(ns->dev.ioqpairs[ns->dev.qpair_index].second.state != nvmfDevice::qpair_use_state::QPAIR_PREPARE) {
@@ -279,23 +283,28 @@ int submit_io(nvmfnsDesc* ns, void *buffer, uint64_t lba, uint32_t lba_count, sp
 		goto errReturn;
 	}
 
+	// relate with max_io_size in config_nvmf.json
+	// ns->dev.nfhost.log.log_error("ioCount = %zu\n", ioCount);
+
+	ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs += ioCount;
 	if(isRead) {
 		rc = spdk_nvme_ns_cmd_read(ns->ns, ns->dev.ioqpairs[ns->dev.qpair_index].first, buffer, lba, lba_count, cb_fn, cb_arg, io_flags);
 	} else {
 		rc = spdk_nvme_ns_cmd_write(ns->ns, ns->dev.ioqpairs[ns->dev.qpair_index].first, buffer, lba, lba_count, cb_fn, cb_arg, io_flags);
 	}
 	if(rc) {
+		ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs -= ioCount;
 		ns->dev.ioqpairs[ns->dev.qpair_index].second.m_lock.unlock();
 		ns->dev.qpLock.unlock();
 		goto errReturn;
 	}
-	++ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs;
+	
 	// usb = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
 	// us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
 	// ns->dev.nfhost.log.log_debug("wakeup io : bef %llu us aft %llu us qpair index %d reqs %u\n", usb.count(), us.count(), ns->dev.qpair_index, ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs.load());	
 
 	
-	if(ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs >= max_qpair_io_queue) {
+	if(ns->dev.ioqpairs[ns->dev.qpair_index].second.m_reqs + max_data_split_size >= max_qpair_io_queue) {
 
 		size_t exchange_qpair_index = ns->dev.qpair_index;
 		ns->dev.ioqpairs[ns->dev.qpair_index].second.state = nvmfDevice::qpair_use_state::QPAIR_WAIT_COMPLETE;
@@ -373,6 +382,7 @@ static void async_compelete(void *arg, const struct spdk_nvme_cpl *completion) {
 	// 	cbs->m_acb(cbs->m_arg, &dcp);
 	// 	return;
 	// }
+	
 	cbs->m_cb(cbs->m_arg, &dcp);
 	return;
 }
@@ -423,7 +433,7 @@ static void device_guard(void* arg) {
 		current_qpair_index = 0;
 		while(dev->attached) {
 
-			std::atomic<uint16_t>& m_reqs = dev->ioqpairs[current_qpair_index].second.m_reqs;
+			std::atomic<int16_t>& m_reqs = dev->ioqpairs[current_qpair_index].second.m_reqs;
 			volatile nvmfDevice::qpair_use_state& qp_state = dev->ioqpairs[current_qpair_index].second.state;
 			CSpin& qp_lock = dev->ioqpairs[current_qpair_index].second.m_lock;
 			spdk_nvme_qpair*& qpair = dev->ioqpairs[current_qpair_index].first;
@@ -464,6 +474,10 @@ static void device_guard(void* arg) {
 				
 				// std::chrono::microseconds ms = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
 				// lock for qpair use
+				// std::this_thread::sleep_for(std::chrono::milliseconds(50));
+				
+
+				// QUESTION :: large memory copy may cause miss callback function execution?
 				qp_lock.lock();
 				rc = spdk_nvme_qpair_process_completions(qpair, 0);
 				qp_lock.unlock();
@@ -474,6 +488,8 @@ static void device_guard(void* arg) {
 					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, use time: %llu us, qpStatus: %u\n", dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, diff.count(), qp_state);
 					// std::chrono::microseconds us_now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
 					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, time: %llu us, qpStatus: %u\n", dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, us_now.count(), qp_state);
+					dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, qpStatus: %u\n", 
+						dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, qp_state);
 					m_reqs -= rc;
 				} else if(rc == 0) {
 
@@ -628,12 +644,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		nvmfnsDesc* subns;
 		subns = nsfield[nsPos + 1];
 		subns->sequence->is_completed = false;
-
-		// rc = checkReqs(2, max_qpair_io_queue);
-		// if(rc) {
-		// 	nfhost.log.log_error("Failed to read from ns %zu, rc: %d\n", nsPos + 1, rc);
-		// 	goto errReturn;
-		// }
 		
 		rc = subns->read(lba_next_ns, next_start_pbuf, pBuf_next_lbc);
 		if(rc != 0) {
@@ -644,12 +654,9 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 
 		rc = ns->read(lba_device, pBuf, lbc);
 		if(rc != 0) {
-			// m_reqs += 1;
 			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 			goto errReturn;
 		}
-
-		// m_reqs += 2;
 
 		if(!nfhost.async_mode) {
 			// wait for completion
@@ -668,18 +675,12 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc) {
 		return 2;
 	}
 
-	// rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
-	// if(rc) {
-	// 	nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
-	// 	goto errReturn;
-	// }
-
 	rc = ns->read(lba_device, pBuf, lbc);
 	if(rc != 0) {
 		nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 		return rc;
 	}
-	// m_reqs += 1;
+
 	if(!nfhost.async_mode) {
 		// wait for completion
 		while(!ns->sequence->is_completed) {
@@ -733,12 +734,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 		nvmfnsDesc* subns;
 		subns = nsfield[nsPos + 1];
 		subns->sequence->is_completed = false;
-		
-		// rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
-		// if(rc) {
-		// 	nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
-		// 	goto errReturn;
-		// }
 
 		rc = subns->write(lba_next_ns, next_start_pbuf, pBuf_next_lbc);
 		if(rc != 0) {
@@ -749,12 +744,9 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 
 		rc = ns->write(lba_device, pBuf, lbc);
 		if(rc != 0) {
-			// m_reqs += 1;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 			goto errReturn;
 		}
-
-		// m_reqs += 2;
 
 		if(!nfhost.async_mode) {
 			// wait for completion
@@ -773,19 +765,12 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc) {
 		return 2;
 	}
 
-	// rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
-	// if(rc) {
-	// 	m_reqs -= 1;
-	// 	nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
-	// 	goto errReturn;
-	// }
-
 	rc = ns->write(lba_device, pBuf, lbc);
 	if(rc != 0) {
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 		goto errReturn;
 	}
-	// m_reqs += 1;
+
 	if(!nfhost.async_mode) {
 		// wait for completion
 		while(!ns->sequence->is_completed) {
@@ -844,12 +829,6 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_str
 		nvmfnsDesc* subns;
 		subns = nsfield[nsPos + 1];
 
-		// rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
-		// if(rc) {
-		// 	nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
-		// 	goto errReturn;
-		// }
-
 		rc = subns->read(lba_next_ns, next_start_pbuf, pBuf_next_lbc, arg);
 		if(rc != 0) {
 			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos + 1, rc);
@@ -858,26 +837,19 @@ int nvmfDevice::read(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_str
 
 		rc = ns->read(lba_device, pBuf, lbc, arg);
 		if(rc != 0) {
-			// m_reqs += 1;
 			nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 			goto errReturn;
 		}
-		// m_reqs += 2;
+
 		return 2;
 	}
-
-	// rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
-	// if(rc) {
-	// 	nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
-	// 	goto errReturn;
-	// }
 
 	rc = ns->read(lba_device, pBuf, lbc, arg);
 	if(rc != 0) {
 		nfhost.log.log_error("Failed to read from device %zu, rc: %d\n", nsPos, rc);
 		return rc;
 	}
-	// m_reqs += 1;
+
 
 	return 1;
 
@@ -928,12 +900,6 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_st
 		nvmfnsDesc* subns;
 		subns = nsfield[nsPos + 1];
 
-		// rc = checkReqs(m_reqs, 2, max_qpair_io_queue);
-		// if(rc) {
-		// 	nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
-		// 	goto errReturn;
-		// }
-
 		rc = subns->write(lba_next_ns, next_start_pbuf, pBuf_next_lbc, arg);
 		if(rc != 0) {
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos + 1, rc);
@@ -942,26 +908,18 @@ int nvmfDevice::write(size_t lba_host, void* pBuf, size_t lbc, dpfs_engine_cb_st
 
 		rc = ns->write(lba_device, pBuf, lbc, arg);
 		if(rc != 0) {
-			// m_reqs += 1;
 			nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 			goto errReturn;
 		}
-		// m_reqs += 2;
+
 		return 2;
 	}
-
-	// rc = checkReqs(m_reqs, 1, max_qpair_io_queue);
-	// if(rc) {
-	// 	nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
-	// 	goto errReturn;
-	// }
 
 	rc = ns->write(lba_device, pBuf, lbc, arg);
 	if(rc != 0) {
 		nfhost.log.log_error("Failed to write to ns %zu, rc: %d\n", nsPos, rc);
 		goto errReturn;
 	}
-	// m_reqs += 1;
 
 	return 1;
 errReturn:
@@ -1257,6 +1215,17 @@ void CNvmfhost::set_logdir(const std::string& log_path) {
 	// log.set_log_path(log_path + "nvmfhost_" + trtypeCvt(devices[0]->trid->trtype) + "_" + devices[0]->trid->traddr + ".log");
 }
 
+// LOG_BINARY,
+// LOG_FATAL,
+// LOG_ERROR,
+// LOG_NOTIC,
+// LOG_INFO,
+// LOG_DEBUG,
+
+void CNvmfhost::set_loglevel(int level) {
+	log.set_loglevel(logrecord::loglevel(level));
+}
+
 void CNvmfhost::set_async_mode(bool async) {
 	async_mode = async;
 }
@@ -1397,6 +1366,10 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) {
 
 	int rc = 0;
 	int req_count = 0;
+	if(lbc > max_data_split_size) {
+		log.log_error("IO size %zu exceeds max split size %zu\n", lbc, max_data_split_size);
+		return -E2BIG;
+	}
 #ifdef DPFS_IO_CHECK
 	log.log_debug("host: Reading from LBA %zu\n", lba);
 	if(lba + lbc > block_count) {
@@ -1449,6 +1422,10 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) {
 int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc) {
 	int rc = 0;
 	int req_count = 0;
+	if(lbc > max_data_split_size) {
+		log.log_error("IO size %zu exceeds max split size %zu\n", lbc, max_data_split_size);
+		return -E2BIG;
+	}
 #ifdef DPFS_IO_CHECK
 	log.log_debug("host: Writing to LBA %zu, buffer size %zu\n", lba, lbc * dpfs_lba_size);
 
@@ -1501,6 +1478,10 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc, dpfs_engine_cb_struct* a
 
 	int rc = 0;
 	int req_count = 0;
+	if(lbc > max_data_split_size) {
+		log.log_error("IO size %zu exceeds max split size %zu\n", lbc, max_data_split_size);
+		return -E2BIG;
+	}
 #ifdef DPFS_IO_CHECK
 	log.log_debug("host: Reading from LBA %zu\n", lba);
 	if(lba + lbc > block_count) {
@@ -1553,6 +1534,10 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc, dpfs_engine_cb_struct* a
 int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) {
 	int rc = 0;
 	int req_count = 0;
+	if(lbc > max_data_split_size) {
+		log.log_error("IO size %zu exceeds max split size %zu\n", lbc, max_data_split_size);
+		return -E2BIG;
+	}
 #ifdef DPFS_IO_CHECK
 	log.log_debug("host: Writing to LBA %zu, buffer size %zu\n", lba, lbc * dpfs_lba_size);
 
