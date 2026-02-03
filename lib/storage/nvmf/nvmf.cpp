@@ -13,12 +13,8 @@
 #include <mutex>
 #include <thread>
 #include <stdexcept>
+#include <log/loglocate.h>
 
-#define log_inf(fmt, ...) log_inf("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
-#define log_notic(fmt, ...) log_notic("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
-#define log_error(fmt, ...) log_error("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
-#define log_fatal(fmt, ...) log_fatal("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
-#define log_debug(fmt, ...) log_debug("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
 
 #define DPFS_IO_CHECK
 
@@ -1366,7 +1362,7 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) {
 
 	int rc = 0;
 	int req_count = 0;
-	if(lbc > max_data_split_size) {
+	if(lbc > max_permitted_lba_size) {
 		log.log_error("IO size %zu exceeds max split size %zu\n", lbc, max_data_split_size);
 		return -E2BIG;
 	}
@@ -1422,7 +1418,7 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc) {
 int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc) {
 	int rc = 0;
 	int req_count = 0;
-	if(lbc > max_data_split_size) {
+	if(lbc > max_permitted_lba_size) {
 		log.log_error("IO size %zu exceeds max split size %zu\n", lbc, max_data_split_size);
 		return -E2BIG;
 	}
@@ -1478,7 +1474,7 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc, dpfs_engine_cb_struct* a
 
 	int rc = 0;
 	int req_count = 0;
-	if(lbc > max_data_split_size) {
+	if(lbc > max_permitted_lba_size) {
 		log.log_error("IO size %zu exceeds max split size %zu\n", lbc, max_data_split_size);
 		return -E2BIG;
 	}
@@ -1534,7 +1530,7 @@ int CNvmfhost::read(size_t lba, void* pBuf, size_t lbc, dpfs_engine_cb_struct* a
 int CNvmfhost::write(size_t lba, void* pBuf, size_t lbc, dpfs_engine_cb_struct* arg) {
 	int rc = 0;
 	int req_count = 0;
-	if(lbc > max_data_split_size) {
+	if(lbc > max_permitted_lba_size) {
 		log.log_error("IO size %zu exceeds max split size %zu\n", lbc, max_data_split_size);
 		return -E2BIG;
 	}
