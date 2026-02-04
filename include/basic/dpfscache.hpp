@@ -189,6 +189,30 @@ public:
         return 0;
     }
 
+    int popBackCache() {
+        
+        if (m_cachesList.empty()) {
+            return -ENOENT;
+        }
+        
+        m_lock.lock();
+        if (m_cachesList.empty()) {
+            m_lock.unlock();
+            return -ENOENT;
+        }
+        // reuse the mem
+        cacheIter* it = reinterpret_cast<cacheIter*>(m_cachesList.back());
+        // erase cache in map, and pop up the oldest unused cache
+        m_cacheMap.erase(it->idx);
+        m_cachesList.pop_back();
+        m_lock.unlock();
+        
+        clrfunc(it->cache);
+        delete it;
+
+        return 0;
+    }
+
     /*
         @param idx index of the cache
         @param cache cache to insert
