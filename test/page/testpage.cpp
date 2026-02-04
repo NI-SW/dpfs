@@ -1,6 +1,8 @@
 #include <storage/engine.hpp>
 #include <storage/nvmf/nvmf.hpp>
+#define private public
 #include <collect/page.hpp>
+#undef private
 #include <cstring>
 #include <thread>
 #include <unistd.h>
@@ -31,6 +33,8 @@ int main() {
 		return -1;
 	}
 
+	
+
 	vector<dpfsEngine*> engList;
 	engList.emplace_back(engine);
 	logrecord testLog;
@@ -40,6 +44,7 @@ int main() {
 	// CNvmfhost* nfe = dynamic_cast<CNvmfhost*>(engine);
 	// nfe->log.set_loglevel(logrecord::LOG_DEBUG);
 	testLog.set_loglevel(logrecord::LOG_DEBUG);
+	// engine->set_loglevel(logrecord::LOG_DEBUG);
 
 	// rc = engine->attach_device("trtype:tcp adrfam:IPv4 traddr:192.168.34.12 trsvcid:50659 subnqn:nqn.2016-06.io.spdk:cnode1");
 	rc = engine->attach_device("trtype:rdma adrfam:IPv4 traddr:192.168.34.12 trsvcid:50658 subnqn:nqn.2016-06.io.spdk:cnode1");
@@ -168,6 +173,7 @@ int main() {
 			testLog.log_inf("block %llu len: %u data: %s\n", i, ptr[j]->getLen(), myptr);
 			ptr[j]->read_unlock();
 
+			cout << "block " << i << " data (first 512 bytes): " << endl;
 			printMemory(myptr, 512);
 			cout << endl;
 			// for(int j = 0; j < 512; ++j) {
@@ -188,6 +194,8 @@ int main() {
 		}
 		chrono::milliseconds ns3 = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock().now().time_since_epoch());
 		testLog.log_inf("total get finish time : %llu\n", (ns3 - ns).count());
+
+		cout << " current page size : " << pge->m_currentSizeInByte.load() << endl;
 
 		delete[] ptr;
 		ptr = nullptr;
