@@ -72,7 +72,11 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
     if(idx.gid >= m_engine_list.size()) {
         return -ERANGE;
     }
-    cptr = nullptr;
+
+    if (cptr) {
+        cptr->release();
+        cptr = nullptr;
+    }
 
     int rc = 0;
 
@@ -693,127 +697,64 @@ errReturn:
 }
 
 PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
+    m_exit = false;
+    clfThd = std::thread([this]() {
+
+        std::mutex pclck;
+	    std::unique_lock<std::mutex> lk(pclck);
+
+        std::queue<pageClrSt> localQueue;
+
+        while(!m_exit) {
+            m_convar.wait_for(lk, std::chrono::seconds(1));
+            if (m_flushQueue.empty()) {
+                continue;
+            }
+
+            m_queueMutex.lock();
+            localQueue.swap(m_flushQueue);
+            m_queueMutex.unlock();
+
+            while(!localQueue.empty()) {
+                auto cacheItem = localQueue.front();
+                localQueue.pop();
+                clearCache(cacheItem.pCache, cacheItem.finish_indicator);
+            }
+        }
+
+    });
+
+}
+
+PageClrFn::~PageClrFn() {
+
+    m_exit = true;
+    if (clfThd.joinable()) {
+        clfThd.join();
+    }
 
 }
 
 // write back only
 void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
-    if(p->idx.gid != nodeId) {
-        // write is only allowed on gid 0
+    if (!p) {
+        if (finish_indicator) {
+            *finish_indicator = 1;
+        }
+        return;
+    }
+    if (p->idx.gid != nodeId) {
+        // write is only allowed on nodeId
         p->release();
         return;
     }
-    // TODO :: maybe use multi thread to write back, to avoid lock conflict
-
-    int rc = 0;
-    // find disk group by gid, find block on disk by bid, write p, block number = blkNum
-    // p->p must by alloc by engine_list->zmalloc
-
-    void* zptr = p->zptr;
-    this->cp->m_currentSizeInByte -= p->len * dpfs_lba_size;
-
-    // some problem, need to considerate call back method
-    if(p->dirty || finish_indicator != nullptr) {
-
-        dpfs_engine_cb_struct* cbs = this->cp->alloccbs();
-        if(!cbs) {
-            cp->m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory, write back fail!, gid: %llu, bid: %llu\n", p->idx.gid, p->idx.bid);
-            return;
-        }
-
-        cbs->m_arg = this;
-        // call back function for disk write
-        cbs->m_cb = [&p, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
-
-            if(p->getStatus() == cacheStruct::INVALID || p->getStatus() == cacheStruct::ERROR) {
-                // already invalid, just return
-                if(finish_indicator) {
-                    *finish_indicator = 1;
-                }
-                p->release();
-                reinterpret_cast<PageClrFn*>(arg)->cp->freecbs(cbs);
-                return;
-            }
-
-            PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
-
-            #ifdef __PGDEBUG__
-            cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
-            #endif
-            
-            if(dcp->return_code) {
-                pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
-                // write error
-                // TODO process error
-                if(finish_indicator) {
-                    *finish_indicator = -1;
-                }
-                // p->status = cacheStruct::ERROR;
-                p->release();
-                pcf->cp->freecbs(cbs);
-                return;
-            }
-            // after write back, the cache is invalid
-            p->status = cacheStruct::INVALID;
-            if(finish_indicator) {
-                *finish_indicator = 1;
-            }
-            p->release();
-            pcf->cp->freecbs(cbs);
-        };
-        
-        // change status to writing
-        rc = p->lock();
-        if(rc) {
-            // TODO process error
-            cp->m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
-            // to indicate error
-            if(!finish_indicator) {
-                // TODO
-                p->release();
-                return;
-            }
-
-            zptr = this->cp->alloczptr(1);
-            if(!zptr) {
-                cp->m_log.log_error("can't malloc small block for error indication, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
-                p->release();
-                return;
-            }
-
-            // write to 0 to refresh the indicator
-            rc = cp->m_engine_list[p->idx.gid]->write(0, zptr, 1, cbs);
-            if(rc < 0) {
-                cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
-                p->release();
-            }
-            return;
-        }
-        p->status = cacheStruct::WRITING;
-        p->unlock();
-
-        // if write is successfully called, the unlock and release will be in callback function
-        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
-        if(rc < 0) {
-            cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
-            // write error
-            // !-!QUESTION!-!
-            // TODO
-            p->release();
-            return;
-        }
-
-    } else {
-        p->release();
-    }
-
-done:
     
-    return;
+    // send cache to flush queue
+    m_queueMutex.lock();
+    m_flushQueue.emplace(p, finish_indicator);
+    m_queueMutex.unlock();
 
-errReturn:
-
-    return;
+    m_convar.notify_one();
 
 }
 
@@ -886,6 +827,169 @@ void PageClrFn::flush(const std::list<void*>& cacheList) {
     while(p->status == cacheStruct::WRITING) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+
+    return;
+}
+
+void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
+    if (!p) {
+        if (finish_indicator) {
+            *finish_indicator = 1;
+        }
+        return;
+    }
+    if (p->idx.gid != nodeId) {
+        // write is only allowed on gid 0
+        p->release();
+        return;
+    }
+    // TODO :: maybe use multi thread to write back, to avoid lock conflict
+
+    int rc = 0;
+    // find disk group by gid, find block on disk by bid, write p, block number = blkNum
+    // p->p must by alloc by engine_list->zmalloc
+
+    void* zptr = p->zptr;
+
+    // alloc call back function struct
+    dpfs_engine_cb_struct* cbs = this->cp->alloccbs();
+    if(!cbs) {
+        cp->m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory, write back fail!, gid: %llu, bid: %llu\n", p->idx.gid, p->idx.bid);
+        return;
+    }
+
+    cbs->m_arg = this;
+    // call back function for disk write
+    cbs->m_cb = [&p, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
+
+        if(p->getStatus() == cacheStruct::INVALID || p->getStatus() == cacheStruct::ERROR) {
+            // already invalid, just return
+            if(finish_indicator) {
+                *finish_indicator = 1;
+            }
+            p->release();
+            reinterpret_cast<PageClrFn*>(arg)->cp->freecbs(cbs);
+            return;
+        }
+
+        PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
+
+        #ifdef __PGDEBUG__
+        cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
+        #endif
+        
+        if(dcp->return_code) {
+            pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
+            // write error
+            // TODO process error
+            if(finish_indicator) {
+                *finish_indicator = -1;
+            }
+            // p->status = cacheStruct::ERROR;
+            p->release();
+            pcf->cp->freecbs(cbs);
+            return;
+        }
+        // after write back, the cache should be invalid
+        p->status = cacheStruct::INVALID;
+        if(finish_indicator) {
+            *finish_indicator = 1;
+        }
+        p->release();
+        pcf->cp->freecbs(cbs);
+    };
+        
+
+    // lock the cache
+    CTemplateGuard g(*p);
+    if (g.returnCode() != 0) {
+        // if lock fail
+        // TODO process error
+        cp->m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+        // to indicate error
+        if(!finish_indicator) {
+            // TODO
+            p->release();
+            return;
+        }
+
+        zptr = this->cp->alloczptr(1);
+        if(!zptr) {
+            cp->m_log.log_error("can't malloc small block for error indication, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+            p->release();
+            return;
+        }
+
+
+        dpfs_engine_cb_struct* cbs = this->cp->alloccbs();
+        if(!cbs) {
+            cp->m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory, write back fail!, gid: %llu, bid: %llu\n", p->idx.gid, p->idx.bid);
+            return;
+        }
+
+        cbs->m_arg = this;
+        // call back function for disk write
+        cbs->m_cb = [cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
+
+            PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
+            
+            if(dcp->return_code) {
+                pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
+                // write error
+                // TODO process error
+                if(finish_indicator) {
+                    *finish_indicator = -1;
+                }
+
+                pcf->cp->freecbs(cbs);
+                return;
+            }
+            // after write back, the cache is invalid
+            if(finish_indicator) {
+                *finish_indicator = 1;
+            }
+
+            pcf->cp->freecbs(cbs);
+        };
+        
+
+        // write to 0 to refresh the indicator
+        rc = cp->m_engine_list[p->idx.gid]->write(0, zptr, 1, cbs);
+        if(rc < 0) {
+            cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+            p->release();
+        }
+        return;
+    }
+    this->cp->m_currentSizeInByte -= p->len * dpfs_lba_size;
+
+    // some problem, need to considerate call back method
+    if(p->dirty || finish_indicator != nullptr) {
+
+        // change status to writing
+        p->status = cacheStruct::INVALID;
+
+
+        // if write is successfully called, the unlock and release will be in callback function
+        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
+        if(rc < 0) {
+            cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
+            // write error
+            // !-!QUESTION!-!
+            // TODO
+            p->release();
+            return;
+        }
+
+    } else {
+        p->release();
+    }
+
+done:
+    
+    return;
+
+errReturn:
 
     return;
 }

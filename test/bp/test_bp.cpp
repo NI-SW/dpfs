@@ -13,16 +13,16 @@
 
 #define __LOAD__ 1
 
-// #define __TEST_INSERT__
-// #define __TEST_DELETE__
-// #define __TEST_SEARCH__
-// #define __TEST_UPDATE__
-// #define __TEST_ITERATOR__
-// #define __TEST_INDEX_CREATE__
-// #define __TEST_INDEX_SEARCH__
-// #define __PRINT_INDEX_TREE__
-// #define __TEST_INDEX_ITERATOR__
-// #define __TEST_SCAN_ITERATOR__
+#define __TEST_INSERT__
+#define __TEST_DELETE__
+#define __TEST_SEARCH__
+#define __TEST_UPDATE__
+#define __TEST_ITERATOR__
+#define __TEST_INDEX_CREATE__
+#define __TEST_INDEX_SEARCH__
+#define __PRINT_INDEX_TREE__
+#define __TEST_INDEX_ITERATOR__
+#define __TEST_SCAN_ITERATOR__
 
 
 

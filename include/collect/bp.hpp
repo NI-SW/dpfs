@@ -611,12 +611,14 @@ public:
 
         for(auto it = m_commitCache.begin(); it != m_commitCache.end(); ) {
             if (it->second.needDelete) {
-                it->second.pCache->lock();
-                it->second.pCache->setStatus(cacheStruct::INVALID);
-                it->second.pCache->unlock();
+                rc = it->second.pCache->lock();
+                if (rc == 0) {
+                    it->second.pCache->setStatus(cacheStruct::INVALID);
+                    it->second.pCache->unlock();
+                }
                 rc = free_node(it->first, it->second.nodeData->hdr->leaf);
                 if (rc != 0) {
-                    return rc;
+                    throw std::runtime_error("free_node failed during commit");
                 }
                 it->second.pCache->release();
                 it = m_commitCache.erase(it);
@@ -1408,6 +1410,11 @@ address         0 1 2 3 4 5 6 7 8
         int rc = load_node(idx, node, isLeaf);
         if (rc != 0) return rc;
 
+        CTemplateGuard g(*node.pCache);
+        if (g.returnCode() != 0) {
+            return g.returnCode();
+        }
+
         if (!node.nodeData->hdr->leaf) {
             // internal node, need destroy child nodes first
             for (uint32_t i = 0; i < node.childVec->size(); ++i) {
@@ -1416,6 +1423,8 @@ address         0 1 2 3 4 5 6 7 8
                 if (rc != 0) return rc;
             }
         }
+
+        m_commitCache.emplace(idx, std::move(node));
 
         // free current node
         rc = free_node(idx, isLeaf);
@@ -1426,6 +1435,7 @@ address         0 1 2 3 4 5 6 7 8
             #endif
             return rc;
         }
+        
 
         node.pCache->release();
         return 0;

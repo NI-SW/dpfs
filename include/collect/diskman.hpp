@@ -80,8 +80,8 @@ public:
     void print() {
         m_cbt.Print();
     }
-    Cbt m_cbt;
     CPage* m_page;
+    Cbt m_cbt;
 
 };
 

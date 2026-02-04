@@ -6,11 +6,17 @@
 #include <storage/engine.hpp>
 #include <log/logbinary.h>
 #include <shared_mutex>
+#include <condition_variable>
 extern const size_t maxBlockLen;
 extern const size_t maxMemBlockLimit;
 
 class CPage;
 class PageClrFn;
+
+/*
+    TODO :: 
+    cacheStruct自动加载已失效的数据块
+*/
 
 // block index
 struct bidx {
@@ -204,11 +210,23 @@ class PageClrFn {
 public:
     // PageClrFn(void* clrFnArg) : engine_list(*static_cast<std::vector<dpfsEngine*>*>(clrFnArg)) {}
     PageClrFn(void* clrFnArg);
-    ~PageClrFn() {}
+    ~PageClrFn();
+    void clearCache(cacheStruct*& p, int* finish_indicator = nullptr);
     void operator()(cacheStruct*& p, int* finish_indicator = nullptr);
     // void flush(std::list<CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter*> p);
     void flush(const std::list<void*>& cacheList);
     CPage* cp;
+    std::thread clfThd;
+    bool m_exit = false;
+    struct pageClrSt {
+        pageClrSt() : pCache(nullptr), finish_indicator(nullptr) {}
+        pageClrSt(cacheStruct* p, int* fi) : pCache(p), finish_indicator(fi) {}
+        cacheStruct* pCache = nullptr;
+        int* finish_indicator = nullptr;
+    };
+    std::queue<pageClrSt> m_flushQueue;
+    std::condition_variable m_convar;
+    CSpin m_queueMutex;
 };
 
 
