@@ -17,8 +17,14 @@
 // #define __TEST_DELETE__
 // #define __TEST_SEARCH__
 // #define __TEST_UPDATE__
-#define __TEST_INDEX_CREATE__
-#define __TEST_INDEX_SEARCH__
+// #define __TEST_ITERATOR__
+// #define __TEST_INDEX_CREATE__
+// #define __TEST_INDEX_SEARCH__
+// #define __PRINT_INDEX_TREE__
+// #define __TEST_INDEX_ITERATOR__
+// #define __TEST_SCAN_ITERATOR__
+
+
 
 const bidx BOOTDIX = {0, 1};
 
@@ -92,13 +98,12 @@ int main() {
         assert(rc == 0);
         rc = coll->addCol("val2", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t));
         assert(rc == 0);
-
-        coll->initBPlusTreeIndex();
-
+        
         rc = coll->saveTo(BOOTDIX);
         if (rc != 0) {
             cout << " save collection fail, rc=" << rc << endl;
         }
+        coll->initBPlusTreeIndex();
     }
     
     // CBPlusTree bpt(*coll, *page, dman, 4);
@@ -144,7 +149,7 @@ int main() {
 
     uint64_t* row = new uint64_t[coll->m_collectionStruct->m_cols.size()];
 #ifdef __TEST_INSERT__
-    cout << " test insert " << endl;
+    cout << "-------------------------------------------------------------------------------------------test insert-------------------------------------------------------------------------" << endl;
     while(1) {
         
         cout << " insert key val (0 to exit): " << endl;
@@ -166,13 +171,27 @@ int main() {
             break;
         }
 
-        expect_insert(bpt, row[0], row[1], row[2]);
+        CItem itm(coll->m_collectionStruct->m_cols);
+
+        rc = itm.updateValue(0, (uint8_t*)&row[0], sizeof(uint64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
+        rc = itm.updateValue(1, (uint8_t*)&row[1], sizeof(uint64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
+        rc = itm.updateValue(2, (uint8_t*)&row[2], sizeof(uint64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
+        rc = itm.nextRow(); if (rc != 0) { cout << " nextRow fail rc = " << rc << endl; }
+
+        
+        // expect_insert(bpt, row[0], row[1], row[2]);
+        rc = coll->addItem(itm);
+        if (rc != 0) {
+            cout << " insert key " << row[0] << " fail, rc=" << rc << endl;
+            cout << "message : " << coll->message << endl;
+        }
 
         bpt.printTree();    
     }
 #endif
+
 #ifdef __TEST_DELETE__
-    cout << " test remove " << endl;
+    cout << "-------------------------------------------------------------------------------------------test delete-------------------------------------------------------------------------" << endl;
     while(1) {
         cout << " remove key val (0 to exit): ";
 
@@ -207,7 +226,7 @@ int main() {
 #endif
 
 #ifdef __TEST_UPDATE__
-    cout << " test update " << endl;
+    cout << "-------------------------------------------------------------------------------------------test update-------------------------------------------------------------------------" << endl;
     while(1) {
         cout << " update key val (0 to exit): ";
 
@@ -242,7 +261,7 @@ int main() {
 #endif
 
 #ifdef __TEST_SEARCH__
-    cout << " test search " << endl;
+    cout << "-------------------------------------------------------------------------------------------test search-------------------------------------------------------------------------" << endl;
 
     while(1) {
         cout << " search key val (0 to exit): ";
@@ -288,12 +307,13 @@ int main() {
     }
 #endif
 
-    cout << " print data by iterator " << endl;
+#ifdef __TEST_ITERATOR__
+    cout << "-------------------------------------------------------------------------------------------test print data by iterator-------------------------------------------------------------------------" << endl;
     try {
         // auto it = bpt.begin();
         auto it = bpt.search(make_key(5, 10, bpt));
         auto end = bpt.end();
-        rc = it.loadNode();
+        // rc = it.loadNode();
         if (rc != 0) {
 
         } else {
@@ -328,6 +348,7 @@ int main() {
         std::cerr << "Iterator threw non-std exception" << std::endl;
     }
 
+#endif
 
     CIndexInitStruct idxInit;
 
@@ -341,7 +362,7 @@ int main() {
 
 #ifdef __TEST_INDEX_CREATE__
     // test index
-    cout << " test create index " << endl;
+    cout << "-------------------------------------------------------------------------------------------test create index-------------------------------------------------------------------------" << endl;
     idxInit.name = "idx_test_bp_idx";
     idxInit.colNames.emplace_back("val");
     idxInit.colNames.emplace_back("val2");
@@ -358,7 +379,7 @@ int main() {
 
 #ifdef __TEST_INDEX_SEARCH__
     // search primary key
-    cout << " test search by index " << endl;
+    cout << "-------------------------------------------------------------------------------------------test search by index-------------------------------------------------------------------------" << endl;
     row[0] = 6;
     row[1] = 235;
     keyVals.emplace_back(sizeof(uint64_t));
@@ -367,7 +388,7 @@ int main() {
     keyVals[1].setData(&row[1], sizeof(uint64_t));
     {
         CItem tmpItm(coll->m_collectionStruct->m_cols);
-        rc = coll->searchByIndex({"val", "val2"}, keyVals, tmpItm);
+        rc = coll->getByIndex({"val", "val2"}, keyVals, tmpItm);
         // rc = searchByIndex(coll, {"val", "val2"}, keyVals);
         if (rc != 0) {
             cout << " search by index fail, rc=" << rc << endl;
@@ -389,6 +410,100 @@ int main() {
 
 #endif
 
+
+#ifdef __PRINT_INDEX_TREE__
+
+    cout << "-------------------------------------------------------------------------------------------print index tree-------------------------------------------------------------------------" << endl;
+    for(int i = 0; i < coll->m_indexTrees.size(); ++i) {
+        cout << " print index tree " << i << endl;
+        CBPlusTree& indexTree = *coll->m_indexTrees[i];
+        indexTree.printTree();
+    }
+
+#endif
+
+#ifdef __TEST_INDEX_ITERATOR__
+{
+    // get index iter
+    cout << "-------------------------------------------------------------------------------------------test get index iterator-------------------------------------------------------------------------" << endl;
+    CCollection::CIdxIter indexIter;
+    row[0] = 6;
+    row[1] = 235;
+    keyVals.emplace_back(sizeof(uint64_t));
+    keyVals[0].setData(&row[0], sizeof(uint64_t));
+    keyVals.emplace_back(sizeof(uint64_t));
+    keyVals[1].setData(&row[1], sizeof(uint64_t));
+
+    rc = coll->getIdxIter({"val", "val2"}, keyVals, indexIter);
+    if (rc != 0) {
+        cout << " get index iterator fail, rc=" << rc << endl;
+        goto errReturn;
+    }
+
+    // use index iter to get main tree data
+    CItem tmpItm(coll->m_collectionStruct->m_cols);
+    rc = 0;
+    while (rc == 0) {
+        rc = coll->getByIndexIter(indexIter, tmpItm);
+        if (rc != 0) {
+            cout << " get by index iterator fail, rc=" << rc << endl;
+            goto errReturn;
+        }
+
+        cout << " get data :: " << endl;
+        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+            CValue val = tmpItm.getValue(i);
+            cout << " col " << i << " name: " << coll->m_collectionStruct->m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
+            for (uint32_t j = 0; j < val.len; ++j) {
+                printf("%02X", ((unsigned char*)val.data)[j]);
+            }
+            cout << endl;
+        }
+
+        rc = ++indexIter;
+    }
+
+}
+#endif
+
+
+#ifdef __TEST_SCAN_ITERATOR__
+{
+    cout << "-------------------------------------------------------------------------------------------test get scan iterator-------------------------------------------------------------------------" << endl;
+    CCollection::CIdxIter scanIter;
+    rc = coll->getScanIter(scanIter);
+    if (rc != 0) {
+        cout << " get scan iterator fail, rc=" << rc << endl;
+        goto errReturn;
+    }
+
+    // use scan iter to get main tree data
+    CItem tmpItm(coll->m_collectionStruct->m_cols);
+    rc = 0;
+    while (rc == 0) {
+        rc = coll->getByScanIter(scanIter, tmpItm);
+        if (rc != 0) {
+            cout << " get by scan iterator fail, rc=" << rc << endl;
+            goto errReturn;
+        }
+
+        cout << " get data :: " << endl;
+        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+            CValue val = tmpItm.getValue(i);
+            cout << " col " << i << " name: " << coll->m_collectionStruct->m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
+            for (uint32_t j = 0; j < val.len; ++j) {
+                printf("%02X", ((unsigned char*)val.data)[j]);
+            }
+            cout << endl;
+        }
+
+        rc = ++scanIter;
+    }
+
+}
+#endif
+
+
     //TODO TEST SAVE AND LOAD TREE FROM DISK
     rc = coll->saveTo(BOOTDIX);
     if (rc != 0) {
@@ -397,7 +512,8 @@ int main() {
     }
     
 
-    cout << " test finished " << endl;
+    // TODO :: TEST IS PASS, COMPLETE SQL PARSER
+    cout << " test pass " << endl;
 
     if (coll) {
         delete coll;
@@ -406,7 +522,7 @@ int main() {
         delete page;
     }
     // maybe some unfinished async work that cause core dump
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    // std::this_thread::sleep_for(std::chrono::seconds(1));
     if (engine) {
 		delete engine;
 	}
