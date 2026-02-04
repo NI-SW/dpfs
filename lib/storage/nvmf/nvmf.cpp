@@ -484,7 +484,7 @@ static void device_guard(void* arg) {
 					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, use time: %llu us, qpStatus: %u\n", dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, diff.count(), qp_state);
 					// std::chrono::microseconds us_now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
 					// dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, time: %llu us, qpStatus: %u\n", dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, us_now.count(), qp_state);
-					dev->nfhost.log.log_inf("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, qpStatus: %u\n", 
+					dev->nfhost.log.log_debug("nvmfDevice %s qpair index %d processed %d completions, unfinished requests : %d, qpStatus: %u\n", 
 						dev->devdesc_str.c_str(), current_qpair_index, rc, m_reqs.load() - rc, qp_state);
 					m_reqs -= rc;
 				} else if(rc == 0) {
