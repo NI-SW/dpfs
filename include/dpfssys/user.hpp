@@ -41,7 +41,6 @@ public:
     */
     struct cacheStruct {
         uint32_t tid = 0;
-        // CCollection* collection = nullptr;
         uint16_t privilege = 0;
     };
 

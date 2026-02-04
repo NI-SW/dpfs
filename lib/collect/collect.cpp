@@ -1,6 +1,7 @@
 #include <collect/collect.hpp>
 #include <collect/bp.hpp>
 #include <collect/product.hpp>
+constexpr size_t MAXROWLEN = 8 * 32 * 1024; // 256KB
 
 uint64_t nodeId = 0;
 
@@ -92,13 +93,13 @@ dds_field CColumn::getDds() const noexcept{
 */
 CValue CItem::getValue(size_t pos) const noexcept {
     CValue val;
-    if(pos >= cols.size()) {
+    if (pos >= cols.size()) {
         return val;
     }
 
     size_t offSet = getDataOffset(pos);
 
-    if(cols[pos].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
+    if (cols[pos].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
         // first 4 bytes is actual length
         val.len = *(uint32_t*)((char*)rowPtr + offSet);
         val.data = (char*)rowPtr + offSet + sizeof(uint32_t);
@@ -124,7 +125,7 @@ size_t CItem::getDataOffset(size_t pos) const noexcept {
     /*
     size_t offSet = 0;
     for(size_t i = 0; i < pos; ++i) {
-        // if(isVariableType(cols[i].dds.colAttrs.type)) {
+        // if (isVariableType(cols[i].dds.colAttrs.type)) {
         //     offSet += sizeof(uint32_t) + (*(uint32_t*)(rowPtr + offSet));
         // } else {
         //     offSet += cols[i].dds.colAttrs.len;
@@ -139,10 +140,10 @@ int CItem::dataCopy(size_t pos, const CValue& value) noexcept {
     // data offset in row
     size_t offSet = getDataOffset(pos);
 
-    // if(isVariableType(cols[pos].dds.colAttrs.type)) {
+    // if (isVariableType(cols[pos].dds.colAttrs.type)) {
     //     // first 4 bytes is actual length
     //     uint32_t actualLen = value.len;
-    //     if(actualLen > cols[pos].dds.colAttrs.len) {
+    //     if (actualLen > cols[pos].dds.colAttrs.len) {
     //         return -E2BIG;
     //     }
     //     // use col offset of row to find the pointer and copy data
@@ -151,13 +152,13 @@ int CItem::dataCopy(size_t pos, const CValue& value) noexcept {
     // } else {
 
     //     memcpy(((char*)rowPtr + offSet), value.data, value.len);
-    //     if(value.len < cols[pos].dds.colAttrs.len) {
+    //     if (value.len < cols[pos].dds.colAttrs.len) {
     //         memset(((char*)rowPtr + offSet + value.len), 0, cols[pos].dds.colAttrs.len - value.len);
     //     }
     // }
 
     memcpy(((char*)rowPtr + offSet), value.data, value.len);
-    if(value.len < cols[pos].dds.colAttrs.len) {
+    if (value.len < cols[pos].dds.colAttrs.len) {
         memset(((char*)rowPtr + offSet + value.len), 0, cols[pos].dds.colAttrs.len - value.len);
     }
     return value.len;
@@ -167,10 +168,10 @@ int CItem::dataCopy(size_t pos, const void* ptr, size_t len) noexcept {
     // data offset in row
     size_t offSet = getDataOffset(pos);
 
-    // if(isVariableType(cols[pos].dds.colAttrs.type)) {
+    // if (isVariableType(cols[pos].dds.colAttrs.type)) {
     //     // first 4 bytes is actual length
     //     uint32_t actualLen = len;
-    //     if(actualLen > cols[pos].dds.colAttrs.len) {
+    //     if (actualLen > cols[pos].dds.colAttrs.len) {
     //         return -E2BIG;
     //     }
     //     // use col offset of row to find the pointer and copy data
@@ -179,12 +180,12 @@ int CItem::dataCopy(size_t pos, const void* ptr, size_t len) noexcept {
     // } else {
 
     //     memcpy(((char*)rowPtr + offSet), ptr, len);
-    //     if(len < cols[pos].dds.colAttrs.len) {
+    //     if (len < cols[pos].dds.colAttrs.len) {
     //         memset(((char*)rowPtr + offSet + len), 0, cols[pos].dds.colAttrs.len - len);
     //     }
     // }
     memcpy(((char*)rowPtr + offSet), ptr, len);
-    if(len < cols[pos].dds.colAttrs.len) {
+    if (len < cols[pos].dds.colAttrs.len) {
         memset(((char*)rowPtr + offSet + len), 0, cols[pos].dds.colAttrs.len - len);
     }
     return len;
@@ -202,7 +203,7 @@ CValue CItem::getValueByKey(const CColumn& col) const noexcept {
     for(size_t i = 0; i < cols.size(); ++i) {
         if (cols[i] == col) {
             size_t offSet = getDataOffset(i);
-            if(cols[i].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
+            if (cols[i].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
                 // first 4 bytes is actual length
                 val.len = *(uint32_t*)((char*)rowPtr + offSet);
                 val.data = (char*)rowPtr + offSet + 4;
@@ -223,10 +224,10 @@ CValue CItem::getValueByKey(const CColumn& col) const noexcept {
     @return bytes updated on success, else on failure
 */
 int CItem::updateValue(size_t pos, const CValue& value) noexcept {
-    if(pos >= cols.size()) {
+    if (pos >= cols.size()) {
         return -EINVAL;
     }
-    if(cols[pos].getLen() < value.len) {
+    if (cols[pos].getLen() < value.len) {
         return -E2BIG;
     }
     return dataCopy(pos, value);
@@ -238,10 +239,10 @@ int CItem::updateValue(size_t pos, const CValue& value) noexcept {
     @return bytes updated on success, else on failure
 */
 int CItem::updateValue(size_t pos, const void* ptr, size_t len) noexcept {
-    if(pos >= cols.size()) {
+    if (pos >= cols.size()) {
         return -EINVAL;
     }
-    if(cols[pos].getLen() < len) {
+    if (cols[pos].getLen() < len) {
         return -E2BIG;
     }
     return dataCopy(pos, ptr, len);
@@ -273,7 +274,7 @@ int CItem::updateValueByKey(const CColumn& col, const CValue& value) noexcept {
 int CCollection::commit() { 
     // TODO
     int rc = 0;
-    if(!m_collectionStruct->ds->m_perms.perm.m_dirty) {
+    if (!m_collectionStruct->ds->m_perms.perm.m_dirty) {
         return 0;
     }
 
@@ -285,9 +286,9 @@ int CCollection::commit() {
     size_t rootBlockLen = 0;
 
 
-    if(!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         // not b+ tree index, all data can be save to storage only once
-        if(m_collectionStruct->ds->m_dataRoot != bidx({0, 0})) {
+        if (m_collectionStruct->ds->m_dataRoot != bidx({0, 0})) {
             // save to storage root block
             rc = -EOPNOTSUPP;
             message = "commit to a fixed Collection index is not allow.";
@@ -296,7 +297,7 @@ int CCollection::commit() {
 
         // total data block info structs in m_tempStorage
         size_t totalDataBlocks = m_tempStorage.size();
-        if(totalDataBlocks == 0 && curTmpDataLen == 0) {
+        if (totalDataBlocks == 0 && curTmpDataLen == 0) {
             // no data to commit
             m_collectionStruct->ds->m_perms.perm.m_dirty = false;
             return 0;
@@ -307,7 +308,7 @@ int CCollection::commit() {
         rootBlockLen = totalDataBlocks;
 
         uint64_t bid = m_diskMan.balloc(rootBlockLen);
-        if(bid == 0) {
+        if (bid == 0) {
             rc = -ENOSPC;
             message = "no space left in the disk group.";
             goto errReturn;
@@ -320,7 +321,7 @@ int CCollection::commit() {
         // indicator for write complete
         int indicator = 0;
         for(size_t pos = 0; pos < totalDataBlocks; ) {
-            if(m_tempStorage.size() <= 0) {
+            if (m_tempStorage.size() <= 0) {
                 break;
             }
 
@@ -328,7 +329,7 @@ int CCollection::commit() {
             // get data from temp storage
             zptrLen = write_lba_len;
             zptr = m_page.alloczptr(zptrLen);
-            if(!zptr) {
+            if (!zptr) {
                 zptrLen = 0;
                 rc = -ENOMEM;
                 goto errReturn;
@@ -337,14 +338,14 @@ int CCollection::commit() {
 
             // from temp storage get data, save to zptr, then put to root of the collection
             rc = m_tempStorage.getData(pos, zptr, write_lba_len, real_lba_len);            
-            if(rc < 0) {
+            if (rc < 0) {
                 goto errReturn;
             }
 
             
             // write data to storage immediately
-            if(pos == totalDataBlocks - 1 && curTmpDataLen == 0) {
-                if(curTmpDataLen) {
+            if (pos == totalDataBlocks - 1 && curTmpDataLen == 0) {
+                if (curTmpDataLen) {
                     // last write with remaining data
                     rc = m_page.put(tmpDataRoot, (char*)zptr, nullptr, write_lba_len, true);
                 } else {
@@ -354,7 +355,7 @@ int CCollection::commit() {
             } else {
                 rc = m_page.put(tmpDataRoot, (char*)zptr, nullptr, write_lba_len, true);
             }
-            if(rc < 0) {
+            if (rc < 0) {
                 goto errReturn;
             }
             tmpDataRoot.bid += write_lba_len;
@@ -363,11 +364,11 @@ int CCollection::commit() {
 
         }
 
-        if(curTmpDataLen) {
+        if (curTmpDataLen) {
             // write remaining data
             zptrLen = curTmpDataLen % dpfs_lba_size == 0 ? curTmpDataLen / dpfs_lba_size : (curTmpDataLen / dpfs_lba_size + 1);
             zptr = m_page.alloczptr(zptrLen);
-            if(!zptr) {
+            if (!zptr) {
                 zptrLen = 0;
                 rc = -ENOMEM;
                 goto errReturn;
@@ -377,7 +378,7 @@ int CCollection::commit() {
 
             // write data to storage immediately
             rc = m_page.put(tmpDataRoot, (char*)zptr, &indicator, zptrLen, true);
-            if(rc < 0) {
+            if (rc < 0) {
                 goto errReturn;
             }
             tmpDataRoot.bid += zptrLen;
@@ -398,13 +399,20 @@ int CCollection::commit() {
         memset(tmpData, 0, curTmpDataLen);
 
     } else {
-        // m_owner.m_log.log_inf("commit collection with b+ tree index.\n");
-        // CBPlusTree bpt(&m_page, &m_diskMan, nodeId, m_dataRoot, m_log);
-
         // TODO::
         // write commit log
         // write data to storage
-        m_btreeIndex->commit();
+        rc = m_btreeIndex->commit(); 
+        if (rc != 0) {
+            goto errReturn;
+        }
+        for(uint32_t i = 0; i < m_indexTrees.size(); ++i) {
+            rc = m_indexTrees[i]->commit();
+            if (rc != 0) {
+                goto errReturn;
+            }
+        }
+
         // write to this->m_dataRoot
         // update index
     }
@@ -415,7 +423,7 @@ int CCollection::commit() {
     return rc;
 errReturn:
 
-    if(zptr && zptrLen > 0) {
+    if (zptr && zptrLen > 0) {
         m_page.freezptr(zptr, zptrLen);
     }
 
@@ -440,7 +448,7 @@ CItem* CItem::newItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs) noexc
 
     // row data in data[]
     CItem* item = (CItem*)malloc(sizeof(CItem) + len);
-    if(!item) {
+    if (!item) {
         return nullptr;
     }
     new (item) CItem(cs);
@@ -470,7 +478,7 @@ CItem* CItem::newItems(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size
 
     // row data in data[]
     CItem* item = (CItem*)malloc(sizeof(CItem) + len * maxRowNumber);
-    if(!item) {
+    if (!item) {
         return nullptr;
     }
     new (item) CItem(cs);
@@ -483,7 +491,7 @@ CItem* CItem::newItems(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size
 }
 
 void CItem::delItem(CItem*& item) noexcept {
-    if(item) {
+    if (item) {
         free(item);
     }
     item = nullptr;
@@ -512,7 +520,7 @@ endIter(this) {
 
     // row data in data[]
     data = (char*)malloc(len);
-    if(!data) {
+    if (!data) {
         throw std::bad_alloc();
     }
 
@@ -526,8 +534,8 @@ endIter(this) {
     error = false;
     beginIter.m_pos = 0;
     beginIter.m_ptr = data;
-    endIter.m_pos = 0;
-    endIter.m_ptr = data;
+    endIter.m_pos = 1;
+    endIter.m_ptr = data + rowLen;
 }
 
 CItem::CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber) : 
@@ -546,7 +554,7 @@ endIter(this) {
 
     // row data in data[]
     data = (char*)malloc(len * maxRowNumber);
-    if(!data) {
+    if (!data) {
         throw std::bad_alloc();
     }
 
@@ -560,19 +568,20 @@ endIter(this) {
     error = false;
     beginIter.m_pos = 0;
     beginIter.m_ptr = data;
-    endIter.m_pos = 0;
-    endIter.m_ptr = data;
+    endIter.m_pos = 1;
+    endIter.m_ptr = data + rowLen;
 }
 
 int CItem::nextRow() noexcept {
-    if(rowNumber + 1 >= maxRowNumber) {
+    if (rowNumber + 1 >= maxRowNumber) {
         return -ERANGE;
     }
     ++rowNumber;
-    endIter.m_pos = rowNumber;
+    ++endIter.m_pos;
+    endIter.m_ptr += rowLen;
 
     for(auto& pos : cols) {
-        // if(isVariableType(pos.dds.colAttrs.type)) {
+        // if (isVariableType(pos.dds.colAttrs.type)) {
         //     // first 4 bytes is actual length
         //     uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
         //     rowPtr += sizeof(uint32_t) + vallEN;
@@ -616,19 +625,35 @@ m_tempStorage(m_page, m_diskMan) {
 };
 
 CCollection::~CCollection() {
-    if(tmpData) {
+    if (tmpData) {
         free(tmpData);
         tmpData = nullptr;
     }
-    if(m_cltInfoCache) {
+
+    if (m_btreeIndex) {
+        delete m_btreeIndex;
+        m_btreeIndex = nullptr;
+    }
+
+    if (m_indexTrees.size() > 0) {
+        for (auto tree : m_indexTrees) {
+            if (tree) {
+                delete tree;
+            }
+        }
+        m_indexTrees.clear();
+    }
+    m_indexCmpTps.clear();
+
+    if (m_cltInfoCache) {
         m_cltInfoCache->release();
         m_cltInfoCache = nullptr;
     } else {
-        if(m_collectionStruct) {
+        if (m_collectionStruct) {
             m_page.freezptr(m_collectionStruct->data, MAX_CLT_INFO_LBA_LEN);
         }
     }
-    if(m_collectionStruct) {
+    if (m_collectionStruct) {
         delete m_collectionStruct;
         m_collectionStruct = nullptr;
     }
@@ -637,7 +662,7 @@ CCollection::~CCollection() {
 };
 
 int CCollection::setName(const std::string& name) {
-    if(name.size() > MAX_NAME_LEN) {
+    if (name.size() > MAX_NAME_LEN) {
         return -ENAMETOOLONG; // Key length exceeds maximum allowed size
     }
     memset(m_collectionStruct->ds->m_name, 0, MAX_NAME_LEN);
@@ -656,11 +681,11 @@ int CCollection::setName(const std::string& name) {
     @note this function will add the col to the collection
 */
 int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t len, size_t scale, uint8_t constraint) {
-    if(colName.size() > MAX_COL_NAME_LEN) {
+    if (colName.size() > MAX_COL_NAME_LEN) {
         return -ENAMETOOLONG; // Key length exceeds maximum allowed size
     }
 
-    if(m_collectionStruct->m_cols.size() >= MAX_COL_NUM) {
+    if (m_collectionStruct->m_cols.size() >= MAX_COL_NUM) {
         return -E2BIG; // Too many columns
     }
 
@@ -706,12 +731,12 @@ int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t
 
     // col = CColumn::newCol(colName, type, len, scale, constraint);
     // // if generate column fail
-    // if(!col) {
+    // if (!col) {
     //     return -ENOMEM;
     // }
 
-    if(constraint & CColumn::constraint_flags::PRIMARY_KEY) {
-        m_pkPos = m_collectionStruct->m_cols.size();
+    if (constraint & CColumn::constraint_flags::PRIMARY_KEY) {
+        m_collectionStruct->m_pkColPos.emplace_back(m_collectionStruct->m_cols.size());
     }
     m_lock.lock();
     m_collectionStruct->m_cols.emplace_back(colName, type, len, scale, constraint);
@@ -730,10 +755,10 @@ int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t
 */
 int CCollection::removeCol(const std::string& colName) {
     for(auto it = m_collectionStruct->m_cols.begin(); it != m_collectionStruct->m_cols.end(); ++it) {
-        if((*it).getNameLen() != colName.size() + 1) {
+        if ((*it).getNameLen() != colName.size() + 1) {
             continue;
         }
-        if(memcmp((*it).getName(), colName.c_str(), (*it).getNameLen()) == 0) {
+        if (memcmp((*it).getName(), colName.c_str(), (*it).getNameLen()) == 0) {
             m_lock.lock();
             m_collectionStruct->m_cols.erase(it);
             m_lock.unlock();
@@ -755,7 +780,7 @@ int CCollection::removeCol(const std::string& colName) {
 int CCollection::saveTmpData(const void* data, size_t len){
 
     const uint8_t* datap = (const uint8_t*)data;
-    if(curTmpDataLen + len > tmpBlockLen * dpfs_lba_size) {
+    if (curTmpDataLen + len > tmpBlockLen * dpfs_lba_size) {
         // need to flush temp storage
 
         
@@ -798,36 +823,97 @@ int CCollection::addItem(const CItem& item) {
     size_t validLen = 0;
 
 
-    if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    if (m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         // separate key and value from item
         for(auto it = item.begin(); it != item.end(); ++it) {
             char keyBuf[MAXKEYLEN];
-            KEY_T key(keyBuf, MAXKEYLEN, m_btreeIndex->cmpTyps);
+            KEY_T key(keyBuf, 0, m_btreeIndex->cmpTyps);
 
-            key.len = item.cols[m_pkPos].getLen();
-            // size_t offSet = item.getDataOffset(m_pkPos);
 
-            CValue keyVal = it[m_pkPos];
-            memcpy(key.data, keyVal.data, keyVal.len);
+            uint32_t kl = 0;
+            // get primary key columns and length
+            auto& pkCols = m_collectionStruct->m_pkColPos;
+            for (uint32_t i = 0; i < pkCols.size(); ++i) {
+                // kl += item.cols[pkCols[i]].getLen();
+                CValue keyVal = it[pkCols[i]];
+                memcpy(key.data + key.len, keyVal.data, keyVal.len);
+                key.len += item.cols[pkCols[i]].getLen();
+            }
 
-            /*
-                |KEY|data....|
-            */
+            // #ifdef __COLLECT_DEBUG__
+            // cout << " key :: " << endl;
+            // printMemory(key.data, key.len);
+            // cout << " value :: " << endl;
+            // printMemory(it.getRowPtr(), it.getRowLen());
+            // cout << "pos " << (it - item.begin()) << " insert key len " << key.len << " value len " << it.getRowLen() << endl;
+            // cout << "------------------------" << endl;
+            // #endif
+            
+            // lock the cache (range = all system)
+            CTemplateGuard guard(*m_cltInfoCache);
+            if (guard.returnCode() != 0) {
+                rc = guard.returnCode();
+                message = "lock collection info cache failed.";
+                return rc;
+            }
+
+            // insert to b plus tree index
+            rc = m_btreeIndex->insert(key, it.getRowPtr(), it.getRowLen());
+            if (rc != 0) {
+                message = "insert item to b+ tree index failed.";
+                return rc;
+            }
+
+
 
             #ifdef __COLLECT_DEBUG__
-            cout << " key :: " << endl;
-            printMemory(key.data, key.len);
-            cout << " value :: " << endl;
-            printMemory(it.getRowPtr(), it.getRowLen());
 
-            cout << "pos " << (it - item.begin()) << " insert key len " << key.len << " value len " << it.getRowLen() << endl;
-            cout << "------------------------" << endl;
+            cout << " main bpt after insert :: " << endl;
+            m_btreeIndex->printTree();
+            
+
             #endif
 
-            m_btreeIndex->insert(key, it.getRowPtr(), it.getRowLen());
+            // update index
+            for (uint32_t idx = 0; idx < m_collectionStruct->m_indexInfos.size(); ++idx) {
+                auto& indexInfo = m_collectionStruct->m_indexInfos[idx];
+                auto& cmpTp = m_indexCmpTps[idx];
+                auto& indexBpt = *m_indexTrees[idx];
+
+                // build index key
+                char indexKeyBuf[MAXKEYLEN * 2];
+                KEY_T indexKey(indexKeyBuf, 0, cmpTp);
+
+                // copy all key data to KEY_T
+                for (uint32_t i = 0; i < indexInfo.cmpKeyColNum; ++i) {
+                    CValue indexKeyVal = it[indexInfo.keySequence[i]];
+                    memcpy(indexKey.data + indexKey.len, indexKeyVal.data, indexKeyVal.len);
+                    indexKey.len += item.cols[indexInfo.keySequence[i]].getLen();
+                }
+
+                // copy pk in main bpt to index data column
+                memcpy(indexKey.data + indexKey.len, key.data, key.len);
+
+                // insert to b plus tree index
+                rc = indexBpt.insert(indexKey, indexKey.data, indexKey.len + key.len);
+                if (rc != 0) {
+                    message = "insert item to b+ tree index failed.";
+                    return rc;
+                }
+
+                #ifdef __COLLECT_DEBUG__
+                cout << " index " << idx << " after insert :: " << endl;
+                indexBpt.printTree();
+                cout << "------------------------" << endl;
+                #endif
+            }
         }
 
-        // use b plus tree to index the item
+
+
+        // it item is empty
+        message = "item has no row to add.";
+        return -ENODATA;
     }
 
     char* rowPtr = item.rowPtr;
@@ -837,7 +923,7 @@ int CCollection::addItem(const CItem& item) {
     // char* rowPtr = item.rowPtr;
     for(size_t i = 0; i < item.rowNumber; ++i){
         for(auto& pos : item.cols) {
-            // if(isVariableType(pos.dds.colAttrs.type)) {
+            // if (isVariableType(pos.dds.colAttrs.type)) {
             //     // first 4 bytes is actual length
             //     //last row ptr
             //     uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
@@ -852,10 +938,10 @@ int CCollection::addItem(const CItem& item) {
         }
     }
 
-    if(!tmpData) {
+    if (!tmpData) {
         // tmpblklen = 10 blk for now
         tmpData = (char*)malloc(tmpBlockLen);
-        if(!tmpData) {
+        if (!tmpData) {
             rc = -ENOMEM;
             goto errReturn;
         }
@@ -882,49 +968,55 @@ int CCollection::saveTo(const bidx& head) {
     int rc = 0;
     int indicate = 0;
 
-    if(!inited) {
+    if (!inited) {
         return -EINVAL;
     }
 
-    if(B_END) {
+    if (B_END) {
         // TODO : convert to storage endian (convert to little endian)
         // target -> m_collectionStruct.data
     }
 
-    if(m_cltInfoCache) {
+    if (m_cltInfoCache) {
         // if is load from disk, write back the disk rather than put new block
         rc = m_page.writeBack(m_cltInfoCache, &indicate);
-        if(rc != 0) {
+        if (rc != 0) {
             goto errReturn;
         }
         while(!indicate) {
             // write back not finished, wait
         }
-        if(indicate == -1) {
+        if (indicate == -1) {
             rc = -EIO;
             goto errReturn;
         }
         return 0;
     }   
 
-    if(!m_collectionStruct) {
+    if (!m_collectionStruct) {
         rc = -EINVAL;
         goto errReturn;
     }
 
     rc = this->m_page.put(head, m_collectionStruct->data, &indicate, MAX_COLLECTION_INFO_LBA_SIZE, true, &m_cltInfoCache);
-    if(rc) {
+    if (rc) {
         goto errReturn;
     }
 
     while(!indicate) {
         // write back not finished, wait
+        if (indicate == -1) {
+            rc = -EIO;
+            goto errReturn;
+        }
     }
 
-    if(indicate == -1) {
+    if (indicate == -1) {
         rc = -EIO;
         goto errReturn;
     }
+
+    this->m_collectionBid = head;
 
     return 0;
 
@@ -938,7 +1030,7 @@ int CCollection::saveTo(const bidx& head) {
     @return 0 on success, else on failure
 */
 int CCollection::loadFrom(const bidx& head) {
-    if(inited) {
+    if (inited) {
         return -EALREADY;
     }
     int rc = 0;
@@ -950,19 +1042,19 @@ int CCollection::loadFrom(const bidx& head) {
     if (rc != 0) {
         goto errReturn;
     }
-    if(!ce) {
+    if (!ce) {
         rc = -EIO;
         goto errReturn;
     }
 
 
     m_collectionStruct = new collectionStruct(ce->getPtr(), ce->getLen() * dpfs_lba_size);
-    if(!m_collectionStruct) {
+    if (!m_collectionStruct) {
         rc = -ENOMEM;
         goto errReturn;
     }
 
-    if(B_END) {
+    if (B_END) {
         // TODO: convert to host endian
         
     }
@@ -971,29 +1063,26 @@ int CCollection::loadFrom(const bidx& head) {
     for(uint32_t i = 0; i < m_collectionStruct->m_cols.size(); ++i) {
         m_rowLen += m_collectionStruct->m_cols[i].getLen();
     }
+    m_cltInfoCache = ce;
 
-    if(m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    if (m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         rc = initBPlusTreeIndex();
-        if(rc != 0) {
+        if (rc != 0) {
+            m_cltInfoCache = nullptr;
             goto errReturn;
         }
-        // m_btreeIndex = new CBPlusTree(*this, m_page, m_diskMan, m_collectionStruct->ds->m_indexPageSize);
-        // if(!m_btreeIndex) {
-        //     return -ENOMEM;
-        // }
     }
-    m_cltInfoCache = ce;
     inited = true;
     m_collectionBid = head;
     return 0;
 
     errReturn:
-    if(ce) {
+    if (ce) {
         ce->release();
         ce = nullptr;
     }
 
-    if(m_collectionStruct) {
+    if (m_collectionStruct) {
         delete m_collectionStruct;
         m_collectionStruct = nullptr;
     }
@@ -1006,17 +1095,17 @@ int CCollection::loadFrom(const bidx& head) {
     @note initialize the collection with the given id
 */
 int CCollection::initialize(const CCollectionInitStruct& initStruct) {
-    if(inited) {
+    if (inited) {
         return 0;
     }
 
     void* zptr = m_page.alloczptr(MAX_CLT_INFO_LBA_LEN);
-    if(!zptr) {
+    if (!zptr) {
         return -ENOMEM;
     }
 
     m_collectionStruct = new collectionStruct(zptr, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
-    if(!m_collectionStruct) {
+    if (!m_collectionStruct) {
         m_page.freezptr(zptr, MAX_CLT_INFO_LBA_LEN);
         return -ENOMEM;
     }
@@ -1036,15 +1125,24 @@ int CCollection::initialize(const CCollectionInitStruct& initStruct) {
     return 0;
 }
 
-int CCollection::initBPlusTreeIndex() noexcept {
-    if(!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+int CCollection::initBPlusTreeIndex() {
+    if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         message = "collection has no b+ tree index.";
         return -EINVAL;
     }
-    if(!m_btreeIndex) {
+    if (!m_btreeIndex) {
 
         size_t keyLen = 0;
         m_rowLen = 0;
+
+
+        CTemplateReadGuard guard(*m_cltInfoCache);
+        if (guard.returnCode() != 0) {
+            int rc = guard.returnCode();
+            message = "read lock collection info cache failed.";
+            return rc;
+        }
+
         for(uint32_t i = 0; i < m_collectionStruct->m_cols.size(); ++i) {
             const CColumn& col = m_collectionStruct->m_cols[i];
 
@@ -1060,12 +1158,12 @@ int CCollection::initBPlusTreeIndex() noexcept {
         }
         
         // if key is too big, the index performance may degrade, so return error.
-        if(keyLen > MAXKEYLEN) {
+        if (keyLen > MAXKEYLEN) {
             message = "key length exceed maximum allowed size.";
             return -E2BIG;
         }
 
-        if (m_rowLen > MAXROWLEN) {
+        if (m_rowLen > 32 * 8 * 1024) {
             message = "row length exceed maximum allowed size.";
             return -E2BIG;
         }
@@ -1082,9 +1180,38 @@ int CCollection::initBPlusTreeIndex() noexcept {
         m_keyLen,
         m_rowLen,
         m_cmpTyps);
-        if(!m_btreeIndex) {
+        if (!m_btreeIndex) {
             message = "allocate b+ tree index fail.";
             return -ENOMEM;
+        }
+
+
+        // init other indexes
+        m_indexCmpTps.reserve(m_collectionStruct->m_indexInfos.size());
+        for(auto& indexInfo : m_collectionStruct->m_indexInfos) {
+            m_indexCmpTps.emplace_back();
+            auto& cmpTp = m_indexCmpTps.back();
+            cmpTp.reserve(MAX_INDEX_COL_NUM);
+
+            // get compare types
+            for(uint32_t i = 0; i < indexInfo.cmpKeyColNum; ++i) {
+                cmpTp.emplace_back(std::make_pair(indexInfo.cmpTypes[i].colLen, indexInfo.cmpTypes[i].colType));
+            }
+
+            CBPlusTree* indexBpt = new CBPlusTree(m_page, m_diskMan, indexInfo.indexPageSize, 
+            indexInfo.indexHigh,
+            indexInfo.indexRoot,
+            indexInfo.indexBegin,
+            indexInfo.indexEnd,
+            indexInfo.indexKeyLen,
+            indexInfo.indexRowLen,
+            cmpTp);
+            if (!indexBpt) {
+                message = "allocate b+ tree index fail.";
+                return -ENOMEM;
+            }
+
+            m_indexTrees.emplace_back(indexBpt);
         }
     }
     return 0;
@@ -1093,13 +1220,21 @@ int CCollection::initBPlusTreeIndex() noexcept {
 // get one row
 int CCollection::getRow(KEY_T key, CItem* out) const {
 
-    if(!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         message = "collection has no b+ tree index.";
         return -EINVAL;
     }
 
+
+    CTemplateReadGuard guard(*m_cltInfoCache);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        message = "read lock collection info cache failed.";
+        return rc;
+    }
+
     int rc = m_btreeIndex->search(key, out->data, out->rowLen);
-    if(rc != 0) {
+    if (rc != 0) {
         message = "search key in b+ tree index fail.";
         return rc;
     }
@@ -1153,19 +1288,22 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
             return -EEXIST;
         }
     }
-    
+
     m_cltInfoCache->read_unlock();
 
 
-    uint32_t backPos = indexVec.size();
     // pushback new index info
     CTemplateGuard lockGuard(*m_cltInfoCache);
-    if(lockGuard.returnCode() != 0) {
+    if (lockGuard.returnCode() != 0) {
         message = "collection cache lock fail.";
         return lockGuard.returnCode();
     }
 
+    uint32_t backPos = indexVec.size();
+    // push back one empty index info
     indexVec.emplace_back();
+    m_indexCmpTps.emplace_back();
+
     
     auto& idxInfo = indexVec[backPos];
 
@@ -1180,11 +1318,13 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
     // copy with null terminator
     mempcpy(idxInfo.name, initStruct.name.c_str(), initStruct.name.size() + 1);
 
-    // init compare types
+    // init compare types for the index to be created
     CFixLenVec<cmpType, uint8_t, MAX_INDEX_COL_NUM> cmpTyps(idxInfo.cmpTypes, idxInfo.cmpKeyColNum);
-
     uint32_t collectionPkLen = 0;
+    CFixLenVec<CColumn, uint8_t, 2> idxCols(idxInfo.indexCol, idxInfo.idxColNum);
+    CBPlusTree* indexTree = nullptr;
 
+    // caculate collection pk length
     for(auto& cmpTyp : m_cmpTyps) {
         collectionPkLen += cmpTyp.first;
     }
@@ -1192,18 +1332,18 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
     // index primary key length, not origin table pk length
     uint32_t pkLen = 0;
     uint8_t idxSeqPos = 0;
-    // full fill the index key info
+    // fill the index key info
     for(auto& nms : initStruct.colNames) {
         uint8_t pos = 0;
         for(uint32_t i = 0; i < m_collectionStruct->m_cols.size(); ++i) {
             auto& col = m_collectionStruct->m_cols[i];
-            if(col.getNameLen() != nms.size()) {
+            if (col.getNameLen() != nms.size()) {
                 ++pos;
                 continue;
             }
 
-            if(memcmp(col.getName(), nms.c_str(), col.getNameLen()) == 0) {
-                // found the column
+            if (memcmp(col.getName(), nms.c_str(), col.getNameLen()) == 0) {
+                // found the column, record the position of column
                 idxInfo.keySequence[idxSeqPos] = pos;
                 cmpTyps.emplace_back();
                 cmpTyps[idxSeqPos].colLen = col.getLen();
@@ -1218,35 +1358,44 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
 
     if (cmpTyps.size() == 0) {
         message = "no valid index column found.";
-        return -EINVAL;
+        rc = -EINVAL;
+        goto errReturn;
     }
 
-    CFixLenVec<CColumn, uint8_t, 2> idxCols(idxInfo.indexCol, idxInfo.idxColNum);
+
     idxInfo.indexKeyLen = pkLen;
     idxInfo.indexRowLen = collectionPkLen + pkLen;
     idxCols.emplace_back("IDXPKCOL", dpfs_datatype_t::TYPE_BINARY, pkLen, 0,  CColumn::constraint_flags::NOT_NULL | CColumn::constraint_flags::PRIMARY_KEY);
     idxCols.emplace_back("PKDATACOL", dpfs_datatype_t::TYPE_BINARY, collectionPkLen, 0, CColumn::constraint_flags::NOT_NULL);
 
+    
 
-    if(m_btreeIndex && this->inited) {
+    if (m_btreeIndex && this->inited) {
         // compare types for index, this cmpTp is different from origin collection cmpTyps
         // this cmpTp contains the index columns, and index pk are saved as binary type
-        std::vector<std::pair<uint8_t, dpfs_datatype_t>> cmpTp;
+
+
+        auto& cmpTp = m_indexCmpTps.back();
+        cmpTp.reserve(cmpTyps.size());
         
         for(uint32_t i = 0; i < cmpTyps.size(); ++i) {
             cmpTp.emplace_back(std::make_pair(cmpTyps[i].colLen, cmpTyps[i].colType));
         }
 
-        CBPlusTree indexTree(m_page, m_diskMan, idxInfo.indexPageSize, idxInfo.indexHigh, 
+        indexTree = new CBPlusTree(m_page, m_diskMan, idxInfo.indexPageSize, idxInfo.indexHigh, 
         idxInfo.indexRoot, idxInfo.indexBegin, idxInfo.indexEnd, pkLen, collectionPkLen + pkLen, cmpTp);
-
+        if (!indexTree) {
+            message = "allocate index b+ tree fail.";
+            rc = -ENOMEM;
+            goto errReturn;
+        }
 
         auto it = m_btreeIndex->begin();
         auto end = m_btreeIndex->end();
         rc = it.loadNode();
         if (rc != 0) {
             message = "load b+ tree node fail.";
-            return rc;
+            goto errReturn;
         }
         char* rowPtr = new char[m_rowLen];
         for(; it != end; ++it) {
@@ -1263,7 +1412,7 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
             if (rc != 0) {
                 delete[] rowPtr;
                 message = "load b+ tree data fail.";
-                return rc;
+                goto errReturn;
             }
 
             // extract index key and pk data from rowPtr
@@ -1284,39 +1433,38 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
 
 
             // insert into index tree
-            rc = indexTree.insert(idxKey, originPkData, keyLenIndicator + pkLen);
+            rc = indexTree->insert(idxKey, originPkData, keyLenIndicator + pkLen);
             if (rc != 0) {
                 delete[] rowPtr;
                 message = "insert index key fail.";
                 cout << " now tree :: " << endl;
-                indexTree.printTree();
-                return rc;
+                indexTree->printTree();
+                goto errReturn;
             }
-#ifdef __COLLECT_DEBUG__
-            cout << " get key :: " << endl;
-            printMemory(idxKey.data, idxKey.len);
-            cout << " get pk data :: " << endl;
-            printMemory(originPkData, keyLenIndicator);
-            // indexTree.printTree();
-#endif
         }
-#ifdef __COLLECT_DEBUG__
-        cout << "\n\n\n\n\n\n\n\n\n\n" << endl;
-        indexTree.printTree();
-#endif
-        delete[] rowPtr;
 
-        rc = indexTree.commit();
+        delete[] rowPtr;
+        rc = indexTree->commit();
         if (rc != 0) {
             message = "commit index tree fail.";
-            return rc;
+            goto errReturn;
         }
+        m_indexTrees.emplace_back(indexTree);
+    } else {
+        message = "collection not initialized or has no b+ tree index.";
+        rc = -EINVAL;
+        goto errReturn;
     }
 
-
-
     return 0;
-
+errReturn:
+    if (indexTree) {
+        indexTree->destroy();
+        delete indexTree;
+    }
+    m_indexCmpTps.pop_back();
+    indexVec.pop_back();
+    return rc;
 }
 
 // TODO :: TEST DESTROY
@@ -1333,45 +1481,61 @@ int CCollection::destroy() {
         return -EINVAL;
     }
     int rc = 0;
+
+    CTemplateGuard guard(*m_cltInfoCache);
+    if (guard.returnCode() != 0) {
+        rc = guard.returnCode();
+        message = "lock collection info cache failed.";
+        return rc;
+    }
+
     if (m_btreeIndex) {
+        // free main b plus tree index
         rc = m_btreeIndex->destroy(); if (rc != 0) return rc;
         delete m_btreeIndex;
         m_btreeIndex = nullptr;
 
         // free index blocks
         for(uint32_t i = 0; i < m_collectionStruct->m_indexInfos.size(); ++i) {
-            auto& info = m_collectionStruct->m_indexInfos[i];
-            std::vector<std::pair<uint8_t, dpfs_datatype_t>> cmpTp;
-            cmpTp.reserve(info.cmpKeyColNum);
-            for(uint32_t i = 0; i < info.cmpKeyColNum; ++i) {
-                cmpTp.emplace_back(std::make_pair(info.cmpTypes[i].colLen, info.cmpTypes[i].colType));
-            }
-
-            CBPlusTree indexTree(m_page, m_diskMan, info.indexPageSize, info.indexHigh, info.indexRoot,
-                info.indexBegin, info.indexEnd, info.indexKeyLen, info.indexRowLen, cmpTp);
-            rc = indexTree.destroy(); if (rc != 0) return rc;
-            
-            m_diskMan.bfree(m_collectionStruct->m_indexInfos[i].indexRoot.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+            m_indexTrees[i]->destroy();
+            delete m_indexTrees[i];
+            m_indexTrees[i] = nullptr;
         }
+        m_indexCmpTps.clear();
+        m_indexTrees.clear();
+        m_collectionStruct->m_indexInfos.clear();
+        
     } else {
-        // limit support right now
+        // limited support right now
         // no b plus tree index
         // free data blocks
-        m_diskMan.bfree(m_collectionStruct->ds->m_dataRoot.bid, MAX_COLLECTION_INFO_LBA_SIZE);
     }
 
     // free collection info block
+    m_diskMan.bfree(m_collectionStruct->ds->m_dataRoot.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+    m_cltInfoCache->release();
+    m_cltInfoCache = nullptr;
     m_diskMan.bfree(m_collectionBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
 
     return 0;
 }
 
 
-int CCollection::searchByIndex(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CItem& out) const {
+int CCollection::getByIndex(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CItem& out) const {
 
     int rc = 0;
     CCollectIndexInfo* indexInfo = nullptr;
     bool match = false;
+
+    // get read lock
+    CTemplateReadGuard guard(*m_cltInfoCache);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        message = "read lock collection info cache failed.";
+        return rc;
+    }
+
+    uint32_t pos = 0;
     for (uint32_t i = 0; i < m_collectionStruct->m_indexInfos.size(); ++i) {
 
         if (m_collectionStruct->m_indexInfos[i].cmpKeyColNum != colNames.size()) {
@@ -1396,6 +1560,7 @@ int CCollection::searchByIndex(const std::vector<std::string>& colNames, const s
 
         if (match) {
             indexInfo = &m_collectionStruct->m_indexInfos[i];
+            pos = i;
             break;
         }
     }
@@ -1405,14 +1570,17 @@ int CCollection::searchByIndex(const std::vector<std::string>& colNames, const s
         return -ENOENT;
     }
 
-    std::vector<std::pair<uint8_t, dpfs_datatype_t>> cmpTp;
-    cmpTp.reserve(indexInfo->cmpKeyColNum);
-    for(uint32_t i = 0; i < indexInfo->cmpKeyColNum; ++i) {
-        cmpTp.emplace_back(std::make_pair(indexInfo->cmpTypes[i].colLen, indexInfo->cmpTypes[i].colType));
-    }
+    CBPlusTree& index = *m_indexTrees[pos];
+    auto& cmpTp = m_indexCmpTps[pos];
 
-    CBPlusTree index(m_page, m_diskMan, indexInfo->indexPageSize, indexInfo->indexHigh, 
-    indexInfo->indexRoot, indexInfo->indexBegin, indexInfo->indexEnd, indexInfo->indexKeyLen, indexInfo->indexRowLen, cmpTp);
+    // std::vector<std::pair<uint8_t, dpfs_datatype_t>> cmpTp;
+    // cmpTp.reserve(indexInfo->cmpKeyColNum);
+    // for(uint32_t i = 0; i < indexInfo->cmpKeyColNum; ++i) {
+    //     cmpTp.emplace_back(std::make_pair(indexInfo->cmpTypes[i].colLen, indexInfo->cmpTypes[i].colType));
+    // }
+
+    // CBPlusTree index(m_page, m_diskMan, indexInfo->indexPageSize, indexInfo->indexHigh, 
+    // indexInfo->indexRoot, indexInfo->indexBegin, indexInfo->indexEnd, indexInfo->indexKeyLen, indexInfo->indexRowLen, cmpTp);
 
 
     char keydata[1024];
@@ -1429,7 +1597,7 @@ int CCollection::searchByIndex(const std::vector<std::string>& colNames, const s
     CItem itm(indexCols);
 
     rc = index.search(indexKey, itm.data, itm.rowLen);
-    if(rc != 0) {
+    if (rc != 0) {
         message = " search index key in b+ tree fail";
         return rc;
     }
@@ -1438,6 +1606,7 @@ int CCollection::searchByIndex(const std::vector<std::string>& colNames, const s
     itm.endIter.m_ptr = itm.data + itm.rowLen;
 
 
+    // col[1] is pk data column
     CValue pkVal = itm.getValue(1);
 
     // use this pkdata to find in original bplus tree
@@ -1453,3 +1622,272 @@ int CCollection::searchByIndex(const std::vector<std::string>& colNames, const s
 
     return 0;
 }
+
+/*
+    @param outIter: index iterator to store (unique, primaryKey) of the main tree
+    @return 0 on success, else on failure
+    @note get scan iterator for the collection
+*/
+int CCollection::getScanIter(CIdxIter& outIter) const {
+
+    if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+        message = "collection has no b+ tree index.";
+        return -EINVAL;
+    }
+
+    if (!m_btreeIndex) {
+        message = "b+ tree index not initialized.";
+        return -EINVAL;
+    }
+
+    CBPlusTree::iterator iter = m_btreeIndex->begin();
+    outIter.assign((void*)&iter, nullptr);
+
+    return 0;
+}
+
+
+/*
+    @param scanIter row iterator of scan
+    @param out: CItem reference to store the result
+    @return number of items found on success, else on failure
+*/
+int CCollection::getByScanIter(CIdxIter& scanIter, CItem& out) const {
+
+    if (!scanIter.m_collIdxIterPtr) {
+        message = "invalid scan iterator.";
+        return -EINVAL;
+    }
+
+    CBPlusTree::iterator& iter = *(CBPlusTree::iterator*)scanIter.m_collIdxIterPtr;
+    int rc = 0;
+    uint32_t unuse = 0;
+    uint32_t rowLenIndicator = 0;
+
+    rc = iter.loadData(nullptr, 0, unuse, out.data, out.rowLen, rowLenIndicator);
+    if (rc != 0) {
+        message = "load scan iterator data fail.";
+        return rc;
+    }
+
+    return 0;
+}
+
+/*
+    @param idxIter row iterator of idnex
+    @param out: CItem reference to store the result
+    @return number of items found on success, else on failure
+*/
+int CCollection::getByIndexIter(CIdxIter& idxIter, CItem& out) const  {
+
+    const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM> indexCols(idxIter.indexInfo->indexCol, idxIter.indexInfo->idxColNum);
+
+    CItem idxItem(indexCols);
+
+
+    uint32_t unuse = 0;
+    uint32_t rowLenIndicator = 0;
+    // get primary key from index iterator
+    int rc = idxIter.loadData(nullptr, 0, unuse, idxItem.data, idxItem.rowLen, rowLenIndicator);
+    if (rc != 0) {
+        message = "load index iterator data fail.";
+        return rc;
+    }
+
+    // from index get pk
+    char tempData[MAXKEYLEN];
+    KEY_T pkData(tempData, 0, m_cmpTyps);
+    
+    // get data from second column
+    CValue pkVal = idxItem.getValue(1);
+    memcpy(pkData.data, pkVal.data, pkVal.len);
+    pkData.len = pkVal.len;
+    
+    // get from primary tree
+    rc = getRow(pkData, &out);
+    if (rc != 0) {
+        message = " get row by primary key fail";
+        return rc;
+    }
+
+    return 0;
+}
+
+/*
+    @param colNames: column names to search
+    @param keyVals: key values to search
+    @param outIter: index iterator to store (unique, primaryKey) of the main tree
+    @return 0 on success, else on failure
+*/
+int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CIdxIter& outIter) const {
+    int rc = 0;
+    CCollectIndexInfo* indexInfo = nullptr;
+    bool match = false;
+
+    // get read lock
+    CTemplateReadGuard guard(*m_cltInfoCache);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        message = "read lock collection info cache failed.";
+        return rc;
+    }
+
+    uint32_t pos = 0;
+    for (uint32_t i = 0; i < m_collectionStruct->m_indexInfos.size(); ++i) {
+
+        if (m_collectionStruct->m_indexInfos[i].cmpKeyColNum != colNames.size()) {
+            continue;
+        }
+        match = true;
+        auto& keyseq = m_collectionStruct->m_indexInfos[i].keySequence;
+        for (uint32_t j = 0; j < m_collectionStruct->m_indexInfos[i].cmpKeyColNum; ++j) {
+
+            if (colNames[j].size() != m_collectionStruct->m_cols[keyseq[j]].getNameLen()) {
+                // cout << " length not match " << endl;
+                match = false;
+                break;
+            }
+
+            if (memcmp(m_collectionStruct->m_cols[keyseq[j]].getName(), colNames[j].c_str(), m_collectionStruct->m_cols[keyseq[j]].getNameLen()) != 0) {
+                // cout << " name not match " << endl;
+                match = false;
+                break;
+            }
+        }
+
+        if (match) {
+            indexInfo = &m_collectionStruct->m_indexInfos[i];
+            pos = i;
+            break;
+        }
+    }
+
+    if (!match) {
+        message = "no index found for given columns";
+        return -ENOENT;
+    }
+
+    CBPlusTree& index = *m_indexTrees[pos];
+    auto& cmpTp = m_indexCmpTps[pos];
+
+    // std::vector<std::pair<uint8_t, dpfs_datatype_t>> cmpTp;
+    // cmpTp.reserve(indexInfo->cmpKeyColNum);
+    // for(uint32_t i = 0; i < indexInfo->cmpKeyColNum; ++i) {
+    //     cmpTp.emplace_back(std::make_pair(indexInfo->cmpTypes[i].colLen, indexInfo->cmpTypes[i].colType));
+    // }
+
+    // CBPlusTree index(m_page, m_diskMan, indexInfo->indexPageSize, indexInfo->indexHigh, 
+    // indexInfo->indexRoot, indexInfo->indexBegin, indexInfo->indexEnd, indexInfo->indexKeyLen, indexInfo->indexRowLen, cmpTp);
+
+
+    char keydata[MAXKEYLEN];
+    KEY_T indexKey(keydata, indexInfo->indexKeyLen, cmpTp);
+    uint32_t offset = 0;
+    for(int i = 0; i < keyVals.size(); ++i) {
+        std::memcpy(indexKey.data + offset, keyVals[i].data, keyVals[i].len);
+        offset += keyVals[i].len;
+    }
+
+
+
+    CBPlusTree::iterator Iter = index.search(indexKey);
+
+    // init idx iterator
+    outIter.assign((void*)&Iter, indexInfo);
+
+    return 0;
+}
+
+#define bptIt ((CBPlusTree::iterator*)m_collIdxIterPtr)
+
+CCollection::CIdxIter::CIdxIter() {
+    m_collIdxIterPtr = nullptr;
+    indexInfo = nullptr;
+}
+
+CCollection::CIdxIter::CIdxIter(const CIdxIter& other) {
+
+    m_collIdxIterPtr = (uint8_t*)new CBPlusTree::iterator(*(CBPlusTree::iterator*)other.m_collIdxIterPtr);
+    indexInfo = other.indexInfo;
+}
+
+CCollection::CIdxIter::CIdxIter(CIdxIter&& other) noexcept {
+
+    m_collIdxIterPtr = other.m_collIdxIterPtr;
+    indexInfo = other.indexInfo;
+
+    other.m_collIdxIterPtr = nullptr;
+    other.indexInfo = nullptr;
+}
+
+
+CCollection::CIdxIter& CCollection::CIdxIter::operator=(const CIdxIter& other) {
+    if (this != &other) {
+        if(m_collIdxIterPtr) {
+            *bptIt = *((CBPlusTree::iterator*)other.m_collIdxIterPtr);
+        } else {
+            m_collIdxIterPtr = (uint8_t*)new CBPlusTree::iterator(*(CBPlusTree::iterator*)other.m_collIdxIterPtr);
+            if (!m_collIdxIterPtr) {
+                // memory error
+                throw std::bad_alloc();
+            }
+        }
+        indexInfo = other.indexInfo;
+    }
+    return *this;
+}
+
+CCollection::CIdxIter::~CIdxIter() {
+    if (bptIt) {
+        delete bptIt;
+        m_collIdxIterPtr = nullptr;
+    }
+
+    m_collIdxIterPtr = nullptr;
+    indexInfo = nullptr;
+}
+
+int CCollection::CIdxIter::assign(const void* it, CCollectIndexInfo* idxInfo) {
+    if (m_collIdxIterPtr) {
+        delete bptIt;
+    }
+
+    if(m_collIdxIterPtr) {
+        *bptIt = *((CBPlusTree::iterator*)it);
+    } else {
+        m_collIdxIterPtr = (uint8_t*)new CBPlusTree::iterator(*(CBPlusTree::iterator*)it);
+    }
+
+    indexInfo = idxInfo;
+    return 0;
+}
+
+int CCollection::CIdxIter::operator++() {
+    if (bptIt) {
+        ++(*bptIt);
+        if (bptIt->getCurrentNodeBid().bid == 0) {
+            return -ENOENT;
+        }
+    } else {
+        return -EINVAL;
+    }
+    return 0;
+}
+
+int CCollection::CIdxIter::operator--() {
+    if (bptIt) {
+        --(*bptIt);
+        if (bptIt->getCurrentNodeBid().bid == 0) {
+            return -ENOENT;
+        }
+    } else {
+        return -EINVAL;
+    }
+    return 0;
+}
+
+int CCollection::CIdxIter::loadData(void* outKey, uint32_t outKeyLen, uint32_t& keyLen, void* outRow, uint32_t outRowLen, uint32_t& rowLen) {
+    return bptIt->loadData(outKey, outKeyLen, keyLen, outRow, outRowLen, rowLen);
+}
+
+#undef bptIt

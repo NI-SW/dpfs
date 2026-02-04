@@ -8,16 +8,14 @@
 using namespace std;
 #endif
 extern uint64_t nodeId;
-#define log_inf(fmt, ...) log_inf("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
-#define log_notic(fmt, ...) log_notic("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
-#define log_error(fmt, ...) log_error("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
-#define log_fatal(fmt, ...) log_fatal("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
-#define log_debug(fmt, ...) log_debug("%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__);
+
+#include <log/loglocate.h>
+
 
 // max block len, manage memory block alloced by dpfsEngine::zmalloc
-const size_t maxBlockLen = 20;
-// ?
-const size_t maxMemBlockLimit = 20;
+const size_t maxBlockLen = 40;
+// max memory block number limited for each block list
+const size_t maxMemBlockLimit = 100;
 
 const std::vector<std::string> cacheStruct::statusEnumStr = {"VALID", "WRITING", "READING", "INVALID", "ERROR"};
 
@@ -34,9 +32,10 @@ void cacheStruct::release() {
     }
 }
 
-CPage::CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : 
+CPage::CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log, size_t maxCacheSizeInByte) : 
 m_log(log),
 m_engine_list(engine_list), 
+// implicit conversion from CPage* to PageClrFn
 m_cache(cacheSize, this) {
     // the length larger then 10 need Special Processing
     m_zptrList.resize(maxBlockLen);
@@ -44,6 +43,7 @@ m_cache(cacheSize, this) {
     m_exit = 0;
     m_hitCount = 0;
     m_getCount = 0;
+    m_maxSizeInByte = maxCacheSizeInByte;
 }
 
 CPage::~CPage() {
@@ -80,6 +80,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
     // dpfsEngine memory pointer
     void* zptr = nullptr;
     bool updateCache = false;
+    size_t oldSize = 0;
 
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* ptr = m_cache.getCache(idx);
     if(ptr) {
@@ -91,6 +92,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         }
     }
 
+    // reget the cache if not found or need update
     if(!ptr || updateCache) {
 
         // alloc zptr
@@ -105,6 +107,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         // alloc cache block struct 
         if(updateCache) {
             cptr = ptr->cache;
+            oldSize = cptr->len * dpfs_lba_size;
         } else {
             cptr = alloccs();
         }
@@ -149,13 +152,18 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
 
         // use lambda to define callback func
         cbs->m_cb = [&cptr, cbs](void* arg, const dpfs_compeletion* dcp) {
-
             CPage* pge = static_cast<CPage*>(arg);
             if(!pge) {
                 // free(cbs);
+                cptr->status = cacheStruct::ERROR;
+                pge->m_log.log_error("internal error: page pointer is null in read callback\n");
+                
+                pge->freecbs(cbs);
                 delete cbs;
                 return;
             }
+
+            // pge->m_log.log_debug("callback for %p called idx : { gid=%llu bid=%llu }, len = %llu\n", cptr, cptr->idx.gid, cptr->idx.bid, cptr->len);
 
             if(dcp->return_code) {
                 cptr->status = cacheStruct::ERROR;
@@ -180,16 +188,33 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
 
         if(updateCache) {
             cptr->refs += 1;
+            m_currentSizeInByte += (len * dpfs_lba_size - oldSize);
         } else {
             cptr->idx = idx;
             // one for lru, one for user
             cptr->refs += 2;
             // insert to cache
+
+            if (m_maxSizeInByte == 0) {
+                // unlimited cache size
+            } else {
+                while(m_currentSizeInByte > m_maxSizeInByte - (len * dpfs_lba_size)) {
+                    // need free some cache
+                    m_log.log_notic("cache size exceed max size %llu Bytes, current size %llu Bytes, try to free some cache\n", m_maxSizeInByte, m_currentSizeInByte.load());
+                    rc = m_cache.popBackCache();
+                    if (rc == -ENOENT) {
+                        // no more cache can be freed
+                        break;
+                    }
+                }
+            }
+
             rc = m_cache.insertCache(cptr->idx, cptr);
             if(rc) {
                 m_log.log_error("insert to cache err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
                 goto errReturn;
             }
+            m_currentSizeInByte += len * dpfs_lba_size;
         }
 
 
@@ -252,7 +277,20 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
         cs->status = cacheStruct::VALID;
         cs->dirty = 1;
         ++cs->refs;
-        
+
+        if (m_maxSizeInByte == 0) {
+            // unlimited cache size
+        } else {
+            while(m_currentSizeInByte > m_maxSizeInByte - (len * dpfs_lba_size)) {
+                // need free some cache
+                m_log.log_notic("cache size exceed max size %llu Bytes, current size %llu Bytes, try to free some cache\n", m_maxSizeInByte, m_currentSizeInByte.load());
+                rc = m_cache.popBackCache();
+                if (rc == -ENOENT) {
+                    // no more cache can be freed
+                    break;
+                }
+            }
+        }
 
         // insert the cache to lru system
         rc = m_cache.insertCache(idx, cs);
@@ -261,7 +299,7 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
             --cs->refs;
             goto errReturn;
         }
-
+        m_currentSizeInByte += len * dpfs_lba_size;
         if(pCache) {
             ++cs->refs;
             *pCache = cs;
@@ -390,6 +428,7 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
             // should not reach here
         }
     }
+
 
     return 0;
 
@@ -659,26 +698,24 @@ PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
 
 // write back only
 void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
-    if(p->idx.gid != 0) {
+    if(p->idx.gid != nodeId) {
         // write is only allowed on gid 0
         p->release();
         return;
     }
+    // TODO :: maybe use multi thread to write back, to avoid lock conflict
 
     int rc = 0;
     // find disk group by gid, find block on disk by bid, write p, block number = blkNum
     // p->p must by alloc by engine_list->zmalloc
 
     void* zptr = p->zptr;
-
-
+    this->cp->m_currentSizeInByte -= p->len * dpfs_lba_size;
 
     // some problem, need to considerate call back method
     if(p->dirty || finish_indicator != nullptr) {
 
-
-
-        dpfs_engine_cb_struct* cbs = this->cp->alloccbs(); //new dpfs_engine_cb_struct;
+        dpfs_engine_cb_struct* cbs = this->cp->alloccbs();
         if(!cbs) {
             cp->m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory, write back fail!, gid: %llu, bid: %llu\n", p->idx.gid, p->idx.bid);
             return;
@@ -716,6 +753,8 @@ void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
                 pcf->cp->freecbs(cbs);
                 return;
             }
+            // after write back, the cache is invalid
+            p->status = cacheStruct::INVALID;
             if(finish_indicator) {
                 *finish_indicator = 1;
             }
@@ -768,6 +807,13 @@ void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
         p->release();
     }
 
+done:
+    
+    return;
+
+errReturn:
+
+    return;
 
 }
 

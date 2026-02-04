@@ -1,6 +1,6 @@
 #include <collect/bp.hpp>
 
-constexpr size_t BIGROWLENTHRESHOLD =  1024 * 1024; // 1MB
+constexpr size_t BIGROWLENTHRESHOLD = 32 * 1024; // 32KB
 
 
 CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& treeHigh, bidx& root, bidx& begin, bidx& end, uint16_t okeyLen, uint32_t orowLen, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTypes)
@@ -21,20 +21,20 @@ CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& tree
     maxkeyCount = ((m_pageSize * dpfs_lba_size - sizeof(NodeData::nd::hdr_t)) - sizeof(uint64_t)) / (keyLen + sizeof(uint64_t));
     // if row len is toooooooooooo big, change order to smaller value max block = 256MB
     if (m_rowLen > BIGROWLENTHRESHOLD * 8) {
-        if (maxkeyCount > 16) maxkeyCount = 16;
+        if (maxkeyCount > 14) maxkeyCount = 14;
     } else if (m_rowLen > BIGROWLENTHRESHOLD * 4) {
-        if (maxkeyCount > 32) maxkeyCount = 32;
+        if (maxkeyCount > 30) maxkeyCount = 30;
     } else if (m_rowLen > BIGROWLENTHRESHOLD * 2) {
-        if (maxkeyCount > 64) maxkeyCount = 64;
+        if (maxkeyCount > 60) maxkeyCount = 60;
     } else if (m_rowLen > BIGROWLENTHRESHOLD) {
-        if (maxkeyCount > 128) maxkeyCount = 128;
+        if (maxkeyCount > 120) maxkeyCount = 120;
     }
 
 
-    if (m_rowLen > MAXROWLEN) {
-        // should not happen
-        throw std::runtime_error("Row length exceeds maximum allowed size in BPlusTree constructor");
-    }
+    // if (m_rowLen > MAXROWLEN) {
+    //     // should not happen
+    //     throw std::runtime_error("Row length exceeds maximum allowed size in BPlusTree constructor");
+    // }
 
     // reserve 1 for split
     m_indexOrder = static_cast<size_t>(maxkeyCount) - 1;
@@ -1761,10 +1761,10 @@ CBPlusTree::iterator& CBPlusTree::iterator::operator=(const CBPlusTree::iterator
         m_currentPos = other.m_currentPos;
         node.deInitNode();
         loaded = false;
-        int rc = loadNode();
-        if (rc != 0) {
-            throw std::runtime_error("Failed to load start node for iterator");
-        }
+        // int rc = loadNode();
+        // if (rc != 0) {
+        //     throw std::runtime_error("Failed to load start node for iterator");
+        // }
     }            
     return *this;
 }
@@ -1779,34 +1779,34 @@ int CBPlusTree::iterator::loadData(void* outKey, uint32_t outKeyLen, uint32_t& k
     uint8_t* rowData = nullptr;
     uint32_t actualLen = 0;
 
+    uint32_t copyLen = 0;
+
     CTemplateReadGuard g(*node.pCache);
-
-    rc = node.keyVec->at(m_currentPos, key);
-    if (rc != 0) {
-        return rc;
-    }
-    rc = node.rowVec->reference_at(m_currentPos, rowData, &actualLen);
-    if (rc != 0) {
-        return rc;
+    if (g.returnCode() != 0) {
+        return -EIO;
     }
 
-    keyLen = key.len;
-    uint32_t copyLen = key.len < outKeyLen ? key.len : outKeyLen;
+
     if (outKey != nullptr) {
+        rc = node.keyVec->at(m_currentPos, key);
+        if (rc != 0) {
+            return rc;
+        }
+
+        keyLen = key.len;
+        copyLen = key.len < outKeyLen ? key.len : outKeyLen;
         std::memcpy(outKey, key.data, copyLen);
     }
 
-    copyLen = actualLen < outRowLen ? actualLen : outRowLen;
     if (outRow != nullptr) {
+        rc = node.rowVec->reference_at(m_currentPos, rowData, &actualLen);
+        if (rc != 0) {
+            return rc;
+        }
+        copyLen = actualLen < outRowLen ? actualLen : outRowLen;
         std::memcpy(outRow, rowData, copyLen);
+        rowLen = actualLen;
     }
-    rowLen = actualLen;
-
-    // if (rowLen > outRowLen || keyLen > outKeyLen) {
-    //     rc = 1; // indicate output row buffer is too small
-    // } else {
-    //     rc = 0;
-    // }
 
     return 0;
 

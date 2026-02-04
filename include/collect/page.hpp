@@ -103,7 +103,7 @@ public:
 
     static const std::vector<std::string> statusEnumStr;
 
-    inline uint16_t getStatus() const noexcept {
+    inline const std::atomic<uint16_t>& getStatus() const noexcept {
         return status;
     }
 
@@ -228,8 +228,9 @@ public:
         @param engine_list storage engine.
         @param cacheSize cache pool size
         @param log used to out put info
+        @param maxCacheSizeInByte max cache size in byte, default is unlimited(0)
     */
-    CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log);
+    CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log, size_t maxCacheSizeInByte = 0);
     ~CPage();
 
     /*
@@ -335,6 +336,8 @@ private:
     // make sure m_cache is destructed first when destruct CPage
     CDpfsCache<bidx, cacheStruct*, PageClrFn> m_cache;
 
+    atomic<size_t> m_currentSizeInByte = 0;
+    size_t m_maxSizeInByte = 0;
 };
 
 

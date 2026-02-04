@@ -34,7 +34,7 @@ extern const char hex_chars[];
 // if key length exceed maxKeyLen, when search compare only first maxKeyLen bytes
 constexpr uint16_t maxSearchKeyLen = 1024; // 1024B
 constexpr uint32_t maxInrowLen = 32768; // 32KB
-constexpr size_t MAXROWLEN =  16 * 1024 * 1024; // 16MB 
+// constexpr size_t MAXROWLEN =  16 * 1024 * 1024; // 16MB 
 // constexpr uint8_t PAGESIZE = 4;
 // constexpr uint32_t ROWPAGESIZE = 32; 
 // constexpr int ROWLEN = 512; // default row length
@@ -545,6 +545,10 @@ public:
 
         int isValid() noexcept {
             return valid;
+        }
+
+        const bidx& getCurrentNodeBid() const noexcept {
+            return m_currentNode;
         }
     private:
         friend class CBPlusTree;

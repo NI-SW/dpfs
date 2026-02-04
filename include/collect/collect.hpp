@@ -23,6 +23,7 @@ class CCollection;
 class KEY_T;
 // class CProduct;
 
+constexpr size_t MAX_PKCOLS = 16;
 constexpr size_t MAX_COL_NAME_LEN = 64;
 constexpr size_t MAX_NAME_LEN = 128;
 constexpr size_t MAX_COL_NUM = 128;
@@ -272,6 +273,9 @@ public:
 
 
     int setData(const void* data, uint32_t size) noexcept {
+        if (size > maxLen) {
+            return -E2BIG;
+        }
         len = size;
         memcpy(this->data, data, size);
         return 0;
@@ -566,10 +570,6 @@ public:
         rowLen = 0;
         for (auto& col : cols) {
             rowLen += col.getLen();
-            // if(isVariableType(col.getType())) {
-            //     // variable length type not allowed
-            //     throw std::invalid_argument("Variable length type not allowed in CSeqStorage");
-            // }
         }
     };
     ~CSeqStorage() {};
@@ -675,11 +675,11 @@ struct CCollectIndexInfo {
     // the first key is primary key of the index, the second is primary key for collections
     CColumn indexCol[2];
     
-    // key sequence for multi column index, for example keySequence[0] = 2 means the first column of the index is the 3rd column of the collection
+    // the size of this array is cmpKeyColNum, key sequence for multi column index, for example keySequence[0] = 2 means the first column of the index is the 3rd column of the collection
     uint8_t keySequence[MAX_INDEX_COL_NUM] = {0};
     // use CFixLenVec<cmpType, uint8_t, MAX_INDEX_COL_NUM> m_cmpTyps(cmpTypes, cmpKeyColNum); to init index tree
 
-    // number of compare key types
+    // relate with cmpTypes number of compare key types
     uint8_t cmpKeyColNum = 0;
 
     // compare key types. [length, dataType]
@@ -701,6 +701,29 @@ like a table
 class CCollection {
 public:
 
+    class CIdxIter {
+        public:
+        CIdxIter();
+        
+        CIdxIter(const CIdxIter& other);
+        CIdxIter(CIdxIter&& other) noexcept;
+        CIdxIter& operator=(const CIdxIter& other);
+        ~CIdxIter();
+
+        int operator++();
+        int operator--();
+        int loadData(void* outKey, uint32_t outKeyLen, uint32_t& keyLen, void* outRow, uint32_t outRowLen, uint32_t& rowLen);
+
+        // disable heap allocation
+        void* operator new(size_t sz) = delete;
+        private:
+        
+        
+        int assign(const void* it, CCollectIndexInfo* idxInfo);
+        friend class CCollection;
+        uint8_t* m_collIdxIterPtr;
+        CCollectIndexInfo* indexInfo = nullptr;
+    };
 
     // use ccid to locate the collection (search in system collection table)
     CCollection() = delete;
@@ -716,7 +739,7 @@ public:
     // now only support row storage
     // enum class storageType {
     //     COL = 0,    // storage data by column   -> easy to add col
-    //     ROW,        // storage data by row      -> easy to query
+    // √   ROW,        // storage data by row      -> easy to query
     //     MIX,        // storage data by mix of col and row
     // };
 
@@ -763,15 +786,46 @@ public:
     */
     int getRow(KEY_T key, CItem* out) const;
 
-    int searchByIndex(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CItem& out) const;
+    /*
+        @param colNames: column names to search
+        @param keyVals: key values to search
+        @param out: CItem reference to store the result
+        @return 0 on success, else on failure
+    */
+    int getByIndex(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CItem& out) const;
+
+    /*
+        @param outIter: index iterator to store (unique, primaryKey) of the main tree
+        @return 0 on success, else on failure
+        @note get scan iterator for the collection
+    */
+    int getScanIter(CIdxIter& outIter) const;
 
     /*
         @param colNames: column names to search
         @param keyVals: key values to search
-        @param indexIter: b plus tree iterator to store the result
+        @param out: CItem reference to store the result
+        @note get one row by scanning the collection
         @return number of items found on success, else on failure
     */
-    // int searchByIndex(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CBPlusTree::iterator& indexIter) const;
+    int getByScanIter(CIdxIter& scanIter, CItem& out) const;
+
+    /*
+        @param idxIter row iterator of index
+        @param out: CItem reference to store the result
+        @return number of items found on success, else on failure
+        @note get one row by index iterator
+    */
+    int getByIndexIter(CIdxIter& idxIter, CItem& out) const;
+
+    /*
+        @param colNames: column names to search
+        @param keyVals: key values to search
+        @param outIter: index iterator to store (unique, primaryKey) of the main tree
+        @return 0 on success, else on failure
+    */
+    int getIdxIter(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CIdxIter& outIter) const;
+
 
     /*
         @return total items in the collection
@@ -843,7 +897,7 @@ public:
         init b plus tree index for the collection, must be called after initialize and columns are set
         @return 0 on success, else on failure
     */
-    int initBPlusTreeIndex() noexcept;
+    int initBPlusTreeIndex();
 
     /*
         create a new index for the collection
@@ -877,6 +931,7 @@ public:
         ds((dataStruct_t*)dataPtr),
             data((uint8_t*)dataPtr),
             size(sz),
+            m_pkColPos(ds->m_pkPos, ds->m_pkColNum),
             m_cols(ds->m_colsData, ds->m_colSize),
             m_indexInfos(ds->m_indexInfos, ds->m_indexSize) {
 
@@ -933,12 +988,16 @@ public:
             uint8_t m_indexPageSize = 4;
             uint8_t m_colSize = 0;
             uint8_t m_nameLen = 0;
+
+            uint8_t m_pkColNum = 0;
+            uint8_t m_pkPos[MAX_PKCOLS];
             // name of the collection
             char m_name[MAX_NAME_LEN];
         }* ds = nullptr;
         uint8_t* data = nullptr;
         size_t size = 0;
-        // TODO:: 考虑列描述信息单独保存，以节省存储空间
+        
+        CFixLenVec<uint8_t, uint8_t, MAX_PKCOLS> m_pkColPos;
         CFixLenVec<CColumn, uint8_t, MAX_COL_NUM> m_cols;
         CFixLenVec<CCollectIndexInfo, uint8_t, MAX_INDEX_NUM> m_indexInfos;
     }* m_collectionStruct = nullptr;
@@ -946,12 +1005,13 @@ public:
     // inner locker 1B
     CSpin m_lock;
     CBPlusTree* m_btreeIndex = nullptr;
+    // index b plus trees, bind with m_collectionStruct->m_indexInfos
+    std::vector<CBPlusTree*> m_indexTrees;
+    std::vector<std::vector<std::pair<uint8_t, dpfs_datatype_t>>> m_indexCmpTps;
     // the product that owns this collection
     // CProduct& m_owner;
     
-    // columns in the collection
-    // primary key position in the columns
-    uint8_t m_pkPos = 0;
+
     mutable std::string message;
     // first -> col len, second -> col type, use for key compare in b plus tree
     std::vector<std::pair<uint8_t, dpfs_datatype_t>> m_cmpTyps;

@@ -71,6 +71,7 @@ errReturn:
     return rc;
 }
 
+// TODO :: 
 // save the privilege to user's cache
 int yy::CParser::checkPrivilege(const std::string& schemaName, const std::string& objName, tbPrivilege requiredPrivilege) {
 
