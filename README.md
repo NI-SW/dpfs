@@ -2,7 +2,8 @@ DPFS
 Data Partitioned Foodtrace System
 
 spdk编译参数：
-./configure --with-fio=../fio --with-rdma --with-shared
+# ./configure --with-fio=../fio --with-rdma --with-shared
+./configure --with-rdma --with-shared --with-fio=../fio/ --with-isal --with-isal-crypto
 
 加载内核模块：
 modprobe nvme_fabrics
