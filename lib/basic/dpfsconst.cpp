@@ -79,27 +79,38 @@ int parse_string(const char* str, const char* key, char* value, size_t size) {
 
 }
 
-const char* ull2str(unsigned long long int l) noexcept {
+int ull2str(unsigned long long int l, char* buf, size_t len) noexcept {
     
-    if(l == 0) {
-        return "0";
+    if (len < 1) {
+        return -EINVAL;
     }
 
-    char buf[20];
+    if(l == 0) {
+        if(len < 2) {
+            return -ENAMETOOLONG;
+        }
+        buf[0] = '0';
+        buf[1] = '\0';
+        return 0;
+    }
+
     /*
         max = 18446744073709551614
     */
 
-    char* p = buf + sizeof(buf) - 1;
+    char* p = buf + len - 1;
 
     while(l != 0) {
         --p;
+        if (p < buf) {
+            return -ENAMETOOLONG;
+        }
         *p = '0' + (l % 10);
         l /= 10;
     }
 
 
-    return p;
+    return 0;
 
     
 }
