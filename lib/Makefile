@@ -5,7 +5,8 @@
 
 DPFS_ROOT_DIR := $(abspath $(CURDIR)/..)
 
-SUBDIRS := dpfsmodule basic log storage collect dpfsnet dpfssys client $(DPFS_ROOT_DIR)/include/parser parser
+SUBDIRS := dpfsmodule basic log storage collect dpfsnet dpfssys client tiparser parser
+# $(DPFS_ROOT_DIR)/include/parser parser
 
 all clean::
 	@for subdir in $(SUBDIRS); \

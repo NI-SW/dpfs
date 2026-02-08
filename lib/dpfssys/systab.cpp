@@ -6,13 +6,15 @@ using cf = CColumn::constraint_flags;
 
 int CSysSchemas::init() {
     int rc = 0;
-    bidx sysBidx = {nodeId, 16};
-    bidx tmpbid = {nodeId, 20};
-    CItem itm(systemboot.m_collectionStruct->m_cols, 16);
+    size_t baseBid = 16;
+    bidx sysBidx = {nodeId, baseBid};
+    bidx tmpbid = {nodeId, baseBid + MAX_COLLECTION_INFO_LBA_SIZE};
     char version[4] = {dpfsVersion[0] + 0x30, dpfsVersion[1] + 0x30, dpfsVersion[2] + 0x30, dpfsVersion[3] + 0x30};
+    
+    rc = initBootTab(sysBidx); if (rc != 0) { return -ENOMEM; }
 
-    rc = initBootTab(sysBidx); if (rc != 0) { goto errReturn; }
-
+    CItem itm(systemboot.m_collectionStruct->m_cols, 16);
+    
     // itm = CItem::newItems(systemboot.m_collectionStruct->m_cols, 16);    if (itm == nullptr) { rc = -ENOMEM; goto errReturn; }
 
     // VERSION
@@ -31,49 +33,49 @@ int CSysSchemas::init() {
     rc = itm.updateValue(1, &nodeId, sizeof(nodeId));                   if (rc < 0) { goto errReturn; }
 
     // SYSTABLES ROOT BIDX
-    tmpbid = {nodeId, 20};
+    tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
     rc = initTableTab(tmpbid);                                           if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSTABLESRT", sizeof("SYSTABLESRT"));      if (rc < 0) { goto errReturn; }
     rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
 
     // SYSCOLUMNS ROOT BIDX
-    tmpbid = {nodeId, 24};
+    tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
     rc = initColTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSCOLUMNSRT", sizeof("SYSCOLUMNSRT"));    if (rc < 0) { goto errReturn; }
     rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
     
     // SYSCONSTRAINTS ROOT BIDX
-    tmpbid = {nodeId, 28};
+    tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
     rc = initConTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSCONSTRT", sizeof("SYSCONSTRT"));        if (rc < 0) { goto errReturn; }
     rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
     
     // SYSINDEXES ROOT BIDX
-    tmpbid = {nodeId, 32};
+    tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
     rc = initIdxTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSINDEXRT", sizeof("SYSINDEXRT"));        if (rc < 0) { goto errReturn; }
     rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
 
     // SYSUSERS ROOT BIDX
-    tmpbid = {nodeId, 36};
+    tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
     rc = initUserTab(tmpbid);                                            if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSUSERSRT", sizeof("SYSUSERSRT"));        if (rc < 0) { goto errReturn; }
     rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
 
     // SYSSCHEMAS ROOT BIDX
-    tmpbid = {nodeId, 40};
+    tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
     rc = initSchemaTab(tmpbid);                                          if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSSCHEMASRT", sizeof("SYSSCHEMASRT"));    if (rc < 0) { goto errReturn; }
     rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                   if (rc < 0) { goto errReturn; }
 
     // SYSAUTHS ROOT BIDX
-    tmpbid = {nodeId, 44};
+    tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
     rc = initAuthTab(tmpbid);                                           if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSAUTHRT", sizeof("SYSAUTHRT"));         if (rc < 0) { goto errReturn; }
@@ -85,7 +87,7 @@ int CSysSchemas::init() {
     #ifdef __DPFSSYS_SYSTAB_DEBUG__
     cout << "System Boot Info Inserted:" << endl;
     #endif
-    rc = systemboot.addItem(itm); if (rc != 0) { goto errReturn; }
+    rc = systemboot.addItem(itm); if (rc != 0) { std::cout << "message " << systemboot.message << std::endl; goto errReturn; }
 
 
 

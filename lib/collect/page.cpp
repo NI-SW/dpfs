@@ -86,9 +86,11 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
     bool updateCache = false;
     size_t oldSize = 0;
 
+    CSpinGuard guard(m_cacheLock);
+
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* ptr = m_cache.getCache(idx);
     if(ptr) {
-        m_log.log_inf("found cache in LRU, gid=%llu bid=%llu len=%llu\n", idx.gid, idx.bid, ptr->cache->len);
+        m_log.log_debug("found cache in LRU, gid=%llu bid=%llu len=%llu\n", idx.gid, idx.bid, ptr->cache->len);
 
         // if len is not match, need update cache, reload from disk
         if(ptr->cache->len < len || ptr->cache->status == cacheStruct::ERROR || ptr->cache->status == cacheStruct::INVALID) {
@@ -132,6 +134,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         // change status to reading
         cptr->status = cacheStruct::READING;
 
+        // if is update cache, need not change idx, just change zptr and len
         if(updateCache) {
             freezptr(cptr->zptr, cptr->len);
         }
@@ -147,12 +150,6 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
             goto errReturn;
         }
 
-        // cbvar* cbv = reinterpret_cast<cbvar*>((char*)cbs + sizeof(dpfs_engine_cb_struct));
-        // cbv->cptr = cptr;
-        // cbv->cbs = cbs;
-        // cbv->page = this;
-        // cbs->m_acb = page_get_cb;
-        // cbs->m_arg = cbv;
 
         // use lambda to define callback func
         cbs->m_cb = [&cptr, cbs](void* arg, const dpfs_compeletion* dcp) {
@@ -185,6 +182,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         rc = m_engine_list[idx.gid]->read(idx.bid, zptr, len, cbs);
         if(rc < 0) {
             m_log.log_error("read from disk err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
+            freecbs(cbs);
             goto errReturn;
         }
 
@@ -213,11 +211,13 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
                 }
             }
 
-            rc = m_cache.insertCache(cptr->idx, cptr);
-            if(rc) {
-                m_log.log_error("insert to cache err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
-                goto errReturn;
-            }
+            do {
+                rc = m_cache.insertCache(cptr->idx, cptr);
+                if(rc) {
+                    m_log.log_error("insert to cache err, gid=%llu bid=%llu len=%llu rc = %d, NO MEMORY\n", cptr->idx.gid, cptr->idx.bid, cptr->len, rc);
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+            } while (rc);
             m_currentSizeInByte += len * dpfs_lba_size;
         }
 
@@ -262,7 +262,7 @@ int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, b
     cacheStruct* cs = nullptr;
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* cptr = nullptr;
 
-
+    CSpinGuard guard(m_cacheLock);
 
     // update cache
     cptr = m_cache.getCache(idx);
@@ -449,8 +449,10 @@ errReturn:
 }
 
 int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
-    // TODO 
+    // TODO check if it need a lock 
     int rc = 0;
+
+
 
     dpfs_engine_cb_struct* cbs = alloccbs();// new dpfs_engine_cb_struct;
     if(!cbs) {
@@ -531,6 +533,132 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
 
     return 0;
 errReturn:
+    return rc;
+}
+
+// TODO , not test yet, maybe error exist
+int CPage::fresh(cacheStruct*& cache) {
+    if (!cache) {
+        return -EINVAL;
+    }
+
+    if(cache->idx.gid >= m_engine_list.size()) {
+        return -ERANGE;
+    }
+
+
+    int rc = 0;
+
+
+
+    CSpinGuard guard(m_cacheLock);
+
+    CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* ptr = m_cache.getCache(cache->idx);
+    if(ptr) {
+        // if the cache is found in lru, check the size
+        m_log.log_debug("found cache in LRU, gid=%llu bid=%llu len=%llu\n", cache->idx.gid, cache->idx.bid, ptr->cache->len);
+
+        // if len is not match, return error
+        if (ptr->cache->len != cache->len) {
+            m_log.log_error("cache length mismatch in fresh, gid=%llu bid=%llu cache len=%llu input len=%llu\n", cache->idx.gid, cache->idx.bid, ptr->cache->len, cache->len);
+            return -EINVAL;
+        }
+
+        if (ptr->cache == cache) {
+            // same cache, just return
+            return 0;
+        }
+        // cache pointer is change
+        cache->release();
+        cache = ptr->cache;
+        cache->refs += 1;
+        return EEXIST;
+    }
+
+    // cache is not in lru, need insert
+
+
+    // change status to reading
+    cache->status = cacheStruct::READING;
+
+
+    dpfs_engine_cb_struct* cbs = alloccbs();// new dpfs_engine_cb_struct;
+    if(!cbs) {
+        m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory\n");
+        rc = -ENOMEM;
+        goto errReturn;
+    }
+
+
+    // use lambda to define callback func
+    cbs->m_cb = [&cache, cbs](void* arg, const dpfs_compeletion* dcp) {
+        CPage* pge = static_cast<CPage*>(arg);
+        if(!pge) {
+            // free(cbs);
+            cache->status = cacheStruct::ERROR;
+            pge->m_log.log_error("internal error: page pointer is null in read callback\n");
+            
+            pge->freecbs(cbs);
+            delete cbs;
+            return;
+        }
+
+        // pge->m_log.log_debug("callback for %p called idx : { gid=%llu bid=%llu }, len = %llu\n", cptr, cptr->idx.gid, cptr->idx.bid, cptr->len);
+
+        if(dcp->return_code) {
+            cache->status = cacheStruct::ERROR;
+            pge->m_log.log_error("write fail code: %d, msg: %s\n", dcp->return_code, dcp->errMsg);
+            pge->freecbs(cbs);
+            return;
+        }
+        cache->status = cacheStruct::VALID;
+        pge->freecbs(cbs);
+        
+    };
+    cbs->m_arg = this;
+    
+    // read from disk
+    rc = m_engine_list[cache->idx.gid]->read(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
+    if(rc < 0) {
+        m_log.log_error("read from disk err, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
+        goto errReturn;
+    }
+
+
+    // insert to cache
+
+    if (m_maxSizeInByte == 0) {
+        // unlimited cache size
+    } else {
+        while(m_currentSizeInByte > m_maxSizeInByte - (cache->len * dpfs_lba_size)) {
+            // need free some cache
+            m_log.log_notic("cache size exceed max size %llu Bytes, current size %llu Bytes, try to free some cache\n", m_maxSizeInByte, m_currentSizeInByte.load());
+            rc = m_cache.popBackCache();
+            if (rc == -ENOENT) {
+                // no more cache can be freed
+                break;
+            }
+        }
+    }
+
+    do {
+        rc = m_cache.insertCache(cache->idx, cache);
+        if(rc) {
+            m_log.log_error("insert to cache err, gid=%llu bid=%llu len=%llu rc = %d, NO MEMORY\n", cache->idx.gid, cache->idx.bid, cache->len, rc);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    } while (rc);
+    m_currentSizeInByte += cache->len * dpfs_lba_size;
+    
+    // + 1 for lru
+    cache->refs += 1;
+
+    return 0;
+
+errReturn:
+    if (cbs) {
+        freecbs(cbs);
+    }
     return rc;
 }
 

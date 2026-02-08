@@ -2,6 +2,7 @@
 
 #define private public
 #include <parser/driver.hpp>
+#include <parser/dpfsparser.hpp>
 #undef private
 
 #include <unistd.h>
@@ -38,61 +39,15 @@ int main(){
 
     dpfsDriver driver(usr);
 
+
     string testa;
     while(1) {
         cout << "Enter SQL: ";
         getline(cin, testa);
         // testa = "CREATE  /*  asd */ FUNCTION --asdlkqwe \n /*   asd qwr gf */  /**s klshf jdhg kjerg*/  /*********/ --asjhqweoioiuou --\n  \" \"\" test \"\"\".\"\"\"\"\"  A\"()";
         cout << "get : " << testa << endl;
-        rc = driver.execute(testa);
-        if(rc == 0) {
-            printf("Schema Name: %s\n", driver.parser.m_parms.schemaName.c_str());
-            printf("OBJ Name: %s\n", driver.parser.m_parms.objName.c_str());
-            printf("Option: %d\n", driver.parser.m_parms.objType);
-        } else {
-            printf("Parse error: %s\n", driver.parser.message.c_str());
-        }
-
         
-
-        switch (driver.parser.m_parms.objType)
-        {
-        case ParserOptionTable:
-            if(driver.parser.m_parms.opType == ParserOperationIRP) {
-                CCollectionInitStruct initStruct;
-                initStruct.indexPageSize = 4;
-                initStruct.name = driver.parser.m_parms.objName;
-                rc = coll.initialize(initStruct);
-                if (rc != 0) { 
-                    cout << " load collection fail, rc=" << rc << endl;
-                }
-
-                printf("Create Table with cols:\n");
-                for(auto& col : driver.parser.m_parms.cols) {
-                    printf("  Col Name: %s, Type: %d, Len: %u, Scale: %u, Constraint: %d\n", 
-                        col.getName(), col.getType(), col.getLen(), col.getScale(), col.getDds().constraints.unionData);
-                    coll.addCol(col.getName(), col.getType(), col.getLen(), col.getScale(), col.getDds().constraints.unionData);
-                }
-                rc = coll.initBPlusTreeIndex();
-                if (rc != 0) { 
-                    cout << " init bplus tree index fail, rc=" << rc << endl;
-                }
-                cout << " Create Table success " << endl;
-            }
-            break;
-        case ParserOptionIndex:
-            if(driver.parser.m_parms.opType == ParserOperationIRP) {
-                printf("Create Index: %s on Table: %s\n", driver.parser.m_parms.indexName.c_str(), driver.parser.m_parms.objName.c_str());
-                printf("  Cols:\n");
-                for(auto& col : driver.parser.m_parms.cols) {
-                    printf("    Col Name: %s, Type: %d, Len: %u, Scale: %u, Constraint: %d\n", 
-                        col.getName(), col.getType(), col.getLen(), col.getScale(), col.getDds().constraints.unionData);
-                }
-            }
-            break;
-        default:
-            break;
-        }
+        
 
         // testa.clear();
         // sleep(1);

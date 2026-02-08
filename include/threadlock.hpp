@@ -90,8 +90,12 @@ private:
 template<typename T>
 class CTemplateReadGuard {
 public:
-    CTemplateReadGuard(T& lock) : m_lock(lock) {
-        error_code = m_lock.read_lock();
+    CTemplateReadGuard(T& lock, bool lockRightNow = true) : m_lock(lock) {
+        if (lockRightNow) {
+            error_code = m_lock.read_lock();
+        } else {
+            error_code = -ENOLCK;
+        }
     }
     ~CTemplateReadGuard() {
         if(error_code == 0) {
@@ -101,9 +105,17 @@ public:
     int returnCode() const noexcept {
         return error_code;
     }
+
+    int lockGuard() {
+        if (error_code == -ENOLCK) {
+            error_code = m_lock.read_lock();
+        }
+        return error_code;
+    }
+    
 private:
     T& m_lock;
-    int error_code = 0;
+    int error_code = -ENOLCK;
 };
 
 class CMutexGuard {

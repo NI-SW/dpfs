@@ -1520,15 +1520,25 @@ private:
     // TODO:: update code finish loadnode and storenode functions...
     int load_node(const bidx& idx, NodeData& out, bool isLeaf) {
 
+        int rc = 0;
         auto it = m_commitCache.find(idx);
         if (it != m_commitCache.end()) {
             // pointer assignment as reference
+            rc = m_page.fresh(it->second.pCache);
+            if (rc == EEXIST) {
+                rc = it->second.deInitNode(); if (rc != 0) return rc;
+                rc = it->second.initNodeByLoad(isLeaf, isLeaf ? m_rowOrder : m_indexOrder, reinterpret_cast<uint8_t*>(it->second.pCache->getPtr()), cmpTyps);   
+                if (rc != 0) return rc;
+
+            } else if (rc != 0) {
+                return rc;
+            }
             out = &it->second;
+            
             return 0;
         }
         
         cacheStruct* p = nullptr;
-        int rc = 0;
         rc = m_page.get(p, idx, isLeaf ? m_rowPageSize : m_pageSize);
 
         if (rc != 0 || p == nullptr) return rc;

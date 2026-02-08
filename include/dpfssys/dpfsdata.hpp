@@ -36,6 +36,12 @@ public:
     */
     int load();
 
+    // /*
+    //     @return 0 on success, else on failure
+    //     @note build the sql execution plan from the parse result, but do not execute the plan
+    // */
+    // int buildExecPlan();
+
     // engines managed by this service
     CDiskMan m_diskMan;
     CPage m_page;

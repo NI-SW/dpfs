@@ -1,6 +1,6 @@
 #include <parser/driver.hpp>
 
-dpfsDriver::dpfsDriver(CUser& usr) : parser(usr) {
+dpfsDriver::dpfsDriver() {
 
 };
 
@@ -15,10 +15,13 @@ dpfsDriver::~dpfsDriver() {
 int dpfsDriver::execute(const std::string& sql) {
     int rc = 0;
     // create temp collection and get first iterator
-    rc = parser(sql);
-    if (rc != 0) {
-        goto errReturn;
-    }
+    // CParser par;
+
+    
+    // rc = parser(sql);
+    // if (rc != 0) {
+    //     goto errReturn;
+    // }
 
     return 0;
 

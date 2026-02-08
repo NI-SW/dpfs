@@ -280,6 +280,13 @@ public:
     int writeBack(cacheStruct* cache, int* finish_indicator = nullptr);
 
     /*
+        @note fresh the cache block to the first of lru system
+        @param cache the block that you want to fresh
+        @return 0 on success, else on failure
+    */
+    int fresh(cacheStruct*& cache);
+
+    /*
         @return 0 on success, else on failure
         @note flush data from cache to disk immediate
     */
@@ -356,6 +363,8 @@ private:
 
     atomic<size_t> m_currentSizeInByte = 0;
     size_t m_maxSizeInByte = 0;
+
+    CSpin m_cacheLock;
 };
 
 

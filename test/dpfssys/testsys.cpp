@@ -3,6 +3,7 @@
 #include <csignal>
 #include <string>
 #include <dpfssys/dpfsdata.hpp>
+#include <parser/dpfsparser.hpp>
 #include <dpfssys/user.hpp>
 
 using namespace std;
@@ -76,16 +77,23 @@ int main(int argc, char** argv) {
     key.len = sizeof("VERSION");
     memcpy(key.data, "VERSION", key.len);
     // for one row
-    CItem* itm = CItem::newItem(a->dataService->m_sysSchema->systemboot.m_collectionStruct->m_cols);
-    printValue(key, a->dataService->m_sysSchema->systemboot, itm);
+    CItem itm(a->dataService->m_sysSchema->systemboot.m_collectionStruct->m_cols);
+    printValue(key, a->dataService->m_sysSchema->systemboot, &itm);
 
     cout << " get code set " << endl;
     key.len = sizeof("CODESET");
     memcpy(key.data, "CODESET", key.len);
-    printValue(key, a->dataService->m_sysSchema->systemboot, itm);
+    printValue(key, a->dataService->m_sysSchema->systemboot, &itm);
 
 
     // TODO:: FINISH PARSER FOR COMMAND LINE
+
+    CUser usr;
+    usr.userid = 0;
+    usr.username = "SYSTEM";
+    usr.dbprivilege = dbPrivilege::DBPRIVILEGE_FATAL;
+
+    CParser parser(usr, *a->dataService);
 
     while(1) {
         cout << "input sql : " << endl;
@@ -95,13 +103,16 @@ int main(int argc, char** argv) {
             break;
         }
 
+        parser(sql);
+        parser.buildPlan();
+
     }
 
-    while(!g_exit) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    }
+    // while(!g_exit) {
+    //     std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // }
 
-    CItem::delItem(itm);
+
 
     // a->stop();
     delete a;

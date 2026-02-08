@@ -1,9 +1,10 @@
+#pragma once
 #include <stdint.h>
 #include <string>
 #include <basic/dpfscache.hpp>
 
 // privilege to db
-enum dbPrivilege : uint8_t {
+enum class dbPrivilege : uint8_t {
     DBPRIVILEGE_NONE = 0,   // no privilege to any other objects
     DBPRIVILEGE_ACCESS,     // access all objects(include system objects)
     DBPRIVILEGE_CONTROL,    // control all objects(exclude system objects)
@@ -12,7 +13,7 @@ enum dbPrivilege : uint8_t {
 };
 
 // privilege to table, this values should be stored in USERAUTH table
-enum tbPrivilege : uint16_t {
+enum class tbPrivilege : uint16_t {
     TBPRIVILEGE_SELECT = 1 << 0,   // access data of the table
     TBPRIVILEGE_INSERT = 1 << 1,   // insert data of the table
     TBPRIVILEGE_UPDATE = 1 << 2,   // update data of the table
@@ -32,7 +33,7 @@ public:
     int32_t userid = 1000;
     std::string username = "NULLID";
     std::string currentSchema = "NULLID";
-    dbPrivilege dbprivilege = DBPRIVILEGE_NONE;
+    dbPrivilege dbprivilege = dbPrivilege::DBPRIVILEGE_NONE;
 
     /*
         dbprivilege

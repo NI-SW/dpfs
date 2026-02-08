@@ -911,9 +911,9 @@ int CCollection::addItem(const CItem& item) {
 
 
 
-        // it item is empty
-        message = "item has no row to add.";
-        return -ENODATA;
+        // this item is empty
+        // message = "item has no row to add.";
+        return 0;
     }
 
     char* rowPtr = item.rowPtr;
@@ -1136,11 +1136,16 @@ int CCollection::initBPlusTreeIndex() {
         m_rowLen = 0;
 
 
-        CTemplateReadGuard guard(*m_cltInfoCache);
-        if (guard.returnCode() != 0) {
-            int rc = guard.returnCode();
-            message = "read lock collection info cache failed.";
-            return rc;
+        // if the collection is newly created, the m_cltInfoCache is null, no need to lock, directly use m_collectionStruct
+        CTemplateReadGuard guard(*m_cltInfoCache, false);
+        if (m_cltInfoCache) {
+            // lock the cache to prevent concurrent modification of collection info
+            guard.lockGuard();
+            if (guard.returnCode() != 0) {
+                int rc = guard.returnCode();
+                message = "read lock collection info cache failed.";
+                return rc;
+            }
         }
 
         for(uint32_t i = 0; i < m_collectionStruct->m_cols.size(); ++i) {

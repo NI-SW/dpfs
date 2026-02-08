@@ -4,7 +4,7 @@
 
 class dpfsDriver {
 public:
-    dpfsDriver(CUser& usr);
+    dpfsDriver();
     ~dpfsDriver();
 
     /*
@@ -33,7 +33,7 @@ public:
     int closeCursor();
 
 private:
-    yy::CParser parser;
+    
     CCollection* m_pTempCollection = nullptr;
     CBPlusTree::iterator* m_pCursor = nullptr;
     
