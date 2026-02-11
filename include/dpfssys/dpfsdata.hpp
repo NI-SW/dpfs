@@ -4,6 +4,7 @@
 #include <basic/dpfscache.hpp>
 #include <dpfssys/systab.hpp>
 #include <vector>
+#include <dpfssys/user.hpp>
 
 /*
     data service class
@@ -41,6 +42,32 @@ public:
     //     @note build the sql execution plan from the parse result, but do not execute the plan
     // */
     // int buildExecPlan();
+
+    /*
+        @param usr : user info for privilege check
+        @param schema : schema name to operate on
+        @param table : table name to operate on, empty string for schema level privilege check
+        @param allocPriv : required privilege for the operation
+        @return 0 on success, -EPERM if user has no privilege to create table in this schema, else on failure
+        @note check if user has privilege to operate in this schema.
+    */
+    int checkPrivilege(const CUser& usr, const std::string& schema, const std::string& table, tbPrivilege allocPriv) const;
+
+    /*
+        @param schema: schema name
+        @param table: table name
+        @return 0 if table not exist, -EEXIST if table already exists, else on failure
+        @note check if the given table exists in the given schema
+    */
+    int checkExist(const std::string& schema, const std::string& table) const;
+
+    /*
+        @param coll: collection to create
+        @return 0 on success, else on failure
+        @note create a new collection, and write the collection info to the storage. update the system tables accordingly
+    */
+    int createTable(const CUser& usr, const std::string& schema, CCollection& coll);
+
 
     // engines managed by this service
     CDiskMan m_diskMan;

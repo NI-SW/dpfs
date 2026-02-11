@@ -81,9 +81,9 @@ private:
 
 
     // todo build sql execution plan for different statement types
-    int buildCreatePlan();
-    int buildSelectPlan();
-    int buildDropPlan();
-    int buildInsertPlan();
-    int buildDeletePlan();
+    int buildCreatePlan(const TidbAstNode* stmt);
+    int buildSelectPlan(const TidbAstNode* stmt);
+    int buildDropPlan(const TidbAstNode* stmt);
+    int buildInsertPlan(const TidbAstNode* stmt);
+    int buildDeletePlan(const TidbAstNode* stmt);
 };

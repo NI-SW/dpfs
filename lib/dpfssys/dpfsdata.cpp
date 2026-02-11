@@ -11,6 +11,31 @@
     
 */
 
+#include <ctime>
+#include <sstream>
+#include <iomanip>
+std::string getCurrentTimestamp() {
+    // 获取当前时间点
+    auto now = std::chrono::system_clock::now();
+    // 转换为time_t以用于localtime
+    auto now_c = std::chrono::system_clock::to_time_t(now);
+    // 转换为tm结构，这是ctime库需要的格式
+    // unsafe 
+    // std::tm* ptm = std::localtime(&now_c);
+
+	// thread safe
+	std::tm tm;
+    #ifdef __linux__
+    localtime_r(&now_c, &tm);
+    #elif _WIN32
+    localtime_s(&tm, &now_c);
+    #endif
+
+    // 使用stringstream来格式化输出
+    std::stringstream ss;
+    ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+    return ss.str();
+}
 
 // node id to determine which nvmfhost belongs to this instance 
 extern uint64_t nodeId;
@@ -54,3 +79,186 @@ errReturn:
 
     return rc;
 }
+
+int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollection& coll) {
+    // TODO : write the collection info to the storage, including the collection struct and some meta info, for example, the next auto increment id for this table
+    int rc = 0;
+    
+    bool perm = false;
+
+    // check authority, if user has privilege to create table in this schema, currently just check if user is system user or not
+    if (usr.dbprivilege >= dbPrivilege::DBPRIVILEGE_CONTROL) {
+        perm = true;
+    }
+
+    if (!perm) {
+        // check schema authority, if user has privilege to create table in this schema, currently just check if user is the owner of the schema or not
+        if (usr.username == schema) {
+            perm = true;
+        }
+        rc = checkPrivilege(usr, schema, "", tbPrivilege::TBPRIVILEGE_FULL);
+        if (rc != 0) {
+            return rc;
+        }
+    }
+
+    // check if table already exists
+    CCollection& sysTables = m_sysSchema->systables;
+
+    rc = checkExist(schema, coll.m_collectionStruct->ds->m_name);
+    if (rc != 0) {
+        return rc;
+    }
+
+    // table check complete, create the table
+    bidx saveBid = {nodeId, 0};
+    saveBid.bid = m_diskMan.balloc(MAX_COLLECTION_INFO_LBA_SIZE);
+    if (saveBid.bid == 0) {
+        m_log.log_error("Failed to allocate block for new collection, no space left in the disk group.\n");
+        return -ENOSPC;
+    }
+
+    // table struct and meta info save to storage(success)
+    rc = coll.saveTo(saveBid);
+    if (rc != 0) {
+        m_diskMan.bfree(saveBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+        m_log.log_error("Failed to save new collection to storage, rc=%d\n", rc);
+        return rc;
+    }
+
+    // update systables
+    CItem item(sysTables.m_collectionStruct->m_cols);
+    /*
+        "TABLE_SCHEMA", dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);
+        "TABLE_NAME",   dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);
+        "CREATE_TIME",  dpfs_datatype_t::TYPE_TIMESTAMP, 64, 0, cf::NOT_NULL);                  
+        "KEYCOLUMNS",   dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL);                  
+        "TABLE_ID",     dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL | cf::UNIQUE);     
+        "ROOT",         dpfs_datatype_t::TYPE_BINARY,    16, 0, cf::NOT_NULL);                  
+    */
+    std::string nowTime = getCurrentTimestamp();
+    
+    item.updateValue(0, schema.c_str(), schema.size());
+    item.updateValue(1, coll.m_collectionStruct->ds->m_name, coll.m_collectionStruct->ds->m_nameLen);
+    item.updateValue(2, nowTime.c_str(), nowTime.size());
+    item.updateValue(3, &coll.m_collectionStruct->ds->m_pkColNum, sizeof(coll.m_collectionStruct->ds->m_pkColNum));
+    item.updateValue(4, &coll.m_collectionStruct->ds->m_ccid, sizeof(coll.m_collectionStruct->ds->m_ccid));
+    item.updateValue(5, &saveBid, sizeof(saveBid));
+
+
+    rc = sysTables.addItem(item);
+    if (rc != 0) {
+        m_diskMan.bfree(saveBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+        m_log.log_error("Failed to add new table info to systables, rc=%d\n", rc);
+        return rc;
+    }
+
+    // update SYSINDEXES
+    if (coll.m_collectionStruct->m_indexInfos.size() > 0) {
+        // TODO : add index info to SYSINDEXES
+    }
+
+    // update SYSTABCONSTRAINTS
+
+    // update SYSCOLUMNS
+
+    return 0;
+}
+
+
+
+int CDatasvc::checkPrivilege(const CUser& usr, const std::string& schema, const std::string& table, tbPrivilege allocPriv) const {
+
+    if (usr.dbprivilege >= dbPrivilege::DBPRIVILEGE_FATAL) {
+        // if user has control privilege, grant full privilege
+        return 0;
+    }
+    if (usr.username == schema) {
+        // if user is the owner of the schema, grant full privilege
+        return 0;
+    }
+
+    int rc = 0;
+
+    // check in sysSchema
+    
+    // get schema info in sysSchema->m_schemaInfo
+    CCollection& sysAuth = m_sysSchema->sysauths;
+
+    char tmpk[MAXKEYLEN];
+    KEY_T key(tmpk, 0, sysAuth.m_cmpTyps);
+
+
+    // 64 from systab.cpp:initAuthTab
+    memset(tmpk, 0, 64 * 3);
+
+    // input key word
+    memcpy(key.data, usr.username.data(), usr.username.size());
+    key.len += 64;
+    memcpy(key.data + key.len, schema.data(), schema.size());
+    key.len += 64;
+    memcpy(key.data + key.len, table.data(), table.size());
+    key.len += 64;
+
+    
+
+    CItem idxItem(sysAuth.m_collectionStruct->m_cols);
+    rc = sysAuth.getRow(key, &idxItem);
+    if (rc != 0) {
+        return rc;
+    }
+/*
+    "USER_NAME",         dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);
+    "TABLE_SCHEMA",      dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);
+    "TABLE_NAME",        dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);
+    "USER_ID",           dpfs_datatype_t::TYPE_INT,       4,   0, cf::NOT_NULL | cf::UNIQUE);     
+    "TBPRIVILEGE",       dpfs_datatype_t::TYPE_BINARY,    1,   0, cf::NOT_NULL);                  
+*/
+    CValue privVal = idxItem.getValue(4);
+    if (privVal.len != 1) {
+        return -EINVAL;
+    }
+
+    if (!(privVal.data[0] & static_cast<uint8_t>(allocPriv))) {
+        return -EPERM;
+    }
+
+    return 0;
+
+}
+
+int CDatasvc::checkExist(const std::string& schema, const std::string& table) const {
+    int rc = 0;
+
+    // check in sysSchema
+    
+    // get schema info in sysSchema->m_schemaInfo
+    CCollection& sysTables = m_sysSchema->systables;
+
+    char tmpk[MAXKEYLEN];
+    KEY_T key(tmpk, 0, sysTables.m_cmpTyps);
+
+    memset(tmpk, 0, 64 * 2);
+    // input key word
+    memcpy(key.data, schema.data(), schema.size());
+    key.len += 64;
+    memcpy(key.data + key.len, table.data(), table.size());
+    key.len += 64;
+
+    CItem idxItem(sysTables.m_collectionStruct->m_cols);
+    rc = sysTables.getRow(key, &idxItem);
+    if (rc != 0) {
+        if (rc == -ENOENT) {
+            // table not exist, return 0
+            return 0;
+        }
+        return rc;
+    }
+
+    // if found the table, return -EEXIST to indicate the table already exists
+    return -EEXIST;
+
+}
+
+
+

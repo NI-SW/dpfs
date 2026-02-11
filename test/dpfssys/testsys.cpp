@@ -106,6 +106,8 @@ int main(int argc, char** argv) {
         parser(sql);
         parser.buildPlan();
 
+        
+
     }
 
     // while(!g_exit) {

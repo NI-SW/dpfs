@@ -87,7 +87,7 @@ int CSysSchemas::init() {
     #ifdef __DPFSSYS_SYSTAB_DEBUG__
     cout << "System Boot Info Inserted:" << endl;
     #endif
-    rc = systemboot.addItem(itm); if (rc != 0) { std::cout << "message " << systemboot.message << std::endl; goto errReturn; }
+    rc = systemboot.addItem(itm); if (rc != 0) { std::cout << "error message: " << systemboot.message << " code : " << rc << std::endl; goto errReturn; }
 
 
 
@@ -321,10 +321,10 @@ int CSysSchemas::initSchemaTab(const bidx& sysBidx) {
     // product name
     rc = sysschemas.addCol("SCHEMA_NAME",       dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);   if (rc != 0) { goto errReturn; }
     // privilege to access or control all object of database
-    rc = sysschemas.addCol("TABLE_COUNT",       dpfs_datatype_t::TYPE_BINARY,    1,   0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    // rc = sysschemas.addCol("TABLE_COUNT",       dpfs_datatype_t::TYPE_BINARY,    1,   0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
     rc = sysschemas.addCol("CREATE_TIME",       dpfs_datatype_t::TYPE_TIMESTAMP, 10,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
     // disk groupid + disk logic block address
-    rc = sysschemas.addCol("ROOT",              dpfs_datatype_t::TYPE_BINARY,    16,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    // rc = sysschemas.addCol("ROOT",              dpfs_datatype_t::TYPE_BINARY,    16,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
     rc = sysschemas.initBPlusTreeIndex();                                                                                   if (rc != 0) { goto errReturn; }
     rc = sysschemas.saveTo(sysBidx);                                                                                        if (rc != 0) { goto errReturn; }
 
