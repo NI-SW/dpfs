@@ -313,7 +313,7 @@ class CRowVec;
         m_rowPageSize(rowPageSize), 
         m_rowLen(rowLen) {
             #ifdef __BPDEBUG__
-            std::cout << "NodeData constructor called for bid: " << std::endl;
+            std::cout << "NodeData constructor called" << std::endl;
             #endif
         };
         NodeData(const NodeData& nd) = delete;
@@ -552,6 +552,7 @@ public:
         }
     private:
         friend class CBPlusTree;
+        friend class CCollection::CIdxIter;
         CBPlusTree& m_tree;
         uint32_t m_currentPos = 0;
         bool loaded = false;
@@ -601,76 +602,21 @@ public:
     */
     int remove(const KEY_T& key);
 
-    int commit() {
-        int lastIndicator = 0;
-        int rc = 0;
+    /*
+        @note commit all the changes immediately to disk, after commit, all the nodes in commit cache will be released, and the function will wait for the last write back complete before return
+        @return 0 on success, else on failure
+    */
+    int commit();
 
-        if (m_commitCache.empty()) {
-            return 0;
-        }
-
-        for(auto it = m_commitCache.begin(); it != m_commitCache.end(); ) {
-            if (it->second.needDelete) {
-                rc = it->second.pCache->lock();
-                if (rc == 0) {
-                    it->second.pCache->setStatus(cacheStruct::INVALID);
-                    it->second.pCache->unlock();
-                }
-                rc = free_node(it->first, it->second.nodeData->hdr->leaf);
-                if (rc != 0) {
-                    throw std::runtime_error("free_node failed during commit");
-                }
-                it->second.pCache->release();
-                it = m_commitCache.erase(it);
-            } else {
-                ++it;
-            }
-
-        }
-
-        if (m_commitCache.empty()) {
-            return 0;
-        }
-
-        size_t sz = m_commitCache.size();
-        for(auto& node : m_commitCache) {
-
-
-
-            if (B_END) {
-                // TODO convert back to little endian if needed
-
-                // before storing, convert back to little endian
-                // node.second.nodeData->hdr->isConverted = 0;
-            }
-
-            #ifdef __BPDEBUG__
-            cout << "Committing node gid: " << node.first.gid << " bid: " << node.first.bid << endl;
-            cout << "pc addr: " << node.second.pCache << endl;
-            #endif
-
-            if (sz <= 1) {            
-                rc = m_page.writeBack(node.second.pCache, &lastIndicator);
-            } else {
-                rc = m_page.writeBack(node.second.pCache, nullptr);
-            }
-            if (rc != 0) {
-                return rc;
-            }
-            --sz;
-        }
-
-        while(lastIndicator != 1) {
-            // wait for last write back complete
-            if(lastIndicator == -1) {
-                return -EIO;
-            }
-            std::this_thread::yield();
-        }
-        m_commitCache.clear();
-        return 0;
-    }
-
+    /*
+        @return 0 on success, else on failure
+        @note not support for now, directly return 0, may be implement later, 
+        @concept the function will rollback all the changes in commit cache, 
+        and release all the nodes in commit cache, after rollback, 
+        the state of the tree will be same as before any change, 
+        but the function will not wait for the rollback complete before return, 
+        so the caller need to ensure that no other operation is performed on the tree until the rollback complete
+    */
     int rollback();
 
 private:
@@ -1149,139 +1095,14 @@ address         0 1 2 3 4 5 6 7 8
         @return 0 on success, SPLIT on split, else on failure
         @note insert the data or split internal node when necessary
     */
-    int32_t insert_recursive(const bidx& idx, const KEY_T& key, const void* val, size_t valLen, KEY_T& upKey, bidx& upChild, bool isLeaf) {
-        NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-        int32_t rc = load_node(idx, node, isLeaf);
-        if (rc != 0) return rc;
+    int32_t insert_recursive(const bidx& idx, const KEY_T& key, const void* val, size_t valLen, KEY_T& upKey, bidx& upChild, bool isLeaf);
 
-        // leaf node founded, inster the data
-        if (node.nodeData->hdr->leaf) {
-            // TODO:: IMPLEMENT LOWER_BOUND METHOD FOR KEY COMPARISON
-            // KEY_T* it = std::lower_bound(node.keys, node.keys + node.nodeData->hdr.count + 1, key);
-
-            // int pos = node.keyVec->search(key); // check if key already exists
-
-            rc = node.pCache->lock();
-            if (rc != 0) {
-                return rc;
-            }
-
-            rc = node.insertRow(key, val, valLen);
-            if (rc) {
-                node.pCache->unlock();
-                return rc;
-            }
-
-            if (node.keyVec->size() < m_rowOrder) {
-                node.pCache->unlock();
-                store_node(node);
-                return rc;
-            }
-
-            NodeData right(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-            right.initNode(true, m_rowOrder, cmpTyps);
-
-            // upKey is used to return up key to parent
-            split_leaf(node, right, upKey);
-            node.pCache->unlock();
-            // update upchild object, at outside it will be used to update parent node
-            upChild = right.self;
-            store_node(node);
-            store_node(right);
-
-            return SPLIT;
-        }
-        // if not leaf, go to child node
-        
-        // >= key => right child, < key => left child
-        int32_t idxChild = child_index(node, key);
-        if (idxChild == -ERANGE) {
-            idxChild = 0;
-        }
-        char tempData[MAXKEYLEN];
-        KEY_T childUp{tempData, key.len, cmpTyps};
-        bidx childNew{nodeId, 0};
-
-
-
-        rc = insert_recursive({nodeId, node.childVec->at(idxChild)}, key, val, valLen, childUp, childNew, node.nodeData->hdr->childIsLeaf);
-        if (rc < 0) return rc;
-        if (rc == SPLIT) {
-            // child node is split, need insert up key and new child pointer to current node
-
-
-            /*
-            
-          ／＞\\\\フ
-         |    _  _l
-        ／` ミ＿꒳ノ
-       /         |
-      /   ヽ     ﾉ
-      │    |  |  |
-  ／￣|    |  |  |
-  | (￣ヽ＿_ヽ_)__)
-  ＼二つ
-                  [2,5,15,24,37]
-                    |
-                    [5,8,9,10,12] -> [5,8,9,10,12,14]
-
-                    upkey = 10
-                    upchild = [10,12,14]
-                    oldchild = [5,8,9]
-
-                    (UK)
-                     |
-                [2,5,10,15,24,37]
-                    |  |
-                    |  [10,12,14]->(upchild)
-                    |
-                [5,8,9] 
-                                                                           
-                [2,5,10,15,24,37] ====> [2,5,10]  [15,24,37](upchild) [15]->upkey
-
-                           [15]
-                        /       \
-                       /         \        
-                      /           \
-                     /             \
-             [2,5,10]               [15,24,37]
-                 |  |               |  
-                 |  |               |
-                 |  [10,12,14]      null
-                 [5,8,9]
-
-            */
-
-            CTemplateGuard g(*node.pCache);
-
-            // left child not change, only insert key and right child
-            rc = node.insertChild(childUp, 0, childNew.bid);
-            if (rc != 0) return rc;
-            
-            if (node.keyVec->size() < m_indexOrder) {
-                 //node.pCache->unlock();
-                return store_node(node);
-            }
-            // need split
-            NodeData right(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-
-            rc = split_internal(node, right, upKey);
-            if (rc != 0) {
-                //node.pCache->unlock();
-                return rc;
-            }
-            
-            //node.pCache->unlock();
-
-            // use upChild to return new created right node index
-            upChild = right.self;
-            store_node(node);
-            store_node(right);
-            return SPLIT;
-        }
-        return store_node(node);
-    }
-
+    /*
+        @param left: left node data
+        @param right: right node data, this is the node to be created
+        @param upKey: key to push up to parent
+        @note split index node to two nodes, and push the middle key up to parent node
+    */
     int split_internal(NodeData& left, NodeData& right, KEY_T& upKey) {
 
         // problem :: cause node split error
@@ -1312,6 +1133,15 @@ address         0 1 2 3 4 5 6 7 8
 
     }
 
+    /*
+        @param n: node data
+        @param k: key to search
+        @return index of the child to go, or -ERANGE if error
+        @note find the child index to go for the key, 
+        if the key is exist, return the index of the child that is right to the key, 
+        else return the index of the child that is left to the key, 
+        if pos == keyVec->size(), means go to the last child
+    */
     int32_t child_index(const NodeData& n, const KEY_T& k) const noexcept {
         int64_t pos = n.keyVec->search(k);
         //  10 22 23 25 28  (21)
@@ -1345,29 +1175,7 @@ address         0 1 2 3 4 5 6 7 8
         @note ensure root node exists
         @return 0 on success, else on failure
     */
-    int ensure_root() {
-        int rc = 0;
-        // if root exists, return
-        if (m_root.bid != 0) return 0;
-
-        NodeData root(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-        root.initNode(true, m_rowOrder, cmpTyps);
-        root.self = allocate_node(true);
-        if (root.self.bid == 0) return -ENOSPC;
-        root.nodeData->hdr->childIsLeaf = 0;
-
-        rc = store_node(root);
-        if (rc != 0) {
-            m_diskman.bfree(root.self.bid, m_rowPageSize);
-            return rc;
-        }
-
-        m_root = root.self;
-        high = 1;
-        m_begin = m_root;
-        m_end = {0, 0};
-        return 0;
-    }
+    int ensure_root();
 
     bidx allocate_node(bool isLeaf) {
         bidx id{0, 0};
@@ -1390,56 +1198,12 @@ address         0 1 2 3 4 5 6 7 8
         return 0;
     }
 
-    int destroy() {
-        if (m_root.bid == 0) {
-            return 0;
-        }
-        int rc = 0;
-        bool isLeaf = high == 1 ? true : false;
-        rc = destroy_recursive(m_root, isLeaf);
-        if (rc != 0) return rc;
-        m_root = {0, 0};
-        m_begin = {0, 0};
-        m_end = {0, 0};
-        high = 0;
-        return 0;
-    }
+    /*
+        @note destroy the whole tree, free all the nodes in the tree, and clear the cache
+    */
+    int destroy();
+    int destroy_recursive(const bidx& idx, bool isLeaf);
 
-    int destroy_recursive(const bidx& idx, bool isLeaf) {
-        NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-        int rc = load_node(idx, node, isLeaf);
-        if (rc != 0) return rc;
-
-        CTemplateGuard g(*node.pCache);
-        if (g.returnCode() != 0) {
-            return g.returnCode();
-        }
-
-        if (!node.nodeData->hdr->leaf) {
-            // internal node, need destroy child nodes first
-            for (uint32_t i = 0; i < node.childVec->size(); ++i) {
-                bidx childIdx{nodeId, node.childVec->at(i)};
-                rc = destroy_recursive(childIdx, node.nodeData->hdr->childIsLeaf);
-                if (rc != 0) return rc;
-            }
-        }
-
-        m_commitCache.emplace(idx, std::move(node));
-
-        // free current node
-        rc = free_node(idx, isLeaf);
-        if (rc != 0)  { 
-            #ifdef __BPDEBUG__
-            cout << "Failed to free node gid: " << idx.gid << " bid: " << idx.bid << endl;
-            abort();
-            #endif
-            return rc;
-        }
-        
-
-        node.pCache->release();
-        return 0;
-    }
 
     /*
         @param idx: node index to remove
@@ -1476,6 +1240,13 @@ address         0 1 2 3 4 5 6 7 8
     int32_t borrowKey(NodeData& parent, NodeData& fromNode, NodeData& toNode, bool isLeaf, bool fromLeft, int targetIdx);
     int32_t mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode, bool isLeaf, bool fromLeft, int targetIdx);
 
+    int reinitBase(uint8_t* high, bidx* m_root, bidx* m_begin, bidx* m_end) noexcept {
+        this->high = high;
+        this->m_root = m_root;
+        this->m_begin = m_begin;
+        this->m_end = m_end;
+        return 0;
+    }
 
 private:
     enum InsertResult { 
@@ -1523,18 +1294,7 @@ private:
         int rc = 0;
         auto it = m_commitCache.find(idx);
         if (it != m_commitCache.end()) {
-            // pointer assignment as reference
-            rc = m_page.fresh(it->second.pCache);
-            if (rc == EEXIST) {
-                rc = it->second.deInitNode(); if (rc != 0) return rc;
-                rc = it->second.initNodeByLoad(isLeaf, isLeaf ? m_rowOrder : m_indexOrder, reinterpret_cast<uint8_t*>(it->second.pCache->getPtr()), cmpTyps);   
-                if (rc != 0) return rc;
-
-            } else if (rc != 0) {
-                return rc;
-            }
             out = &it->second;
-            
             return 0;
         }
         
@@ -1564,54 +1324,6 @@ private:
         if (B_END) {
             // TODO convert keys and values to host endian if needed
             // storage is always little endian, if host is big endian, need convert
-
-            /*
-            rc = out.pCache->lock();
-            if (rc != 0) {
-                out.pCache->release();
-                return rc;
-            }
-
-
-            if (out.nodeData->hdr->isConverted) {
-                // already converted
-                // do nothing
-            } else {
-
-                // write lock the cache for conversion
-                rc = out.pCache->lock();
-                if (rc != 0) {
-                    out.pCache->release();
-                    return rc;
-                }
-                if (!out.nodeData->hdr->isConverted) {
-                    cpyFromleTp(out.nodeData->hdr->parent, out.nodeData->hdr->parent);
-                    cpyFromleTp(out.nodeData->hdr->prev, out.nodeData->hdr->prev);
-                    cpyFromleTp(out.nodeData->hdr->next, out.nodeData->hdr->next);
-                    cpyFromleTp(out.nodeData->hdr->count, out.nodeData->hdr->count);
-                    cpyFromleTp(out.nodeData->hdr->leaf, out.nodeData->hdr->leaf);
-                    // convert keys
-                    // if (isNumberType(this->keyType)) {
-                    //     // convert keys to host endian if needed
-                    //     for(size_t i = 0; i < out.nodeData->hdr->count; ++i) {
-                    //         cpyFromleTp(out.keys[i], out.keys[i]);
-                    //     }
-                    // }
-                    if (out.nodeData->hdr->leaf) {
-                        // TODO convert the values to host endian if needed
-                    } else {
-                        // TODO convert children to host endian if needed
-                        // for(size_t i = 0; i < out.nodeData->hdr->count + 1; ++i) {
-                        //     cpyFromleTp(out.children[i], out.children[i]);
-                        // }
-
-                    }
-                    out.nodeData->hdr->isConverted = 1;
-                }
-                out.pCache->unlock();
-
-            }
-            */
         }
 
         return 0;
@@ -1660,15 +1372,17 @@ public:
     void printTreeRecursive(const bidx& idx, bool isLeaf, int level);
 
     iterator begin() {
-        return {*this, m_begin};
+        return {*this, *m_begin};
     }
 
     iterator end() {
-        return {*this, m_end};
+        return {*this, *m_end};
     }
 
 private:
     friend class CCollection;
+    friend class nodeLocker;
+
     CPage& m_page;
     CDiskMan& m_diskman;
     // const CCollection& m_collection;
@@ -1687,12 +1401,20 @@ private:
     CSpin m_lock;
 
     // if high == 1, root is leaf node
-    uint8_t& high;
-    bidx& m_root;
-    bidx& m_begin;
-    bidx& m_end;
+    uint8_t* high;
+    bidx* m_root;
+    bidx* m_begin;
+    bidx* m_end;
     const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTyps;
     std::unordered_map<bidx, NodeData> m_commitCache;
+};
 
-
+class nodeLocker : public cacheLocker {
+public:
+    nodeLocker(cacheStruct*& cs, CPage& pge, CBPlusTree::NodeData& node, bool isLeaf, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& keyType);
+    virtual ~nodeLocker();
+    virtual int reinitStruct() override;
+    CBPlusTree::NodeData& m_nd;
+    bool m_isLeaf = false;
+    const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& m_keyType;
 };

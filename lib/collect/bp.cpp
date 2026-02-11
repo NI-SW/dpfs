@@ -7,10 +7,10 @@ CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& tree
     :   m_page(pge),
         m_diskman(cdm),
         m_pageSize(pageSize),
-        high(treeHigh),
-        m_root(root),
-        m_begin(begin),
-        m_end(end),
+        high(&treeHigh),
+        m_root(&root),
+        m_begin(&begin),
+        m_end(&end),
         cmpTyps(cmpTypes) {
 
 
@@ -59,72 +59,180 @@ CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& tree
 }
 
 CBPlusTree::~CBPlusTree() {
-    if (m_commitCache.size() > 0) {
-        // rollback uncommitted nodes
-        for(auto& it : m_commitCache) {
-            #ifdef __BPDEBUG__
-            cout << "Rolling back node gid: " << it.first.gid << " bid: " << it.first.bid << endl;
-            #endif
 
-            if (it.second.newNode) {
-                // new node, free disk space
-                int rc = free_node(it.first, it.second.nodeData->hdr->leaf);
-                if (rc != 0) {
-                    #ifdef __BPDEBUG__
-                    cout << "Free node fail during destructor, gid: " << it.first.gid << " bid: " << it.first.bid << endl;
-                    #endif
-                }
-            }
+    this->commit();
 
-            // to prevent throw exception in destructor, if lock fail, force to continue
-            int rc = it.second.pCache->lock();
-            if (rc != 0) {
-                // lock fail, force set to invalid 
-                it.second.pCache->setStatus(cacheStruct::INVALID);
-                #ifdef __BPDEBUG__
-                cout << "Lock fail during destructor, force set node to invalid, gid: " << it.first.gid << " bid: " << it.first.bid << endl;
-                abort();
-                #endif  
-            } else {
-                // lock success, set and unlock
-                it.second.pCache->setStatus(cacheStruct::INVALID);
-                it.second.pCache->unlock();
-            }
-            it.second.pCache->release();
-        }
-        m_commitCache.clear();
-    }
+    // if (m_commitCache.size() > 0) {
+    //     // rollback uncommitted nodes
+    //     for(auto& it : m_commitCache) {
+    //         #ifdef __BPDEBUG__
+    //         cout << "Rolling back node gid: " << it.first.gid << " bid: " << it.first.bid << endl;
+    //         #endif
+
+    //         if (it.second.newNode) {
+    //             // new node, free disk space
+    //             int rc = free_node(it.first, it.second.nodeData->hdr->leaf);
+    //             if (rc != 0) {
+    //                 #ifdef __BPDEBUG__
+    //                 cout << "Free node fail during destructor, gid: " << it.first.gid << " bid: " << it.first.bid << endl;
+    //                 #endif
+    //             }
+    //         }
+
+    //         // to prevent throw exception in destructor, if lock fail, force to continue
+    //         int rc = it.second.pCache->lock();
+    //         if (rc != 0) {
+    //             // lock fail, force set to invalid 
+    //             it.second.pCache->setStatus(cacheStruct::INVALID);
+    //             #ifdef __BPDEBUG__
+    //             cout << "Lock fail during destructor, force set node to invalid, gid: " << it.first.gid << " bid: " << it.first.bid << endl;
+    //             abort();
+    //             #endif  
+    //         } else {
+    //             // lock success, set and unlock
+    //             it.second.pCache->setStatus(cacheStruct::INVALID);
+    //             it.second.pCache->unlock();
+    //         }
+    //         it.second.pCache->release();
+    //     }
+    //     m_commitCache.clear();
+    // }
 
     
 }
 
-int CBPlusTree::rollback() {
-    CSpinGuard g(m_lock);
-    if (m_commitCache.size() > 0) {
-        // rollback uncommitted nodes
-        for(auto& it : m_commitCache) {
-            #ifdef __BPDEBUG__
-            cout << "Rolling back node gid: " << it.first.gid << " bid: " << it.first.bid << endl;
-            #endif
+int CBPlusTree::commit() {
+    int lastIndicator = 0;
+    int rc = 0;
 
-            if(it.second.newNode) {
-                // new node, free disk space
-                int rc = free_node(it.first, it.second.nodeData->hdr->leaf);
-                if (rc != 0) {
-                    return rc;
-                }
-            }
-
-            int rc = it.second.pCache->lock();
-            if (rc != 0) {
-                return rc;
-            }
-            it.second.pCache->setStatus(cacheStruct::INVALID);
-            it.second.pCache->unlock();
-            it.second.pCache->release();
-        }
-        m_commitCache.clear();
+    if (m_commitCache.empty()) {
+        return 0;
     }
+
+    // remove deleted node
+    for(auto it = m_commitCache.begin(); it != m_commitCache.end(); ) {
+        if (it->second.needDelete) {
+
+            nodeLocker nl(it->second.pCache, m_page, it->second, it->second.nodeData->hdr->leaf, emptyCmpTypes);
+
+            rc = nl.lock();
+            if (rc == 0) {
+                // lock success
+                it->second.pCache->setStatus(cacheStruct::INVALID);
+                nl.unlock();
+            }
+            // if lock fail, force to release the node, and let next operation to handle the dirty node
+            rc = free_node(it->first, it->second.nodeData->hdr->leaf);
+            if (rc != 0) {
+                throw std::runtime_error("free_node failed during commit");
+            }
+            it->second.pCache->release();
+            it = m_commitCache.erase(it);
+        } else {
+            ++it;
+        }
+
+    }
+
+    if (m_commitCache.empty()) {
+        return 0;
+    }
+
+    // commit changed node.
+    size_t sz = m_commitCache.size();
+    for(auto& node : m_commitCache) {
+
+        if (B_END) {
+            // TODO convert back to little endian if needed
+
+            // before storing, convert back to little endian
+            // node.second.nodeData->hdr->isConverted = 0;
+        }
+
+        #ifdef __BPDEBUG__
+        cout << "Committing node gid: " << node.first.gid << " bid: " << node.first.bid << endl;
+        cout << "pc addr: " << node.second.pCache << endl;
+        #endif
+
+        if (sz <= 1) {            
+            rc = m_page.writeBack(node.second.pCache, &lastIndicator);
+        } else {
+            rc = m_page.writeBack(node.second.pCache, nullptr);
+        }
+        if (rc != 0) {
+            return rc;
+        }
+        --sz;
+    }
+
+    while(lastIndicator != 1) {
+        // wait for last write back complete
+        if(lastIndicator == -1) {
+            return -EIO;
+        }
+        std::this_thread::yield();
+    }
+    m_commitCache.clear();
+    return 0;
+}
+
+// not support
+int CBPlusTree::rollback() {
+
+    // TODO
+
+    return 0;
+
+    // CSpinGuard g(m_lock);
+    // if (m_commitCache.size() > 0) {
+    //     // rollback uncommitted nodes
+    //     for(auto& it : m_commitCache) {
+    //         #ifdef __BPDEBUG__
+    //         cout << "Rolling back node gid: " << it.first.gid << " bid: " << it.first.bid << endl;
+    //         #endif
+
+    //         if(it.second.newNode) {
+    //             // new node, free disk space
+    //             int rc = free_node(it.first, it.second.nodeData->hdr->leaf);
+    //             if (rc != 0) {
+    //                 return rc;
+    //             }
+    //         }
+
+    //         int rc = it.second.pCache->lock();
+    //         if (rc != 0) {
+    //             return rc;
+    //         }
+    //         it.second.pCache->setStatus(cacheStruct::INVALID);
+    //         it.second.pCache->unlock();
+    //         it.second.pCache->release();
+    //     }
+    //     m_commitCache.clear();
+    // }
+    return 0;
+}
+
+int CBPlusTree::ensure_root() {
+    int rc = 0;
+    // if root exists, return
+    if (m_root->bid != 0) return 0;
+
+    NodeData root(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+    root.initNode(true, m_rowOrder, cmpTyps);
+    root.self = allocate_node(true);
+    if (root.self.bid == 0) return -ENOSPC;
+    root.nodeData->hdr->childIsLeaf = 0;
+
+    rc = store_node(root);
+    if (rc != 0) {
+        m_diskman.bfree(root.self.bid, m_rowPageSize);
+        return rc;
+    }
+
+    *m_root = root.self;
+    *high = 1;
+    *m_begin = root.self;
+    *m_end = {0, 0};
     return 0;
 }
 
@@ -146,13 +254,13 @@ int CBPlusTree::insert(const KEY_T& key, const void* row, uint32_t len) {
     // if split is required, rc == SPLIT
 
     // search in root first
-    rc = insert_recursive(m_root, key, row, len, upKey, upChild, high == 1 ? true : false);
+    rc = insert_recursive(*m_root, key, row, len, upKey, upChild, *high == 1 ? true : false);
     if (rc < 0) return rc;
     if (rc == SPLIT) {
 
 
         // root is leaf >> 
-        if (high == 1) {
+        if (*high == 1) {
             // create new root node, old root become left child, upChild become right child
             NodeData newRoot(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
             rc = newRoot.initNode(false, m_indexOrder, cmpTyps);
@@ -165,17 +273,17 @@ int CBPlusTree::insert(const KEY_T& key, const void* row, uint32_t len) {
             newRoot.nodeData->hdr->childIsLeaf = 1;
 
             // insert upKey and children
-            rc = newRoot.insertChild(upKey, m_root.bid, upChild.bid);
+            rc = newRoot.insertChild(upKey, (*m_root).bid, upChild.bid);
             if (rc != 0) {
                 return rc;
             }
 
-            m_root = newRoot.self;
+            *m_root = newRoot.self;
             rc = store_node(newRoot);
             if (rc != 0) return rc;
             
 
-            ++high;
+            ++(*high);
             return 0;
         }
 
@@ -189,26 +297,161 @@ int CBPlusTree::insert(const KEY_T& key, const void* row, uint32_t len) {
         newRoot.self = allocate_node(false);
         if (newRoot.self.bid == 0) return -ENOSPC;
 
-        rc = newRoot.insertChild(upKey, m_root.bid, upChild.bid);
+        rc = newRoot.insertChild(upKey, (*m_root).bid, upChild.bid);
         if (rc != 0) return rc;
 
-        m_root = newRoot.self;
+        *m_root = newRoot.self;
 
         rc = store_node(newRoot);
         if (rc != 0) return rc;
         
-        ++high;
+        ++(*high);
         return 0;
     }
     return 0;
 }
 
+int32_t CBPlusTree::insert_recursive(const bidx& idx, const KEY_T& key, const void* val, size_t valLen, KEY_T& upKey, bidx& upChild, bool isLeaf) {
+    NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+    int32_t rc = load_node(idx, node, isLeaf);
+    if (rc != 0) return rc;
+
+    // leaf node founded, inster the data
+    if (node.nodeData->hdr->leaf) {
+        // TODO:: IMPLEMENT LOWER_BOUND METHOD FOR KEY COMPARISON
+        // KEY_T* it = std::lower_bound(node.keys, node.keys + node.nodeData->hdr.count + 1, key);
+
+        // int pos = node.keyVec->search(key); // check if key already exists
+
+        nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
+
+        rc = nl.lock();
+        if (rc != 0) {
+            return rc;
+        }
+
+        rc = node.insertRow(key, val, valLen);
+        if (rc) {
+            nl.unlock();
+            return rc;
+        }
+
+        if (node.keyVec->size() < m_rowOrder) {
+            nl.unlock();
+            store_node(node);
+            return rc;
+        }
+
+        NodeData right(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+        right.initNode(true, m_rowOrder, cmpTyps);
+
+        // upKey is used to return up key to parent
+        split_leaf(node, right, upKey);
+        nl.unlock();
+        // update upchild object, at outside it will be used to update parent node
+        upChild = right.self;
+        store_node(node);
+        store_node(right);
+
+        return SPLIT;
+    }
+    // if not leaf, go to child node
+    
+    // >= key => right child, < key => left child
+    int32_t idxChild = child_index(node, key);
+    if (idxChild == -ERANGE) {
+        idxChild = 0;
+    }
+    char tempData[MAXKEYLEN];
+    KEY_T childUp{tempData, key.len, cmpTyps};
+    bidx childNew{nodeId, 0};
+
+
+
+    rc = insert_recursive({nodeId, node.childVec->at(idxChild)}, key, val, valLen, childUp, childNew, node.nodeData->hdr->childIsLeaf);
+    if (rc < 0) return rc;
+    if (rc == SPLIT) {
+        // child node is split, need insert up key and new child pointer to current node
+
+
+        /*
+        
+        ／＞\\\\フ
+        |    _  _l
+    ／` ミ＿꒳ノ
+    /         |
+    /   ヽ     ﾉ
+    │    |  |  |
+／￣|    |  |  |
+| (￣ヽ＿_ヽ_)__)
+＼二つ
+                [2,5,15,24,37]
+                |
+                [5,8,9,10,12] -> [5,8,9,10,12,14]
+
+                upkey = 10
+                upchild = [10,12,14]
+                oldchild = [5,8,9]
+
+                (UK)
+                    |
+            [2,5,10,15,24,37]
+                |  |
+                |  [10,12,14]->(upchild)
+                |
+            [5,8,9] 
+                                                                        
+            [2,5,10,15,24,37] ====> [2,5,10]  [15,24,37](upchild) [15]->upkey
+
+                        [15]
+                    /       \
+                    /         \        
+                    /           \
+                    /             \
+            [2,5,10]               [15,24,37]
+                |  |               |  
+                |  |               |
+                |  [10,12,14]      null
+                [5,8,9]
+
+        */
+        nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
+        CTemplateGuard g(nl);
+        if (g.returnCode() != 0) {
+            return g.returnCode();
+        }
+
+
+        // left child not change, only insert key and right child
+        rc = node.insertChild(childUp, 0, childNew.bid);
+        if (rc != 0) return rc;
+        
+        if (node.keyVec->size() < m_indexOrder) {
+            return store_node(node);
+        }
+        // need split
+        NodeData right(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+
+        rc = split_internal(node, right, upKey);
+        if (rc != 0) {
+            return rc;
+        }
+
+        // use upChild to return new created right node index
+        upChild = right.self;
+        store_node(node);
+        store_node(right);
+        return SPLIT;
+    }
+    return store_node(node);
+}
+
 int CBPlusTree::search(const KEY_T& key, void* out, uint32_t len, uint32_t* actualLen) {
     CSpinGuard g(m_lock);
-    if (m_root.bid == 0) return -ENOENT;
-    bidx cur = m_root;
+    if ((*m_root).bid == 0) return -ENOENT;
+    bidx cur = *m_root;
     NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-    bool nextIsLeaf = high == 1 ? true : false;
+    bool nextIsLeaf = *high == 1 ? true : false;
     int rc = 0;
     while (true) {
         rc = node.deInitNode();
@@ -217,7 +460,8 @@ int CBPlusTree::search(const KEY_T& key, void* out, uint32_t len, uint32_t* actu
         rc = load_node(cur, node, nextIsLeaf);
         if (rc != 0) return rc;
 
-        CTemplateReadGuard g(*node.pCache);
+        nodeLocker nl(node.pCache, m_page, node, nextIsLeaf, cmpTyps);
+        CTemplateReadGuard g(nl);
         if (g.returnCode() != 0) {
             return g.returnCode();
         }
@@ -246,15 +490,15 @@ int CBPlusTree::search(const KEY_T& key, void* out, uint32_t len, uint32_t* actu
 }
 
 CBPlusTree::iterator CBPlusTree::search(const KEY_T& key) {
-    iterator it(*this, m_root);
+    iterator it(*this, *m_root);
     
     CSpinGuard g(m_lock);
-    if (m_root.bid == 0) {
+    if ((*m_root).bid == 0) {
         throw std::out_of_range("tree is empty");
     }
-    bidx cur = m_root;
+    bidx cur = *m_root;
     NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-    bool nextIsLeaf = high == 1 ? true : false;
+    bool nextIsLeaf = *high == 1 ? true : false;
     int rc = 0;
     while (true) {
         rc = node.deInitNode();
@@ -268,7 +512,9 @@ CBPlusTree::iterator CBPlusTree::search(const KEY_T& key) {
             it.valid = false;
             return it;
         }
-        CTemplateReadGuard g(*node.pCache);
+
+        nodeLocker nl(node.pCache, m_page, node, nextIsLeaf, cmpTyps);
+        CTemplateReadGuard g(nl);
         if (g.returnCode() != 0) {
             it.valid = false;
             return it;
@@ -304,10 +550,10 @@ return it;
 // TODO :: TEST THIS FUNCTION
 int CBPlusTree::update(const KEY_T& key, const void* input, uint32_t len) {
     CSpinGuard g(m_lock);
-    if (m_root.bid == 0) return -ENOENT;
-    bidx cur = m_root;
+    if ((*m_root).bid == 0) return -ENOENT;
+    bidx cur = *m_root;
     NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
-    bool nextIsLeaf = high == 1 ? true : false;
+    bool nextIsLeaf = *high == 1 ? true : false;
     int rc = 0;
     while (true) {
         rc = node.deInitNode();
@@ -316,7 +562,8 @@ int CBPlusTree::update(const KEY_T& key, const void* input, uint32_t len) {
         rc = load_node(cur, node, nextIsLeaf);
         if (rc != 0) return rc;
 
-        CTemplateReadGuard g(*node.pCache);
+        nodeLocker nl(node.pCache, m_page, node, nextIsLeaf, cmpTyps);
+        CTemplateReadGuard g(nl);
         if (g.returnCode() != 0) {
             return g.returnCode();
         }
@@ -360,11 +607,8 @@ int CBPlusTree::update(const KEY_T& key, const void* input, uint32_t len) {
 
 int CBPlusTree::remove(const KEY_T& key) {
     CSpinGuard g(m_lock);
-    if (m_root.bid == 0) return -ENOENT;
-    // bidx cur = m_root;
-    NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+    if ((*m_root).bid == 0) return -ENOENT;
 
-    
     int rc = 0;   
     char tempData[MAXKEYLEN]; 
     KEY_T upKey{tempData, key.len, cmpTyps};
@@ -372,18 +616,18 @@ int CBPlusTree::remove(const KEY_T& key) {
     // if split is required, rc == SPLIT
 
     // search in root first
-    rc = remove_recursive(m_root, key, upKey, high == 1 ? true : false);
+    rc = remove_recursive(*m_root, key, upKey, *high == 1 ? true : false);
     if (rc < 0) return rc;
     if (rc == COMBINE) {
         // root need to be combined
         // if root is leaf, do nothing
-        if (high == 1) {
+        if (*high == 1) {
             return 0;
         }
     } else if (rc == EMPTY) {
         // tree become empty
-        m_root = {0, 0};
-        high = 0;
+        *m_root = {0, 0};
+        *high = 0;
     }
     
     return 0;
@@ -398,7 +642,9 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
     // leaf node founded, inster the data
     if (isLeaf) {
 
-        CTemplateGuard g(*node.pCache);
+        nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
+
+        CTemplateGuard g(nl);
         if (g.returnCode() != 0) {
             return g.returnCode();
         }
@@ -422,7 +668,7 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
 
         
         // check if need to combine
-        if (node.size() < (m_rowOrder / 2) && node.self.bid != m_root.bid) {
+        if (node.size() < (m_rowOrder / 2) && node.self.bid != (*m_root).bid) {
             // need to combine or borrow from sibling
             rc = store_node(node);
             if (rc != 0) return rc;
@@ -439,19 +685,21 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
     KEY_T childUp{tempData, key.len, cmpTyps};
     bidx childNew{nodeId, 0};
 
-    rc = node.pCache->read_lock();
+    nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
+
+    rc = nl.read_lock();
     if (rc != 0) return rc;
 
     int32_t idxChild = child_index(node, key);
 
     if (idxChild == -ERANGE) {
         // key not found, no need to delete
-        node.pCache->read_unlock();
+        nl.read_unlock();
         return 0;
     }
     bidx nextNode = {nodeId, node.childVec->at(idxChild)};
     bool nextIsLeaf = node.nodeData->hdr->childIsLeaf ? true : false;
-    node.pCache->read_unlock();
+    nl.read_unlock();
 
     rc = remove_recursive(nextNode, key, childUp, nextIsLeaf);
     if (rc < 0) {
@@ -460,7 +708,9 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
 
     if (rc & UPDATEKEY) {
         // need to update the index key
-        CTemplateGuard g(*node.pCache);
+        nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
+
+        CTemplateGuard g(nl);
         if (g.returnCode() != 0) {
             return g.returnCode();
         }
@@ -480,8 +730,8 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
 
     if (rc & COMBINE) {
         // need combine two sibling child nodes, or borrow from sibling
-
-        CTemplateGuard g(*node.pCache);
+        nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
+        CTemplateGuard g(nl);
         if (g.returnCode() != 0) {
             return g.returnCode();
         }
@@ -491,7 +741,7 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
         if (rc != 0) return rc;
 
         // check if need to combine current node
-        if (node.size() < m_indexOrder / 2 && node.self.bid != m_root.bid) {
+        if (node.size() < m_indexOrder / 2 && node.self.bid != (*m_root).bid) {
             updateType |= COMBINE;
         }
     } 
@@ -501,6 +751,58 @@ int32_t CBPlusTree::remove_recursive(const bidx& idx, const KEY_T& key, KEY_T& u
     
 
     return updateType;
+}
+
+int CBPlusTree::destroy() {
+    if (m_root->bid == 0) {
+        return 0;
+    }
+    int rc = 0;
+    bool isLeaf = *high == 1 ? true : false;
+    rc = destroy_recursive(*m_root, isLeaf);
+    if (rc != 0) return rc;
+    *m_root = {0, 0};
+    *m_begin = {0, 0};
+    *m_end = {0, 0};
+    *high = 0;
+    return 0;
+}
+
+int CBPlusTree::destroy_recursive(const bidx& idx, bool isLeaf) {
+    NodeData node(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+    int rc = load_node(idx, node, isLeaf);
+    if (rc != 0) return rc;
+
+    nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
+    CTemplateGuard g(nl);
+    if (g.returnCode() != 0) {
+        return g.returnCode();
+    }
+
+    if (!node.nodeData->hdr->leaf) {
+        // internal node, need destroy child nodes first
+        for (uint32_t i = 0; i < node.childVec->size(); ++i) {
+            bidx childIdx{nodeId, node.childVec->at(i)};
+            rc = destroy_recursive(childIdx, node.nodeData->hdr->childIsLeaf);
+            if (rc != 0) return rc;
+        }
+    }
+
+    m_commitCache.emplace(idx, std::move(node));
+
+    // free current node
+    rc = free_node(idx, isLeaf);
+    if (rc != 0)  { 
+        #ifdef __BPDEBUG__
+        cout << "Failed to free node gid: " << idx.gid << " bid: " << idx.bid << endl;
+        abort();
+        #endif
+        return rc;
+    }
+    
+
+    node.pCache->release();
+    return 0;
 }
 
 int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild) {
@@ -521,6 +823,11 @@ int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild) {
     NodeData left(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen), 
              right(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen), 
              target(m_page, keyLen, m_pageSize, m_rowPageSize, m_rowLen);
+
+    nodeLocker  leftLocker(node.pCache, m_page, node, isLeaf, cmpTyps),
+                rightLocker(node.pCache, m_page, node, isLeaf, cmpTyps),
+                targetLocker(node.pCache, m_page, node, isLeaf, cmpTyps);
+
 
     int rc = 0;
     // load left child
@@ -553,11 +860,11 @@ int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild) {
         borrowNode = &right;
         fromLeft = false;
     } else {
-        rc = left.pCache->read_lock();
+        rc = leftLocker.read_lock();
         if (rc != 0) return rc;
-        rc = right.pCache->read_lock();
+        rc = rightLocker.read_lock();
         if (rc != 0) {
-            left.pCache->read_unlock();
+            leftLocker.read_unlock();
             return rc;
         }
         
@@ -569,17 +876,20 @@ int32_t CBPlusTree::combine_child(NodeData& node, int32_t idxChild) {
             borrowNode = &right;
             fromLeft = false;
         }
-        left.pCache->read_unlock();
-        right.pCache->read_unlock();
+        leftLocker.read_unlock();
+        rightLocker.read_unlock();
     }
 
     // lock two nodes
-    CTemplateGuard gt(*target.pCache);
+    nodeLocker target_nl(target.pCache, m_page, node, isLeaf, cmpTyps);
+    nodeLocker borrow_nl(borrowNode->pCache, m_page, node, isLeaf, cmpTyps);
+
+    CTemplateGuard gt(target_nl);
     if (gt.returnCode() != 0) {
         return gt.returnCode();
     }
     // lock two nodes
-    CTemplateGuard gb(*borrowNode->pCache);
+    CTemplateGuard gb(borrow_nl);
     if (gb.returnCode() != 0) {
         return gb.returnCode();
     }
@@ -817,10 +1127,10 @@ int CBPlusTree::mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode
     rightNode->needDelete = true;
     store_node(*rightNode);
 
-    if (parent.size() == 0 && parent.self.bid == m_root.bid) {
+    if (parent.size() == 0 && parent.self.bid == (*m_root).bid) {
         // root node become empty, update m_root
-        m_root = leftNode->self;
-        --high;
+        *m_root = leftNode->self;
+        --(*high);
     }
 
 
@@ -833,12 +1143,12 @@ int CBPlusTree::mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode
 
 void CBPlusTree::printTree() {
     CSpinGuard g(m_lock);
-    if (m_root.bid == 0) {
+    if ((*m_root).bid == 0) {
         std::cout << "B+ Tree is empty." << std::endl;
         return;
     }
-    std::cout << "B+ Tree Structure (Height: " << (uint32_t)high << "):(Begin: " << m_begin.bid << ")" << std::endl;
-    printTreeRecursive(m_root, high == 1 ? true : false, high);
+    std::cout << "B+ Tree Structure (Height: " << (uint32_t)(*high) << "):(Begin: " << (*m_begin).bid << ")" << std::endl;
+    printTreeRecursive(*m_root, *high == 1 ? true : false, *high);
 
 }
 
@@ -854,14 +1164,15 @@ void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level) {
         return;
     }
     
-    CTemplateReadGuard g(*node.pCache);
+    nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
+    CTemplateReadGuard g(nl);
     if (g.returnCode() != 0) {
         std::cout << "Failed to read lock node at bid " << idx.bid << std::endl;
         return;
     }
 
     std::cout << "----------------------------------------" << std::endl;
-    std::cout << "Level " << (high - level + 1) << " - Node Bid: " << idx.bid << ", Keys: \n";
+    std::cout << "Level " << (*high - level + 1) << " - Node Bid: " << idx.bid << ", Keys: \n";
     std::cout << "node header : " << " leaf: " << (int)node.nodeData->hdr->leaf 
               << " childIsLeaf: " << (int)node.nodeData->hdr->childIsLeaf 
               << " key count: " << node.keyVec->size() << endl;
@@ -1781,7 +2092,9 @@ int CBPlusTree::iterator::loadData(void* outKey, uint32_t outKeyLen, uint32_t& k
 
     uint32_t copyLen = 0;
 
-    CTemplateReadGuard g(*node.pCache);
+    // must be leaf node, otherwise iterator is invalid
+    nodeLocker nl(node.pCache, m_tree.m_page, node, true, m_tree.cmpTyps);
+    CTemplateReadGuard g(nl);
     if (g.returnCode() != 0) {
         return -EIO;
     }
@@ -1854,3 +2167,34 @@ int CBPlusTree::iterator::loadNode() {
     loaded = true;
     return 0;
 }
+
+
+nodeLocker::nodeLocker(cacheStruct*& cs, CPage& pge, CBPlusTree::NodeData& node, bool isLeaf, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& keyType) : 
+cacheLocker(cs, pge), 
+m_nd(node), 
+m_isLeaf(isLeaf), 
+m_keyType(keyType) {
+    // constructor body can be empty
+}
+
+nodeLocker::~nodeLocker() {
+    // destructor body can be empty
+}
+
+int nodeLocker::reinitStruct() {
+    int rc = 0;
+    rc = m_nd.deInitNode(); if (rc != 0) return rc;
+    rc = m_nd.initNodeByLoad(m_isLeaf, m_nd.maxKeySize, getPtr(), m_keyType); 
+
+    return rc;
+}
+
+// class nodeLocker : public cacheLocker {
+// public:
+//     nodeLocker();
+//     virtual ~nodeLocker();
+//     virtual int reinitStruct() override;
+//     CBPlusTree::NodeData& m_nd;
+//     bool m_isLeaf;
+//     const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& m_keyType;
+// };

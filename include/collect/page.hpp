@@ -282,7 +282,7 @@ public:
     /*
         @note fresh the cache block to the first of lru system
         @param cache the block that you want to fresh
-        @return 0 on success, else on failure
+        @return 0 on success, EEXIST if cache pointer is change, else on failure
     */
     int fresh(cacheStruct*& cache);
 
@@ -367,6 +367,88 @@ private:
     CSpin m_cacheLock;
 };
 
+class cacheLocker {
+public:
+    cacheLocker(cacheStruct*& cs, CPage& pge) : m_cs(cs), m_page(pge) {
+        
+    }
+
+    virtual ~cacheLocker() {
+
+    }
+
+    int lock() {
+        int rc = 0;
+        rc = m_cs->lock();
+        if (rc == 0) {
+            return 0;
+        }
+
+        // lock fail, try to reload cache
+        rc = m_page.fresh(m_cs);
+        if (rc == EEXIST) {
+            // if cache pointer is change
+            isChange = true;
+            reinitStruct();
+            return m_cs->lock();
+        } else if (rc != 0) {
+            return rc;
+        }
+
+        return m_cs->lock();
+    }
+
+    int read_lock() {
+        int rc = 0;
+        rc = m_cs->read_lock();
+        if (rc == 0) {
+            return 0;
+        }
+
+        // lock fail, try to reload cache
+        rc = m_page.fresh(m_cs);
+        if (rc == EEXIST) {
+            // if cache pointer is change
+            isChange = true;
+            reinitStruct();
+            return m_cs->read_lock();
+        } else if (rc != 0) {
+            return rc;
+        }
+
+        return m_cs->read_lock();
+    }
+
+    void unlock() {
+        m_cs->unlock();
+    }
+
+    void read_unlock() {
+        m_cs->read_unlock();
+    }
+
+    bool isChanged() const noexcept {
+        return isChange;
+    }
+
+    /*
+        @note if pointer is change, this function will be called, if your struct use the pointer, reconstruct the struct.
+    */
+    virtual int reinitStruct() {
+        return 0;
+    }
+
+    void* getPtr() noexcept {
+        return m_cs->getPtr();
+    }
+
+    private:
+    bool isChange = false;
+    // cache struct pointer
+    cacheStruct*& m_cs;
+    CPage& m_page;
+
+};
 
 // void testSize(){
 //     sizeof(CDpfsCache<bidx, cacheStruct*, PageClrFn>);

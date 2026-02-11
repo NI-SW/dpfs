@@ -500,7 +500,7 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
         m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
         // to indicate error
         if(!finish_indicator) {
-            // TODO
+            // TODO : maybe need process error
             return 0;
         }
 

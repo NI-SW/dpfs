@@ -11,7 +11,7 @@
 #include <iostream>
 #include <vector>
 
-#define __LOAD__ 1
+#define __LOAD__ 0
 
 #define __TEST_INSERT__
 #define __TEST_DELETE__
@@ -86,7 +86,7 @@ int main() {
     } else {
         CCollectionInitStruct initStruct;
         initStruct.indexPageSize = 1;
-        rc = coll->initialize(initStruct);
+        rc = coll->initialize(initStruct, BOOTDIX);
         if (rc != 0) {
             cout << " load collection fail, rc=" << rc << endl;
         }
@@ -99,7 +99,7 @@ int main() {
         rc = coll->addCol("val2", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t));
         assert(rc == 0);
         
-        rc = coll->saveTo(BOOTDIX);
+        rc = coll->save();
         if (rc != 0) {
             cout << " save collection fail, rc=" << rc << endl;
         }
@@ -131,7 +131,7 @@ int main() {
     }
 
     assert(!threw && "insert should not throw on fresh tree");
-    assert(bpt.m_root.bid != 0);
+    assert(bpt.m_root->bid != 0);
     assert(!bpt.m_commitCache.empty());
 
     size_t leafWithKeys = 0;
@@ -147,15 +147,18 @@ int main() {
 #endif
     bpt.printTree();
 
-    uint64_t* row = new uint64_t[coll->m_collectionStruct->m_cols.size()];
+    cacheLocker cl(coll->m_cltInfoCache, coll->m_page);
+    CCollection::collectionStruct cs(coll->m_cltInfoCache->getPtr(), coll->m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    uint64_t* row = new uint64_t[cs.m_cols.size()];
 #ifdef __TEST_INSERT__
     cout << "-------------------------------------------------------------------------------------------test insert-------------------------------------------------------------------------" << endl;
     while(1) {
         
         cout << " insert key val (0 to exit): " << endl;
-        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
             uint64_t val = 0;
-            const CColumn& col = coll->m_collectionStruct->m_cols[i];
+            const CColumn& col = cs.m_cols[i];
             cout << " insert to :";
             cout << " col " << i << " name: " << col.getName() << ", len: " << (int)col.getLen() << endl;
             cout << " ispk: " << (col.getDds().constraints.unionData & CColumn::constraint_flags::PRIMARY_KEY) << endl;
@@ -171,7 +174,7 @@ int main() {
             break;
         }
 
-        CItem itm(coll->m_collectionStruct->m_cols);
+        CItem itm(cs.m_cols);
 
         rc = itm.updateValue(0, (uint8_t*)&row[0], sizeof(uint64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
         rc = itm.updateValue(1, (uint8_t*)&row[1], sizeof(uint64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
@@ -195,9 +198,9 @@ int main() {
     while(1) {
         cout << " remove key val (0 to exit): ";
 
-        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
             uint64_t val = 0;
-            const CColumn& col = coll->m_collectionStruct->m_cols[i];
+            const CColumn& col = cs.m_cols[i];
             if(!(col.getDds().constraints.unionData & CColumn::constraint_flags::PRIMARY_KEY)) {
                 continue;
             }
@@ -230,9 +233,9 @@ int main() {
     while(1) {
         cout << " update key val (0 to exit): ";
 
-        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
             uint64_t val = 0;
-            const CColumn& col = coll->m_collectionStruct->m_cols[i];
+            const CColumn& col = cs.m_cols[i];
             // if(!(col.getDds().constraints.unionData & CColumn::constraint_flags::PRIMARY_KEY)) {
             //     continue;
             // }
@@ -252,7 +255,7 @@ int main() {
         }
 
         auto key = make_key(row[0], row[1], bpt);
-        rc = bpt.update(key, row, sizeof(uint64_t) * coll->m_collectionStruct->m_cols.size());
+        rc = bpt.update(key, row, sizeof(uint64_t) * cs.m_cols.size());
         if (rc != 0) {
             cout << " update key " << row[0] << " fail, rc=" << rc << endl;
         }
@@ -266,9 +269,9 @@ int main() {
     while(1) {
         cout << " search key val (0 to exit): ";
 
-        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
             uint64_t val = 0;
-            const CColumn& col = coll->m_collectionStruct->m_cols[i];
+            const CColumn& col = cs.m_cols[i];
             if(!(col.getDds().constraints.unionData & CColumn::constraint_flags::PRIMARY_KEY)) {
                 continue;
             }
@@ -387,7 +390,7 @@ int main() {
     keyVals.emplace_back(sizeof(uint64_t));
     keyVals[1].setData(&row[1], sizeof(uint64_t));
     {
-        CItem tmpItm(coll->m_collectionStruct->m_cols);
+        CItem tmpItm(cs.m_cols);
         rc = coll->getByIndex({"val", "val2"}, keyVals, tmpItm);
         // rc = searchByIndex(coll, {"val", "val2"}, keyVals);
         if (rc != 0) {
@@ -396,9 +399,9 @@ int main() {
         }
 
         cout << " get data :: " << endl;
-        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
             CValue val = tmpItm.getValue(i);
-            cout << " col " << i << " name: " << coll->m_collectionStruct->m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
+            cout << " col " << i << " name: " << cs.m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
             for (uint32_t j = 0; j < val.len; ++j) {
                 printf("%02X", ((unsigned char*)val.data)[j]);
             }
@@ -441,7 +444,7 @@ int main() {
     }
 
     // use index iter to get main tree data
-    CItem tmpItm(coll->m_collectionStruct->m_cols);
+    CItem tmpItm(cs.m_cols);
     rc = 0;
     while (rc == 0) {
         rc = coll->getByIndexIter(indexIter, tmpItm);
@@ -451,9 +454,9 @@ int main() {
         }
 
         cout << " get data :: " << endl;
-        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
             CValue val = tmpItm.getValue(i);
-            cout << " col " << i << " name: " << coll->m_collectionStruct->m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
+            cout << " col " << i << " name: " << cs.m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
             for (uint32_t j = 0; j < val.len; ++j) {
                 printf("%02X", ((unsigned char*)val.data)[j]);
             }
@@ -478,7 +481,7 @@ int main() {
     }
 
     // use scan iter to get main tree data
-    CItem tmpItm(coll->m_collectionStruct->m_cols);
+    CItem tmpItm(cs.m_cols);
     rc = 0;
     while (rc == 0) {
         rc = coll->getByScanIter(scanIter, tmpItm);
@@ -488,9 +491,9 @@ int main() {
         }
 
         cout << " get data :: " << endl;
-        for(uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
             CValue val = tmpItm.getValue(i);
-            cout << " col " << i << " name: " << coll->m_collectionStruct->m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
+            cout << " col " << i << " name: " << cs.m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
             for (uint32_t j = 0; j < val.len; ++j) {
                 printf("%02X", ((unsigned char*)val.data)[j]);
             }
@@ -505,7 +508,7 @@ int main() {
 
 
     //TODO TEST SAVE AND LOAD TREE FROM DISK
-    rc = coll->saveTo(BOOTDIX);
+    rc = coll->save();
     if (rc != 0) {
         cout << " save collection fail, rc=" << rc << endl;
         goto errReturn;
@@ -552,27 +555,30 @@ int searchByIndex(CCollection* coll, const std::vector<std::string>& colNames, c
     int rc = 0;
     CCollectIndexInfo* indexInfo = nullptr;
 
-    bool match = false;
-    for (uint32_t i = 0; i < coll->m_collectionStruct->m_indexInfos.size(); ++i) {
-        cout << " index " << i << " name: " << coll->m_collectionStruct->m_indexInfos[i].name << endl;
+    cacheLocker cl(coll->m_cltInfoCache, coll->m_page);
+    CCollection::collectionStruct cs(coll->m_cltInfoCache->getPtr(), coll->m_cltInfoCache->getLen() * dpfs_lba_size);
 
-        if (coll->m_collectionStruct->m_indexInfos[i].cmpKeyColNum != colNames.size()) {
+    bool match = false;
+    for (uint32_t i = 0; i < cs.m_indexInfos.size(); ++i) {
+        cout << " index " << i << " name: " << cs.m_indexInfos[i].name << endl;
+
+        if (cs.m_indexInfos[i].cmpKeyColNum != colNames.size()) {
             continue;
         }
         match = true;
-        auto& keyseq = coll->m_collectionStruct->m_indexInfos[i].keySequence;
-        for (uint32_t j = 0; j < coll->m_collectionStruct->m_indexInfos[i].cmpKeyColNum; ++j) {
+        auto& keyseq = cs.m_indexInfos[i].keySequence;
+        for (uint32_t j = 0; j < cs.m_indexInfos[i].cmpKeyColNum; ++j) {
             #ifdef __INDEX_SEARCH_DEBUG__
-            cout << "   col " << j << " len: " << (uint16_t)coll->m_collectionStruct->m_cols[keyseq[j]].getNameLen() << " name: " << coll->m_collectionStruct->m_cols[keyseq[j]].getName() << endl;
+            cout << "   col " << j << " len: " << (uint16_t)cs.m_cols[keyseq[j]].getNameLen() << " name: " << cs.m_cols[keyseq[j]].getName() << endl;
             cout << "   search col len << " << colNames[j].size() << " name: " << colNames[j] << endl;
             #endif
-            if (colNames[j].size() != coll->m_collectionStruct->m_cols[keyseq[j]].getNameLen()) {
+            if (colNames[j].size() != cs.m_cols[keyseq[j]].getNameLen()) {
                 // cout << " length not match " << endl;
                 match = false;
                 break;
             }
 
-            if (memcmp(coll->m_collectionStruct->m_cols[keyseq[j]].getName(), colNames[j].c_str(), coll->m_collectionStruct->m_cols[keyseq[j]].getNameLen()) != 0) {
+            if (memcmp(cs.m_cols[keyseq[j]].getName(), colNames[j].c_str(), cs.m_cols[keyseq[j]].getNameLen()) != 0) {
                 // cout << " name not match " << endl;
                 match = false;
                 break;
@@ -580,7 +586,7 @@ int searchByIndex(CCollection* coll, const std::vector<std::string>& colNames, c
         }
 
         if (match) {
-            indexInfo = &coll->m_collectionStruct->m_indexInfos[i];
+            indexInfo = &cs.m_indexInfos[i];
             break;
         }
     }
@@ -630,7 +636,7 @@ int searchByIndex(CCollection* coll, const std::vector<std::string>& colNames, c
 
     KEY_T oriKey(pkVal.data, pkVal.len, coll->m_cmpTyps);
 
-    CItem pkItm(coll->m_collectionStruct->m_cols);
+    CItem pkItm(cs.m_cols);
     rc = coll->getRow(oriKey, &pkItm);
     if (rc != 0) {
         cout << " get row by primary key fail, rc=" << rc << endl;
@@ -638,7 +644,7 @@ int searchByIndex(CCollection* coll, const std::vector<std::string>& colNames, c
     }
 
     cout << " get original data by primary key :: " << endl;
-    for (uint32_t i = 0; i < coll->m_collectionStruct->m_cols.size(); ++i) {
+    for (uint32_t i = 0; i < cs.m_cols.size(); ++i) {
         CValue val = pkItm.getValue(i);
         cout << " col " << i << " len: " << val.len << " data: ";
         printMemory(val.data, val.len);

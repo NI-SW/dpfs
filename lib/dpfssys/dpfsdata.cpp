@@ -105,29 +105,32 @@ int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollecti
     // check if table already exists
     CCollection& sysTables = m_sysSchema->systables;
 
-    rc = checkExist(schema, coll.m_collectionStruct->ds->m_name);
+    rc = checkExist(schema, coll.getName());
     if (rc != 0) {
         return rc;
     }
 
-    // table check complete, create the table
-    bidx saveBid = {nodeId, 0};
-    saveBid.bid = m_diskMan.balloc(MAX_COLLECTION_INFO_LBA_SIZE);
-    if (saveBid.bid == 0) {
-        m_log.log_error("Failed to allocate block for new collection, no space left in the disk group.\n");
-        return -ENOSPC;
+    // new table's locker
+    cacheLocker collLocker(coll.m_cltInfoCache, coll.m_page);
+    CTemplateReadGuard collGuard(collLocker);
+    if (collGuard.returnCode() != 0) {
+        m_log.log_error("Failed to lock collection struct for writing, rc=%d\n", rc);
+        return collGuard.returnCode();
     }
-
-    // table struct and meta info save to storage(success)
-    rc = coll.saveTo(saveBid);
+    CCollection::collectionStruct collCs(coll.m_cltInfoCache->getPtr(), coll.m_cltInfoCache->getLen() * dpfs_lba_size);
+    
+    // lock systab
+    cacheLocker systabLocker(sysTables.m_cltInfoCache, sysTables.m_page);
+    rc = systabLocker.read_lock();
     if (rc != 0) {
-        m_diskMan.bfree(saveBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
-        m_log.log_error("Failed to save new collection to storage, rc=%d\n", rc);
+        m_log.log_error("Failed to lock systables for reading, rc=%d\n", rc);
         return rc;
     }
+    CCollection::collectionStruct syscs(sysTables.m_cltInfoCache->getPtr(), sysTables.m_cltInfoCache->getLen() * dpfs_lba_size);
+    // insert into systables
+    CItem item(syscs.m_cols);
+    systabLocker.read_unlock();
 
-    // update systables
-    CItem item(sysTables.m_collectionStruct->m_cols);
     /*
         "TABLE_SCHEMA", dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);
         "TABLE_NAME",   dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);
@@ -139,28 +142,41 @@ int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollecti
     std::string nowTime = getCurrentTimestamp();
     
     item.updateValue(0, schema.c_str(), schema.size());
-    item.updateValue(1, coll.m_collectionStruct->ds->m_name, coll.m_collectionStruct->ds->m_nameLen);
+    item.updateValue(1, coll.getName().c_str(), coll.getName().size());
     item.updateValue(2, nowTime.c_str(), nowTime.size());
-    item.updateValue(3, &coll.m_collectionStruct->ds->m_pkColNum, sizeof(coll.m_collectionStruct->ds->m_pkColNum));
-    item.updateValue(4, &coll.m_collectionStruct->ds->m_ccid, sizeof(coll.m_collectionStruct->ds->m_ccid));
-    item.updateValue(5, &saveBid, sizeof(saveBid));
+    item.updateValue(3, &collCs.ds->m_pkColNum, sizeof(collCs.ds->m_pkColNum));
+    item.updateValue(4, &collCs.ds->m_ccid, sizeof(collCs.ds->m_ccid));
+    item.updateValue(5, &coll.m_collectionBid, sizeof(coll.m_collectionBid));
+
+
 
 
     rc = sysTables.addItem(item);
     if (rc != 0) {
-        m_diskMan.bfree(saveBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+        coll.destroy();
+        // m_diskMan.bfree(saveBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
         m_log.log_error("Failed to add new table info to systables, rc=%d\n", rc);
         return rc;
     }
 
     // update SYSINDEXES
-    if (coll.m_collectionStruct->m_indexInfos.size() > 0) {
+    if (collCs.m_indexInfos.size() > 0) {
         // TODO : add index info to SYSINDEXES
     }
 
     // update SYSTABCONSTRAINTS
 
     // update SYSCOLUMNS
+
+
+    collGuard.release();
+    // table struct and meta info save to storage(successfully created)
+    rc = coll.save();
+    if (rc != 0) {
+        // m_diskMan.bfree(saveBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+        m_log.log_error("Failed to save new collection to storage, rc=%d\n", rc);
+        return rc;
+    }
 
     return 0;
 }
@@ -200,9 +216,17 @@ int CDatasvc::checkPrivilege(const CUser& usr, const std::string& schema, const 
     memcpy(key.data + key.len, table.data(), table.size());
     key.len += 64;
 
-    
+    cacheLocker authLocker(sysAuth.m_cltInfoCache, sysAuth.m_page);
+    rc = authLocker.read_lock();
+    if (rc != 0) {
+        m_log.log_error("Failed to lock sysauths for reading, rc=%d\n", rc);
+        return rc;
+    }
+    CCollection::collectionStruct authCs(sysAuth.m_cltInfoCache->getPtr(), sysAuth.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem idxItem(authCs.m_cols);
 
-    CItem idxItem(sysAuth.m_collectionStruct->m_cols);
+    authLocker.read_unlock();
+
     rc = sysAuth.getRow(key, &idxItem);
     if (rc != 0) {
         return rc;
@@ -245,7 +269,18 @@ int CDatasvc::checkExist(const std::string& schema, const std::string& table) co
     memcpy(key.data + key.len, table.data(), table.size());
     key.len += 64;
 
-    CItem idxItem(sysTables.m_collectionStruct->m_cols);
+
+    cacheLocker systabLocker(sysTables.m_cltInfoCache, sysTables.m_page);
+    rc = systabLocker.read_lock();
+    if (rc != 0) {
+        m_log.log_error("Failed to lock systables for reading, rc=%d\n", rc);
+        return rc;
+    }
+
+    CCollection::collectionStruct systabcs(sysTables.m_cltInfoCache->getPtr(), sysTables.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem idxItem(systabcs.m_cols);
+    systabLocker.read_unlock();
+
     rc = sysTables.getRow(key, &idxItem);
     if (rc != 0) {
         if (rc == -ENOENT) {

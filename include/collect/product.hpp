@@ -1,3 +1,7 @@
+
+/*
+    DEPRECATED: This module will be deprecated if not used in the future.
+*/
 #pragma once
 #include <collect/collect.hpp>
 #include <vector>

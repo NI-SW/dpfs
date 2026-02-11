@@ -112,6 +112,17 @@ public:
         }
         return error_code;
     }
+
+    /*
+        @note release the lock, after call this function, the guard will not hold the lock anymore, 
+        and you need to call lockGuard() to acquire the lock again if you want to use the guard.
+    */
+    void release() {
+        if (error_code == 0) {
+            m_lock.read_unlock();
+            error_code = -ENOLCK;
+        }
+    }
     
 private:
     T& m_lock;

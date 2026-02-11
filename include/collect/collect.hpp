@@ -719,10 +719,11 @@ public:
         private:
         
         
-        int assign(const void* it, CCollectIndexInfo* idxInfo);
+        int assign(const void* it, CCollectIndexInfo* idxInfo, cacheStruct* cache);
         friend class CCollection;
         uint8_t* m_collIdxIterPtr;
         CCollectIndexInfo* indexInfo = nullptr;
+        cacheStruct* cache = nullptr;
     };
 
     // use ccid to locate the collection (search in system collection table)
@@ -872,7 +873,7 @@ public:
         @note save the collection info to the storage
         @return 0 on success, else on failure
     */
-    int saveTo(const bidx& head);
+    int save();
 
     /*
         @note load the collection info from the storage
@@ -887,11 +888,17 @@ public:
     int destroy();
 
     /*
+        @note clear all the columns in the collection, and update the index, but not commit to storage
+        @return 0 on success, else on failure
+    */
+    int clearCols();
+
+    /*
         @param id: CCollection ID, used to identify the collection info
         @return 0 on success, else on failure
         @note initialize the collection with the given id
     */
-    int initialize(const CCollectionInitStruct& initStruct = CCollectionInitStruct());
+    int initialize(const CCollectionInitStruct& initStruct = CCollectionInitStruct(), const bidx& head = {0, 0});
 
     /*
         init b plus tree index for the collection, must be called after initialize and columns are set
@@ -904,6 +911,9 @@ public:
         @return index id on success, else on failure
     */
     int createIdx(const CIndexInitStruct& initStruct);
+
+    const std::string& getName() const;
+    std::string printStruct() const;
 
 private:
     /*
@@ -1000,7 +1010,7 @@ public:
         CFixLenVec<uint8_t, uint8_t, MAX_PKCOLS> m_pkColPos;
         CFixLenVec<CColumn, uint8_t, MAX_COL_NUM> m_cols;
         CFixLenVec<CCollectIndexInfo, uint8_t, MAX_INDEX_NUM> m_indexInfos;
-    }* m_collectionStruct = nullptr;
+    }; // * m_collectionStruct = nullptr;
 
     // inner locker 1B
     CSpin m_lock;
@@ -1021,8 +1031,10 @@ public:
     bool inited = false;
     // b plus tree head pointer or head block of seq storage
 
-    cacheStruct* m_cltInfoCache = nullptr;
+    mutable cacheStruct* m_cltInfoCache = nullptr;
+    
     bidx m_collectionBid {0, 0};
+    std::string m_name;
 
 };
 

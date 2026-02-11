@@ -72,7 +72,7 @@ public:
     // engines managed by this service
     CDiskMan m_diskMan;
     CPage m_page;
-    logrecord m_log;
+    mutable logrecord m_log;
     // system collection
     CSysSchemas* m_sysSchema = nullptr;
 

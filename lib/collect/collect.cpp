@@ -274,21 +274,29 @@ int CItem::updateValueByKey(const CColumn& col, const CValue& value) noexcept {
 int CCollection::commit() { 
     // TODO
     int rc = 0;
-    if (!m_collectionStruct->ds->m_perms.perm.m_dirty) {
+    if (!m_cltInfoCache) {
+        return -EFAULT;
+    }
+
+    CTemplateGuard guard(*m_cltInfoCache);
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    if (!cs.ds->m_perms.perm.m_dirty) {
         return 0;
     }
 
     void* zptr = nullptr;
     // lba length
     size_t zptrLen = 0;
-    bidx tmpDataRoot = m_collectionStruct->ds->m_dataRoot;
+    bidx tmpDataRoot = cs.ds->m_dataRoot;
     // len for root block
     size_t rootBlockLen = 0;
 
 
-    if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    if (!cs.ds->m_perms.perm.m_btreeIndex) {
         // not b+ tree index, all data can be save to storage only once
-        if (m_collectionStruct->ds->m_dataRoot != bidx({0, 0})) {
+        if (cs.ds->m_dataRoot != bidx({0, 0})) {
             // save to storage root block
             rc = -EOPNOTSUPP;
             message = "commit to a fixed Collection index is not allow.";
@@ -299,7 +307,7 @@ int CCollection::commit() {
         size_t totalDataBlocks = m_tempStorage.size();
         if (totalDataBlocks == 0 && curTmpDataLen == 0) {
             // no data to commit
-            m_collectionStruct->ds->m_perms.perm.m_dirty = false;
+            cs.ds->m_perms.perm.m_dirty = false;
             return 0;
         }
         totalDataBlocks += curTmpDataLen % dpfs_lba_size == 0 ? curTmpDataLen / dpfs_lba_size : (curTmpDataLen / dpfs_lba_size + 1);
@@ -314,7 +322,7 @@ int CCollection::commit() {
             goto errReturn;
         }
 
-        m_collectionStruct->ds->m_dataRoot = {nodeId, bid};
+        cs.ds->m_dataRoot = {nodeId, bid};
         // return by m_tempstorage, indicate actual lba length got
         size_t real_lba_len = 0;
 
@@ -386,7 +394,7 @@ int CCollection::commit() {
             curTmpDataLen = 0;
             memset(tmpData, 0, tmpBlockLen);
 
-            m_collectionStruct->ds->m_dataEnd = tmpDataRoot;
+            cs.ds->m_dataEnd = tmpDataRoot;
         }
 
         // wait for last write complete
@@ -418,7 +426,7 @@ int CCollection::commit() {
     }
 
 
-    m_collectionStruct->ds->m_perms.perm.m_dirty = false;
+    cs.ds->m_perms.perm.m_dirty = false;
 
     return rc;
 errReturn:
@@ -648,26 +656,39 @@ CCollection::~CCollection() {
     if (m_cltInfoCache) {
         m_cltInfoCache->release();
         m_cltInfoCache = nullptr;
-    } else {
-        if (m_collectionStruct) {
-            m_page.freezptr(m_collectionStruct->data, MAX_CLT_INFO_LBA_LEN);
-        }
-    }
-    if (m_collectionStruct) {
-        delete m_collectionStruct;
-        m_collectionStruct = nullptr;
-    }
+    } 
+    
+    // else {
+    //     if (m_collectionStruct) {
+    //         m_page.freezptr(m_collectionStruct->data, MAX_CLT_INFO_LBA_LEN);
+    //     }
+    // }
+    // if (m_collectionStruct) {
+    //     delete m_collectionStruct;
+    //     m_collectionStruct = nullptr;
+    // }
     inited = false;
 
 };
 
 int CCollection::setName(const std::string& name) {
     if (name.size() > MAX_NAME_LEN) {
+        message = "Collection name length exceeds maximum allowed size.";
         return -ENAMETOOLONG; // Key length exceeds maximum allowed size
     }
-    memset(m_collectionStruct->ds->m_name, 0, MAX_NAME_LEN);
-    m_collectionStruct->ds->m_nameLen = name.size() + 1;
-    mempcpy(m_collectionStruct->ds->m_name, name.c_str(), name.size() + 1);
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        message = "lock collection info cache failed.";
+        return guard.returnCode();
+    }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    memset(cs.ds->m_name, 0, MAX_NAME_LEN);
+    cs.ds->m_nameLen = name.size() + 1;
+    mempcpy(cs.ds->m_name, name.c_str(), name.size() + 1);
 
     return 0;
 }
@@ -681,11 +702,28 @@ int CCollection::setName(const std::string& name) {
     @note this function will add the col to the collection
 */
 int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t len, size_t scale, uint8_t constraint) {
+
+    if (!inited) {
+        message = "Collection is not initialized.";
+        return -EFAULT; // Collection not initialized
+    }
+
     if (colName.size() > MAX_COL_NAME_LEN) {
         return -ENAMETOOLONG; // Key length exceeds maximum allowed size
     }
 
-    if (m_collectionStruct->m_cols.size() >= MAX_COL_NUM) {
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+
+    CTemplateGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        message = "lock collection info cache failed.";
+        return guard.returnCode();
+    }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    if (cs.m_cols.size() >= MAX_COL_NUM) {
         return -E2BIG; // Too many columns
     }
 
@@ -736,14 +774,14 @@ int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t
     // }
 
     if (constraint & CColumn::constraint_flags::PRIMARY_KEY) {
-        m_collectionStruct->m_pkColPos.emplace_back(m_collectionStruct->m_cols.size());
+        cs.m_pkColPos.emplace_back(cs.m_cols.size());
     }
     m_lock.lock();
-    m_collectionStruct->m_cols.emplace_back(colName, type, len, scale, constraint);
+    cs.m_cols.emplace_back(colName, type, len, scale, constraint);
     m_lock.unlock();
     
-    this->m_collectionStruct->ds->m_perms.perm.m_dirty = true;
-    this->m_collectionStruct->ds->m_perms.perm.m_needreorg = true;
+    cs.ds->m_perms.perm.m_dirty = true;
+    cs.ds->m_perms.perm.m_needreorg = true;
     m_rowLen += len;
     return 0;
 }
@@ -754,16 +792,29 @@ int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t
     @note this function will remove the col from the collection, and update the index
 */
 int CCollection::removeCol(const std::string& colName) {
-    for(auto it = m_collectionStruct->m_cols.begin(); it != m_collectionStruct->m_cols.end(); ++it) {
+
+    if (!inited) {
+        message = "Collection is not initialized.";
+        return -EFAULT; // Collection not initialized
+    }
+
+    CTemplateGuard guard(*m_cltInfoCache);
+    if (guard.returnCode() != 0) {
+        message = "lock collection info cache failed.";
+        return guard.returnCode();
+    }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+    for(auto it = cs.m_cols.begin(); it != cs.m_cols.end(); ++it) {
         if ((*it).getNameLen() != colName.size() + 1) {
             continue;
         }
         if (memcmp((*it).getName(), colName.c_str(), (*it).getNameLen()) == 0) {
             m_lock.lock();
-            m_collectionStruct->m_cols.erase(it);
+            cs.m_cols.erase(it);
             m_lock.unlock();
-            m_collectionStruct->ds->m_perms.perm.m_dirty = true;
-            m_collectionStruct->ds->m_perms.perm.m_needreorg = true;
+            cs.ds->m_perms.perm.m_dirty = true;
+            cs.ds->m_perms.perm.m_needreorg = true;
             break;
         }
     }
@@ -814,6 +865,10 @@ int CCollection::saveTmpData(const void* data, size_t len){
 */
 int CCollection::addItem(const CItem& item) {
 
+    if (!inited) {
+        message = "Collection is not initialized.";
+        return -EFAULT; // Collection not initialized
+    }
     // save item to storage and update index
     // search where the item should be in storage, use b plus tree to storage the data
     
@@ -822,8 +877,20 @@ int CCollection::addItem(const CItem& item) {
     const char* dataPtr = item.data;
     size_t validLen = 0;
 
+    cacheLocker cl(m_cltInfoCache, m_page);
 
-    if (m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    // lock the cache (range = all system)
+    CTemplateGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        rc = guard.returnCode();
+        message = "lock collection info cache failed.";
+        return rc;
+    }
+    
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    // force use b+ tree index for now
+    if (1) { // m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
         // separate key and value from item
         for(auto it = item.begin(); it != item.end(); ++it) {
             char keyBuf[MAXKEYLEN];
@@ -832,7 +899,7 @@ int CCollection::addItem(const CItem& item) {
 
             uint32_t kl = 0;
             // get primary key columns and length
-            auto& pkCols = m_collectionStruct->m_pkColPos;
+            auto& pkCols = cs.m_pkColPos;
             for (uint32_t i = 0; i < pkCols.size(); ++i) {
                 // kl += item.cols[pkCols[i]].getLen();
                 CValue keyVal = it[pkCols[i]];
@@ -849,13 +916,6 @@ int CCollection::addItem(const CItem& item) {
             // cout << "------------------------" << endl;
             // #endif
             
-            // lock the cache (range = all system)
-            CTemplateGuard guard(*m_cltInfoCache);
-            if (guard.returnCode() != 0) {
-                rc = guard.returnCode();
-                message = "lock collection info cache failed.";
-                return rc;
-            }
 
             // insert to b plus tree index
             rc = m_btreeIndex->insert(key, it.getRowPtr(), it.getRowLen());
@@ -875,8 +935,8 @@ int CCollection::addItem(const CItem& item) {
             #endif
 
             // update index
-            for (uint32_t idx = 0; idx < m_collectionStruct->m_indexInfos.size(); ++idx) {
-                auto& indexInfo = m_collectionStruct->m_indexInfos[idx];
+            for (uint32_t idx = 0; idx < cs.m_indexInfos.size(); ++idx) {
+                auto& indexInfo = cs.m_indexInfos[idx];
                 auto& cmpTp = m_indexCmpTps[idx];
                 auto& indexBpt = *m_indexTrees[idx];
 
@@ -960,7 +1020,7 @@ errReturn:
     @note save the collection info to the storage
     @return 0 on success, else on failure
 */
-int CCollection::saveTo(const bidx& head) {
+int CCollection::save() {
 
     /*
         |perm 1B|nameLen 1B|dataroot 2B|collection name|columns|
@@ -993,13 +1053,18 @@ int CCollection::saveTo(const bidx& head) {
         return 0;
     }   
 
-    if (!m_collectionStruct) {
-        rc = -EINVAL;
-        goto errReturn;
-    }
+    // if (!m_collectionStruct) {
+    //     rc = -EINVAL;
+    //     goto errReturn;
+    // }
 
-    rc = this->m_page.put(head, m_collectionStruct->data, &indicate, MAX_COLLECTION_INFO_LBA_SIZE, true, &m_cltInfoCache);
-    if (rc) {
+    // rc = this->m_page.put(head, m_collectionStruct->data, &indicate, MAX_COLLECTION_INFO_LBA_SIZE, true, &m_cltInfoCache);
+    // if (rc) {
+    //     goto errReturn;
+    // }
+
+    rc = m_page.writeBack(m_cltInfoCache, &indicate);
+    if (rc != 0) {
         goto errReturn;
     }
 
@@ -1016,7 +1081,7 @@ int CCollection::saveTo(const bidx& head) {
         goto errReturn;
     }
 
-    this->m_collectionBid = head;
+    // this->m_collectionBid = head;
 
     return 0;
 
@@ -1038,21 +1103,25 @@ int CCollection::loadFrom(const bidx& head) {
     cacheStruct* ce = nullptr;
 
     // acquire collection info block from storage
+
     rc = m_page.get(ce, head, MAX_COLLECTION_INFO_LBA_SIZE);
     if (rc != 0) {
-        goto errReturn;
+        return rc;
     }
     if (!ce) {
-        rc = -EIO;
-        goto errReturn;
+        return -EIO;
     }
 
-
-    m_collectionStruct = new collectionStruct(ce->getPtr(), ce->getLen() * dpfs_lba_size);
-    if (!m_collectionStruct) {
-        rc = -ENOMEM;
-        goto errReturn;
+    CTemplateGuard g(*ce);
+    if (g.returnCode() != 0) {
+        rc = g.returnCode();
+        ce->release();
+        ce = nullptr;
+        return rc;
     }
+
+    collectionStruct cs(ce->getPtr(), ce->getLen() * dpfs_lba_size);
+
 
     if (B_END) {
         // TODO: convert to host endian
@@ -1060,12 +1129,12 @@ int CCollection::loadFrom(const bidx& head) {
     }
     
     m_rowLen = 0;
-    for(uint32_t i = 0; i < m_collectionStruct->m_cols.size(); ++i) {
-        m_rowLen += m_collectionStruct->m_cols[i].getLen();
+    for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
+        m_rowLen += cs.m_cols[i].getLen();
     }
     m_cltInfoCache = ce;
 
-    if (m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    if (cs.ds->m_perms.perm.m_btreeIndex) {
         rc = initBPlusTreeIndex();
         if (rc != 0) {
             m_cltInfoCache = nullptr;
@@ -1074,6 +1143,7 @@ int CCollection::loadFrom(const bidx& head) {
     }
     inited = true;
     m_collectionBid = head;
+    m_name.assign(cs.ds->m_name, cs.ds->m_nameLen);
     return 0;
 
     errReturn:
@@ -1082,10 +1152,6 @@ int CCollection::loadFrom(const bidx& head) {
         ce = nullptr;
     }
 
-    if (m_collectionStruct) {
-        delete m_collectionStruct;
-        m_collectionStruct = nullptr;
-    }
     return rc;
 }
 
@@ -1094,30 +1160,57 @@ int CCollection::loadFrom(const bidx& head) {
     @return 0 on success, else on failure
     @note initialize the collection with the given id
 */
-int CCollection::initialize(const CCollectionInitStruct& initStruct) {
+int CCollection::initialize(const CCollectionInitStruct& initStruct, const bidx& head) {
     if (inited) {
         return 0;
     }
-
+    int rc = 0;
     void* zptr = m_page.alloczptr(MAX_CLT_INFO_LBA_LEN);
     if (!zptr) {
         return -ENOMEM;
     }
-
-    m_collectionStruct = new collectionStruct(zptr, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
-    if (!m_collectionStruct) {
+    bidx tempBlock = {nodeId, 0};
+    if (!initStruct.m_perms.perm.m_systab) {
+        tempBlock.bid = m_diskMan.balloc(MAX_CLT_INFO_LBA_LEN);
+    } else {
+        tempBlock = head;
+    }
+    
+    rc = m_page.put(tempBlock, zptr, nullptr, MAX_CLT_INFO_LBA_LEN, false, &m_cltInfoCache);
+    if (rc != 0) {
         m_page.freezptr(zptr, MAX_CLT_INFO_LBA_LEN);
-        return -ENOMEM;
+        if (!initStruct.m_perms.perm.m_systab) {
+            m_diskMan.bfree(tempBlock.bid, MAX_CLT_INFO_LBA_LEN);
+        }
+        return rc;
     }
 
-    m_collectionStruct->ds->m_ccid = initStruct.id;
-    memcpy(m_collectionStruct->ds->m_name, initStruct.name.c_str(), initStruct.name.size());
-    m_collectionStruct->ds->m_nameLen = initStruct.name.size();
+    CTemplateGuard guard(*m_cltInfoCache);
+    if (guard.returnCode() != 0) {
+        rc = guard.returnCode();
+        m_page.freezptr(zptr, MAX_CLT_INFO_LBA_LEN);
+        if (!initStruct.m_perms.perm.m_systab) {
+            m_diskMan.bfree(tempBlock.bid, MAX_CLT_INFO_LBA_LEN);
+        }
+        return rc;
+    }
 
+    collectionStruct cs(zptr, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
 
-    m_collectionStruct->ds->m_perms.permByte = initStruct.m_perms.permByte;
-    m_collectionStruct->ds->m_indexPageSize = initStruct.indexPageSize;
-    m_collectionStruct->m_cols.clear();
+    // m_collectionStruct = new collectionStruct(zptr, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
+    // if (!m_collectionStruct) {
+    //     m_page.freezptr(zptr, MAX_CLT_INFO_LBA_LEN);
+    //     return -ENOMEM;
+    // }
+    m_collectionBid = tempBlock;
+    cs.ds->m_ccid = initStruct.id;
+    memcpy(cs.ds->m_name, initStruct.name.c_str(), initStruct.name.size());
+    cs.ds->m_nameLen = initStruct.name.size();
+    m_name.assign(initStruct.name);
+
+    cs.ds->m_perms.permByte = initStruct.m_perms.permByte;
+    cs.ds->m_indexPageSize = initStruct.indexPageSize;
+    cs.m_cols.clear();
 
     curTmpDataLen = 0;
 
@@ -1126,35 +1219,48 @@ int CCollection::initialize(const CCollectionInitStruct& initStruct) {
 }
 
 int CCollection::initBPlusTreeIndex() {
-    if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+
+    if (!inited) {
+        message = "collection has not been inited.";
+        return -EFAULT;
+    }
+
+    // TODO update lock method
+    int rc = 0;
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        rc = guard.returnCode();
+        message = "read lock collection info cache failed.";
+        return rc;
+    }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    if (!cs.ds->m_perms.perm.m_btreeIndex) {
         message = "collection has no b+ tree index.";
         return -EINVAL;
     }
+
     if (!m_btreeIndex) {
 
         size_t keyLen = 0;
         m_rowLen = 0;
 
-
-        // if the collection is newly created, the m_cltInfoCache is null, no need to lock, directly use m_collectionStruct
-        CTemplateReadGuard guard(*m_cltInfoCache, false);
-        if (m_cltInfoCache) {
-            // lock the cache to prevent concurrent modification of collection info
-            guard.lockGuard();
-            if (guard.returnCode() != 0) {
-                int rc = guard.returnCode();
-                message = "read lock collection info cache failed.";
-                return rc;
-            }
-        }
-
-        for(uint32_t i = 0; i < m_collectionStruct->m_cols.size(); ++i) {
-            const CColumn& col = m_collectionStruct->m_cols[i];
-
+        // get pk column info and calculate key length and row length
+        for(uint32_t i = 0; i < cs.m_pkColPos.size(); ++i) {
+            uint32_t pkColPos = cs.m_pkColPos[i];
+            const CColumn& col = cs.m_cols[pkColPos];
             if (col.getDds().constraints.ops.primaryKey) {
                 m_cmpTyps.emplace_back(std::make_pair(col.getLen(), col.getType()));
                 keyLen += static_cast<uint8_t>(col.getLen());
             }
+        }
+
+        // caculate row length, if the row length exceed maximum allowed size, return error
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
+            const CColumn& col = cs.m_cols[i];
             uint32_t dataLen = col.getLen();
             if (dataLen > maxInrowLen) {
                 dataLen = maxInrowLen;
@@ -1175,9 +1281,10 @@ int CCollection::initBPlusTreeIndex() {
 
         m_keyLen = keyLen;
 
-        auto& ds = m_collectionStruct->ds;
+        auto& ds = cs.ds;
 
-        m_btreeIndex = new CBPlusTree(m_page, m_diskMan, ds->m_indexPageSize, 
+        m_btreeIndex = new CBPlusTree(m_page, m_diskMan, 
+        ds->m_indexPageSize, 
         ds->m_btreeHigh,
         ds->m_dataRoot,
         ds->m_dataBegin,
@@ -1192,8 +1299,8 @@ int CCollection::initBPlusTreeIndex() {
 
 
         // init other indexes
-        m_indexCmpTps.reserve(m_collectionStruct->m_indexInfos.size());
-        for(auto& indexInfo : m_collectionStruct->m_indexInfos) {
+        m_indexCmpTps.reserve(cs.m_indexInfos.size());
+        for(auto& indexInfo : cs.m_indexInfos) {
             m_indexCmpTps.emplace_back();
             auto& cmpTp = m_indexCmpTps.back();
             cmpTp.reserve(MAX_INDEX_COL_NUM);
@@ -1225,20 +1332,41 @@ int CCollection::initBPlusTreeIndex() {
 // get one row
 int CCollection::getRow(KEY_T key, CItem* out) const {
 
-    if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
-        message = "collection has no b+ tree index.";
-        return -EINVAL;
+    if (!inited) {
+        message = "collection has not been inited.";
+        return -EFAULT;
     }
+    // if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    //     message = "collection has no b+ tree index.";
+    //     return -EINVAL;
+    // }
+    int rc = 0;
 
+    rc = m_page.fresh(m_cltInfoCache);
+    if (rc < 0) {
+        message = "fresh collection info cache failed.";
+        return rc;
+    }
 
     CTemplateReadGuard guard(*m_cltInfoCache);
     if (guard.returnCode() != 0) {
-        int rc = guard.returnCode();
+        rc = guard.returnCode();
         message = "read lock collection info cache failed.";
         return rc;
     }
 
-    int rc = m_btreeIndex->search(key, out->data, out->rowLen);
+    // if cache pointer is changed, it means the collection info is updated by other thread, need to reinit some pointer of the b+ tree index with new collection info
+    if (rc == EEXIST) {
+        collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+        m_btreeIndex->reinitBase(
+            &cs.ds->m_btreeHigh, 
+            &cs.ds->m_dataRoot, 
+            &cs.ds->m_dataBegin, 
+            &cs.ds->m_dataEnd
+        );
+    }
+
+    rc = m_btreeIndex->search(key, out->data, out->rowLen);
     if (rc != 0) {
         message = "search key in b+ tree index fail.";
         return rc;
@@ -1252,34 +1380,42 @@ int CCollection::getRow(KEY_T key, CItem* out) const {
 
 int CCollection::createIdx(const CIndexInitStruct& initStruct) {
 
-    auto& indexVec = m_collectionStruct->m_indexInfos;
-
-    if (indexVec.size() > MAX_INDEX_NUM) {
-        message = "exceed maximum index number.";
-        return -E2BIG;
-    }
-
-    if (initStruct.colNames.size() > MAX_INDEX_COL_NUM) {
-        message = "exceed maximum index column number.";
-        return -E2BIG;
-    }
-
-    if (initStruct.name.size() > MAX_NAME_LEN) {
-        message = "index name too long.";
-        return -ENAMETOOLONG;
-    }
-
-    if (initStruct.colNames.size() == 0) {
-        message = "no index column specified.";
-        return -EINVAL;
-    }
     int rc = 0;
-
+    bool locked = false;
+    
     rc = m_cltInfoCache->read_lock();
     if (rc != 0) {
         message = "collection cache read lock fail.";
         return rc;
     }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+    auto& indexVec = cs.m_indexInfos;
+
+    if (indexVec.size() > MAX_INDEX_NUM) {
+        message = "exceed maximum index number.";
+        m_cltInfoCache->read_unlock();
+        return -E2BIG;
+    }
+
+    if (initStruct.colNames.size() > MAX_INDEX_COL_NUM) {
+        message = "exceed maximum index column number.";
+        m_cltInfoCache->read_unlock();
+        return -E2BIG;
+    }
+
+    if (initStruct.name.size() > MAX_NAME_LEN) {
+        message = "index name too long.";
+        m_cltInfoCache->read_unlock();
+        return -ENAMETOOLONG;
+    }
+
+    if (initStruct.colNames.size() == 0) {
+        message = "no index column specified.";
+        m_cltInfoCache->read_unlock();
+        return -EINVAL;
+    }
+
 
     // check if index name already exists
     for (auto& idxInfo : indexVec) {
@@ -1297,7 +1433,7 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
     m_cltInfoCache->read_unlock();
 
 
-    // pushback new index info
+    
     CTemplateGuard lockGuard(*m_cltInfoCache);
     if (lockGuard.returnCode() != 0) {
         message = "collection cache lock fail.";
@@ -1340,8 +1476,8 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
     // fill the index key info
     for(auto& nms : initStruct.colNames) {
         uint8_t pos = 0;
-        for(uint32_t i = 0; i < m_collectionStruct->m_cols.size(); ++i) {
-            auto& col = m_collectionStruct->m_cols[i];
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
+            auto& col = cs.m_cols[i];
             if (col.getNameLen() != nms.size()) {
                 ++pos;
                 continue;
@@ -1409,7 +1545,7 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
             char originPkData[MAXKEYLEN * 2];
             uint32_t keyLenIndicator = 0;
             
-            CItem item(m_collectionStruct->m_cols);
+            CItem item(cs.m_cols);
 
 
             // save origin pk data to second col position
@@ -1481,34 +1617,35 @@ int CCollection::destroy() {
     if (!inited) {
         return -EINVAL;
     }
-
-    if (!m_collectionStruct) {
-        return -EINVAL;
-    }
     int rc = 0;
 
-    CTemplateGuard guard(*m_cltInfoCache);
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateGuard guard(cl);
     if (guard.returnCode() != 0) {
         rc = guard.returnCode();
         message = "lock collection info cache failed.";
         return rc;
     }
 
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
     if (m_btreeIndex) {
+
+
         // free main b plus tree index
         rc = m_btreeIndex->destroy(); if (rc != 0) return rc;
         delete m_btreeIndex;
         m_btreeIndex = nullptr;
 
         // free index blocks
-        for(uint32_t i = 0; i < m_collectionStruct->m_indexInfos.size(); ++i) {
+        for(uint32_t i = 0; i < cs.m_indexInfos.size(); ++i) {
             m_indexTrees[i]->destroy();
             delete m_indexTrees[i];
             m_indexTrees[i] = nullptr;
         }
         m_indexCmpTps.clear();
         m_indexTrees.clear();
-        m_collectionStruct->m_indexInfos.clear();
+        cs.m_indexInfos.clear();
         
     } else {
         // limited support right now
@@ -1517,11 +1654,34 @@ int CCollection::destroy() {
     }
 
     // free collection info block
-    m_diskMan.bfree(m_collectionStruct->ds->m_dataRoot.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+    // m_diskMan.bfree(cs.ds->m_dataRoot.bid, MAX_COLLECTION_INFO_LBA_SIZE);
     m_cltInfoCache->release();
     m_cltInfoCache = nullptr;
-    m_diskMan.bfree(m_collectionBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+    // if not system table, free the collection info block
+    if (!cs.ds->m_perms.perm.m_systab) {
+        m_diskMan.bfree(m_collectionBid.bid, MAX_COLLECTION_INFO_LBA_SIZE);
+    }
 
+    return 0;
+}
+
+int CCollection::clearCols() {
+    if (!inited) {
+        return -EINVAL;
+    }
+    int rc = 0;
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        rc = guard.returnCode();
+        message = "lock collection info cache failed.";
+        return rc;
+    }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    cs.m_cols.clear();
     return 0;
 }
 
@@ -1533,30 +1693,33 @@ int CCollection::getByIndex(const std::vector<std::string>& colNames, const std:
     bool match = false;
 
     // get read lock
-    CTemplateReadGuard guard(*m_cltInfoCache);
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateReadGuard guard(cl);
     if (guard.returnCode() != 0) {
         int rc = guard.returnCode();
         message = "read lock collection info cache failed.";
         return rc;
     }
 
-    uint32_t pos = 0;
-    for (uint32_t i = 0; i < m_collectionStruct->m_indexInfos.size(); ++i) {
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
 
-        if (m_collectionStruct->m_indexInfos[i].cmpKeyColNum != colNames.size()) {
+    uint32_t pos = 0;
+    for (uint32_t i = 0; i < cs.m_indexInfos.size(); ++i) {
+
+        if (cs.m_indexInfos[i].cmpKeyColNum != colNames.size()) {
             continue;
         }
         match = true;
-        auto& keyseq = m_collectionStruct->m_indexInfos[i].keySequence;
-        for (uint32_t j = 0; j < m_collectionStruct->m_indexInfos[i].cmpKeyColNum; ++j) {
+        auto& keyseq = cs.m_indexInfos[i].keySequence;
+        for (uint32_t j = 0; j < cs.m_indexInfos[i].cmpKeyColNum; ++j) {
 
-            if (colNames[j].size() != m_collectionStruct->m_cols[keyseq[j]].getNameLen()) {
+            if (colNames[j].size() != cs.m_cols[keyseq[j]].getNameLen()) {
                 // cout << " length not match " << endl;
                 match = false;
                 break;
             }
 
-            if (memcmp(m_collectionStruct->m_cols[keyseq[j]].getName(), colNames[j].c_str(), m_collectionStruct->m_cols[keyseq[j]].getNameLen()) != 0) {
+            if (memcmp(cs.m_cols[keyseq[j]].getName(), colNames[j].c_str(), cs.m_cols[keyseq[j]].getNameLen()) != 0) {
                 // cout << " name not match " << endl;
                 match = false;
                 break;
@@ -1564,7 +1727,7 @@ int CCollection::getByIndex(const std::vector<std::string>& colNames, const std:
         }
 
         if (match) {
-            indexInfo = &m_collectionStruct->m_indexInfos[i];
+            indexInfo = &cs.m_indexInfos[i];
             pos = i;
             break;
         }
@@ -1576,6 +1739,17 @@ int CCollection::getByIndex(const std::vector<std::string>& colNames, const std:
     }
 
     CBPlusTree& index = *m_indexTrees[pos];
+
+    if (cl.isChanged()) {
+        // if cache is changed, it means the collection info is updated by other thread, need to reinit some pointer of the b+ tree index with new collection info
+        index.reinitBase(
+            &cs.m_indexInfos[pos].indexHigh, 
+            &cs.m_indexInfos[pos].indexRoot, 
+            &cs.m_indexInfos[pos].indexBegin, 
+            &cs.m_indexInfos[pos].indexEnd
+        );
+     }
+
     auto& cmpTp = m_indexCmpTps[pos];
 
     // std::vector<std::pair<uint8_t, dpfs_datatype_t>> cmpTp;
@@ -1635,7 +1809,18 @@ int CCollection::getByIndex(const std::vector<std::string>& colNames, const std:
 */
 int CCollection::getScanIter(CIdxIter& outIter) const {
 
-    if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
+    cacheLocker cl(m_cltInfoCache, m_page);
+
+    CTemplateReadGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        message = "read lock collection info cache failed.";
+        return rc;
+    }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    if (!cs.ds->m_perms.perm.m_btreeIndex) {
         message = "collection has no b+ tree index.";
         return -EINVAL;
     }
@@ -1645,8 +1830,19 @@ int CCollection::getScanIter(CIdxIter& outIter) const {
         return -EINVAL;
     }
 
+    if (cl.isChanged()) {
+        // if cache is changed, it means the collection info is updated by other thread, need to reinit some pointer of the b+ tree index with new collection info
+        m_btreeIndex->reinitBase(
+            &cs.ds->m_btreeHigh, 
+            &cs.ds->m_dataRoot, 
+            &cs.ds->m_dataBegin, 
+            &cs.ds->m_dataEnd
+        );
+     }
+
     CBPlusTree::iterator iter = m_btreeIndex->begin();
-    outIter.assign((void*)&iter, nullptr);
+    // begin with first block, so no need to input iterator
+    outIter.assign((void*)&iter, nullptr, m_cltInfoCache);
 
     return 0;
 }
@@ -1730,30 +1926,34 @@ int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std:
     bool match = false;
 
     // get read lock
-    CTemplateReadGuard guard(*m_cltInfoCache);
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateReadGuard guard(cl);
     if (guard.returnCode() != 0) {
         int rc = guard.returnCode();
         message = "read lock collection info cache failed.";
         return rc;
     }
 
-    uint32_t pos = 0;
-    for (uint32_t i = 0; i < m_collectionStruct->m_indexInfos.size(); ++i) {
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
 
-        if (m_collectionStruct->m_indexInfos[i].cmpKeyColNum != colNames.size()) {
+    uint32_t pos = 0;
+    for (uint32_t i = 0; i < cs.m_indexInfos.size(); ++i) {
+
+        if (cs.m_indexInfos[i].cmpKeyColNum != colNames.size()) {
             continue;
         }
         match = true;
-        auto& keyseq = m_collectionStruct->m_indexInfos[i].keySequence;
-        for (uint32_t j = 0; j < m_collectionStruct->m_indexInfos[i].cmpKeyColNum; ++j) {
+        auto& keyseq = cs.m_indexInfos[i].keySequence;
+        for (uint32_t j = 0; j < cs.m_indexInfos[i].cmpKeyColNum; ++j) {
 
-            if (colNames[j].size() != m_collectionStruct->m_cols[keyseq[j]].getNameLen()) {
+            if (colNames[j].size() != cs.m_cols[keyseq[j]].getNameLen()) {
                 // cout << " length not match " << endl;
                 match = false;
                 break;
             }
 
-            if (memcmp(m_collectionStruct->m_cols[keyseq[j]].getName(), colNames[j].c_str(), m_collectionStruct->m_cols[keyseq[j]].getNameLen()) != 0) {
+            if (memcmp(cs.m_cols[keyseq[j]].getName(), colNames[j].c_str(), cs.m_cols[keyseq[j]].getNameLen()) != 0) {
                 // cout << " name not match " << endl;
                 match = false;
                 break;
@@ -1761,7 +1961,7 @@ int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std:
         }
 
         if (match) {
-            indexInfo = &m_collectionStruct->m_indexInfos[i];
+            indexInfo = &cs.m_indexInfos[i];
             pos = i;
             break;
         }
@@ -1798,10 +1998,52 @@ int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std:
     CBPlusTree::iterator Iter = index.search(indexKey);
 
     // init idx iterator
-    outIter.assign((void*)&Iter, indexInfo);
+    outIter.assign((void*)&Iter, indexInfo, m_cltInfoCache);
 
     return 0;
 }
+
+std::string CCollection::printStruct() const {
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+
+    CTemplateReadGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        message = "read lock collection info cache failed. code : " + std::to_string(rc);
+        return "";
+    }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    std::string res;
+    res += "Collection Name: " + std::string(cs.ds->m_name, cs.ds->m_nameLen) + "\n";
+    res += "Collection ID: " + std::to_string(cs.ds->m_ccid) + "\n";
+    res += "Columns: \n";
+    for (uint32_t i = 0; i < cs.m_cols.size(); ++i) {
+        const CColumn& col = cs.m_cols[i];
+        res += "  - Name: " + std::string(col.getName(), col.getNameLen()) + ", Type: " + std::to_string(static_cast<int>(col.getType())) + ", Len: " + std::to_string(col.getLen()) + "\n";
+    }
+
+    // indexes
+    if (cs.m_indexInfos.size()) {
+        res += "Indexes: \n";
+        for (uint32_t i = 0; i < cs.m_indexInfos.size(); ++i) {
+            const CCollectIndexInfo& idxInfo = cs.m_indexInfos[i];
+            res += "  - Name: " + std::string(idxInfo.name, idxInfo.nameLen) + ", Key Cols: ";
+            for (uint32_t j = 0; j < idxInfo.idxColNum; ++j) {
+                uint32_t colPos = idxInfo.keySequence[j];
+                const CColumn& col = cs.m_cols[colPos];
+                res += std::string(col.getName(), col.getNameLen()) + " ";
+            }
+            res += "\n";
+        }
+    }
+
+    return res;
+
+}
+
 
 #define bptIt ((CBPlusTree::iterator*)m_collIdxIterPtr)
 
@@ -1852,7 +2094,7 @@ CCollection::CIdxIter::~CIdxIter() {
     indexInfo = nullptr;
 }
 
-int CCollection::CIdxIter::assign(const void* it, CCollectIndexInfo* idxInfo) {
+int CCollection::CIdxIter::assign(const void* it, CCollectIndexInfo* idxInfo, cacheStruct* cache) {
     if (m_collIdxIterPtr) {
         delete bptIt;
     }
@@ -1864,6 +2106,7 @@ int CCollection::CIdxIter::assign(const void* it, CCollectIndexInfo* idxInfo) {
     }
 
     indexInfo = idxInfo;
+    this->cache = cache;
     return 0;
 }
 
@@ -1892,6 +2135,23 @@ int CCollection::CIdxIter::operator--() {
 }
 
 int CCollection::CIdxIter::loadData(void* outKey, uint32_t outKeyLen, uint32_t& keyLen, void* outRow, uint32_t outRowLen, uint32_t& rowLen) {
+
+    // lock and reinit the b+ tree node to make sure the data is consistent, 
+    // this is needed when there are concurrent modifications on the collection, 
+    // such as insert or delete, which may cause the b+ tree structure to change, 
+    // and the iterator may point to an invalid node. By locking and reinitializing 
+    // the node, we can ensure that the iterator always points to a valid node and can load the correct data.
+
+    cacheLocker cl(cache, bptIt->m_tree.m_page);
+
+    CTemplateReadGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        // message = "index info read lock failed.";
+        return rc;
+    }
+    collectionStruct cs(cache->getPtr(), cache->getLen() * dpfs_lba_size);
+    bptIt->m_tree.reinitBase(&cs.ds->m_btreeHigh, &cs.ds->m_dataRoot, &cs.ds->m_dataBegin, &cs.ds->m_dataEnd);
     return bptIt->loadData(outKey, outKeyLen, keyLen, outRow, outRowLen, rowLen);
 }
 
