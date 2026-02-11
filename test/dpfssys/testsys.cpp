@@ -77,7 +77,19 @@ int main(int argc, char** argv) {
     key.len = sizeof("VERSION");
     memcpy(key.data, "VERSION", key.len);
     // for one row
-    CItem itm(a->dataService->m_sysSchema->systemboot.m_collectionStruct->m_cols);
+
+    auto& sysBoot = a->dataService->m_sysSchema->systemboot;
+    cacheLocker bootLocker(sysBoot.m_cltInfoCache, sysBoot.m_page);
+    rc = bootLocker.read_lock();
+    if (rc != 0) {
+        cerr << "Failed to lock system boot cache, rc=" << rc << endl;
+    } else {
+        cout << "System boot cache locked successfully." << endl;
+    }
+    CCollection::collectionStruct bootcs(sysBoot.m_cltInfoCache->getPtr(), sysBoot.m_cltInfoCache->getLen());
+    CItem itm(bootcs.m_cols);
+    bootLocker.unlock();
+
     printValue(key, a->dataService->m_sysSchema->systemboot, &itm);
 
     cout << " get code set " << endl;

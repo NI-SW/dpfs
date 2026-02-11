@@ -2044,6 +2044,9 @@ std::string CCollection::printStruct() const {
 
 }
 
+const std::string& CCollection::getName() const {
+    return this->m_name;
+}
 
 #define bptIt ((CBPlusTree::iterator*)m_collIdxIterPtr)
 
