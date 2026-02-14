@@ -735,6 +735,11 @@ public:
     */
     CCollection(CDiskMan& dskman, CPage& pge);
 
+    CCollection(const CCollection& other) = delete;
+    CCollection(CCollection&& other) noexcept;
+    CCollection& operator=(const CCollection& other) = delete;
+    CCollection& operator=(CCollection&& other) noexcept;
+
     ~CCollection();
 
     // now only support row storage
@@ -827,6 +832,13 @@ public:
     */
     int getIdxIter(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CIdxIter& outIter) const;
 
+    /*
+        @param pos: indicate which index to search.
+        @param keyVals: key values to search
+        @param outIter: index iterator to store (unique, primaryKey) of the main tree
+        @return 0 on success, else on failure
+    */
+    int getIdxIter(int pos, const std::vector<CValue>& keyVals, CIdxIter& outIter) const;
 
     /*
         @return total items in the collection
@@ -876,10 +888,12 @@ public:
     int save();
 
     /*
-        @note load the collection info from the storage
+        @param head: bidx of the collection info in the storage
+        @param initBpt: whether initialize the b plus tree index after loading collection info, default true
+        @note load the collection info from the storage, if initBpt is false, the index is not vaild.
         @return 0 on success, else on failure
     */
-    int loadFrom(const bidx& head);
+    int loadFrom(const bidx& head, bool initBpt = true);
 
     /*
         @return 0 on success, else on failure
@@ -934,7 +948,7 @@ public:
     size_t curTmpDataLen = 0;
     char* tmpData = nullptr;
 
-
+    // when use this struct, the cache of the dataPtr should be locked.
     struct collectionStruct {
     
         collectionStruct(void* dataPtr, size_t sz) : 
@@ -944,13 +958,18 @@ public:
             m_pkColPos(ds->m_pkPos, ds->m_pkColNum),
             m_cols(ds->m_colsData, ds->m_colSize),
             m_indexInfos(ds->m_indexInfos, ds->m_indexSize) {
-
+            if (B_END) {
+                // TODO: convert from little endian to big endian
+            }
         };
 
         ~collectionStruct() {
             data = nullptr;
             ds = nullptr;
             size = 0;
+            if (B_END) {
+                // TODO Convert back
+            }
         };
         
         struct dataStruct_t{

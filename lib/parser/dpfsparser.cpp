@@ -1,156 +1,12 @@
 #include <parser/dpfsparser.hpp>
 #include <tiparser/tidb_parser.h>
-
+#include <tiparser/tiparser_enum.hpp>
+#include <dpfssys/plan.hpp>
 
 #ifdef PARSER_DEBUG
 using namespace std;
 
 #endif
-
-
-enum class createPlanMap : int {
-    IfNotExists = 0,
-    TemporaryKeyword,
-    OnCommitDelete,
-    Table,
-    ReferTable,
-    Cols,
-    Constraints,
-    SplitIndex,
-    Options,
-    Partition,
-    OnDuplicate,
-    Select
-};
-
-// translate from 
-// github.com/pingcap/tidb/pkg/parser@v0.0.0-20260205034954-d4f0daa8570e/mysql/type.go
-
-enum class planColTypes : uint8_t {
-	TypeUnspecified = 0,
-	TypeTiny        = 1, // TINYINT
-	TypeShort       = 2, // SMALLINT
-	TypeLong        = 3, // INT
-	TypeFloat       = 4,
-	TypeDouble      = 5,
-	TypeNull        = 6,
-	TypeTimestamp   = 7,
-	TypeLonglong    = 8, // BIGINT
-	TypeInt24       = 9, // MEDIUMINT
-	TypeDate        = 10,
-	/* TypeDuration original name was TypeTime, renamed to TypeDuration to resolve the conflict with Go type Time.*/
-	TypeDuration = 11,
-	TypeDatetime = 12,
-	TypeYear     = 13,
-	TypeNewDate  = 14,
-	TypeVarchar  = 15,
-	TypeBit      = 16,
-
-	TypeJSON       = 0xf5,
-	TypeNewDecimal = 0xf6,
-	TypeEnum       = 0xf7,
-	TypeSet        = 0xf8,
-	TypeTinyBlob   = 0xf9,
-	TypeMediumBlob = 0xfa,
-	TypeLongBlob   = 0xfb,
-	TypeBlob       = 0xfc,
-	TypeVarString  = 0xfd,
-	TypeString     = 0xfe, /* TypeString is char type */
-	TypeGeometry   = 0xff,
-	TypeTiDBVectorFloat32 = 0xe1
-};
-
-/*
-// ColumnOption is used for parsing column constraint info from SQL.
-GO TYPE
-type ColumnOption struct {
-	node
-
-	Tp ColumnOptionType
-	// Expr is used for ColumnOptionDefaultValue/ColumnOptionOnUpdateColumnOptionGenerated.
-	// For ColumnOptionDefaultValue or ColumnOptionOnUpdate, it's the target value.
-	// For ColumnOptionGenerated, it's the target expression.
-	Expr ExprNode
-	// Stored is only for ColumnOptionGenerated, default is false.
-	Stored bool
-	// Refer is used for foreign key.
-	Refer       *ReferenceDef
-	StrValue    string
-	AutoRandOpt AutoRandomOption
-	// Enforced is only for Check, default is true.
-	Enforced bool
-	// Name is only used for Check Constraint name.
-	ConstraintName      string
-	PrimaryKeyTp        PrimaryKeyType
-	SecondaryEngineAttr string
-}
-*/
-
-enum class planColOptions : uint8_t {
-    Tp = 0,
-    Expr,
-    Stored,
-    Refer,
-    StrValue,
-    AutoRandOpt,
-    Enforced,
-    ConstraintName,
-    PrimaryKeyTp,
-    SecondaryEngineAttr
-};
-
-// ColumnOption types.
-enum class planColOptionTp {
-	ColumnOptionNoOption = 0,
-	ColumnOptionPrimaryKey,
-	ColumnOptionNotNull,
-	ColumnOptionAutoIncrement,
-	ColumnOptionDefaultValue,
-	ColumnOptionUniqKey,
-	ColumnOptionNull,
-	ColumnOptionOnUpdate, // For Timestamp and Datetime only.
-	ColumnOptionFulltext,
-	ColumnOptionComment,
-	ColumnOptionGenerated,
-	ColumnOptionReference,
-	ColumnOptionCollate,
-	ColumnOptionCheck,
-	ColumnOptionColumnFormat,
-	ColumnOptionStorage,
-	ColumnOptionAutoRandom,
-	ColumnOptionSecondaryEngineAttribute
-};
-
-enum class planColFlag : uint32_t {
-// Flag information.
-	NotNullFlag         = 1 << 0,  /* Field can't be NULL */
-	PriKeyFlag          = 1 << 1,  /* Field is part of a primary key */
-	UniqueKeyFlag       = 1 << 2,  /* Field is part of a unique key */
-	MultipleKeyFlag     = 1 << 3,  /* Field is part of a key */
-	BlobFlag            = 1 << 4,  /* Field is a blob */
-	UnsignedFlag        = 1 << 5,  /* Field is unsigned */
-	ZerofillFlag        = 1 << 6,  /* Field is zerofill */
-	BinaryFlag          = 1 << 7,  /* Field is binary   */
-	EnumFlag            = 1 << 8,  /* Field is an enum */
-	AutoIncrementFlag   = 1 << 9,  /* Field is an auto increment field */
-	TimestampFlag       = 1 << 10, /* Field is a timestamp */
-	SetFlag             = 1 << 11, /* Field is a set */
-	NoDefaultValueFlag  = 1 << 12, /* Field doesn't have a default value */
-	OnUpdateNowFlag     = 1 << 13, /* Field is set to NOW on UPDATE */
-	PartKeyFlag         = 1 << 14, /* Intern: Part of some keys */
-	NumFlag             = 1 << 15, /* Field is a num (for clients) */
-
-	GroupFlag              = 1 << 15, /* Internal: Group field */
-	UniqueFlag             = 1 << 16, /* Internal: Used by sql_yacc */
-	BinCmpFlag             = 1 << 17, /* Internal: Used by sql_yacc */
-	ParseToJSONFlag        = 1 << 18, /* Internal: Used when we want to parse string to JSON in CAST */
-	IsBooleanFlag          = 1 << 19, /* Internal: Used for telling boolean literal from integer */
-	PreventNullInsertFlag  = 1 << 20, /* Prevent this Field from inserting NULL values */
-	EnumSetAsIntFlag       = 1 << 21, /* Internal: Used for inferring enum eval type. */
-	DropColumnIndexFlag    = 1 << 22, /* Internal: Used for indicate the column is being dropped with index */
-	GeneratedColumnFlag    = 1 << 23, /* Internal: TiFlash will check this flag and add a placeholder for this column */
-	UnderScoreCharsetFlag  = 1 << 24, /* Internal: Indicate whether charset is specified by underscore like _latin1'abc' */
-};
 
 
 
@@ -242,7 +98,7 @@ int CParser::checkPrivilege() {
     return 0;
 }
 
-int CParser::buildPlan() {
+int CParser::buildPlan(const std::string& osql, CPlanHandle& out) {
     if (!m_pParseResult) {
         return -EINVAL; // No parse result to build plan from
     }
@@ -256,7 +112,7 @@ int CParser::buildPlan() {
     for (int32_t i = 0; i < ast->stmt_count; ++i) {
         const TidbAstNode* stmt = ast->statements[i];
         // Process each statement node
-        rc = buildPlanForStmt(stmt);
+        rc = buildPlanForStmt(osql, stmt, out);
         if (rc != 0) {
             return rc;
         }
@@ -412,7 +268,7 @@ static int parsIndex(const TidbAstNode* indexDef, CCollection& coll) {
     return 0;
 }
 
-int CParser::buildPlanForStmt(const TidbAstNode* stmt) {
+int CParser::buildPlanForStmt(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out) {
     // Implementation for building plan for a single statement
     if (!stmt) {
         return -EINVAL; // Invalid statement node
@@ -431,23 +287,24 @@ int CParser::buildPlanForStmt(const TidbAstNode* stmt) {
     if (typeName == "CreateTableStmt") {
         // Handle CreateTable statement
         std::cout << "Building plan for CreateTable statement" << std::endl;
-        rc = buildCreatePlan(stmt);
+        
+        rc = buildCreatePlan(stmt, out);
     } else if (typeName == "SelectStmt") {
         // Handle Select statement
         std::cout << "Building plan for Select statement" << std::endl;
-        rc = buildSelectPlan(stmt);
+        rc = buildSelectPlan(osql, stmt, out);
     } else if (typeName == "DropTableStmt") {
         // Handle other statement types
         std::cout << "Building plan for DropTable statement" << std::endl;
-        rc = buildDropPlan(stmt);
+        rc = buildDropPlan(stmt, out);
     } else if (typeName == "InsertStmt") {
         // Handle Insert statement
         std::cout << "Building plan for Insert statement" << std::endl;
-        rc = buildInsertPlan(stmt);
+        rc = buildInsertPlan(osql, stmt, out);
     } else if (typeName == "DeleteStmt") {
         // Handle Delete statement
         std::cout << "Building plan for Delete statement" << std::endl;
-        rc = buildDeletePlan(stmt);
+        rc = buildDeletePlan(osql, stmt, out);
     } else {
         return -EINVAL; // Unsupported statement type
     }
@@ -460,7 +317,7 @@ int CParser::buildPlanForStmt(const TidbAstNode* stmt) {
 }
 
 
-int CParser::buildCreatePlan(const TidbAstNode* stmt) {
+int CParser::buildCreatePlan(const TidbAstNode* stmt, CPlanHandle& out) {
     
     if (!stmt) {
         return -EINVAL; // Invalid statement node
@@ -543,36 +400,130 @@ int CParser::buildCreatePlan(const TidbAstNode* stmt) {
     cout << "struct : " << coll.printStruct() << endl;
     #endif
     
-    rc = this->dataSvc.createTable(usr, schema, coll);
+    rc = this->dataSvc.createTable(usr, schema, coll, out);
     if (rc != 0) {
-        this->dataSvc.m_log.log_error("Failed to create table in data service, rc=%d", rc);
+        this->dataSvc.m_log.log_error("Failed to create table in data service, rc=%d\n", rc);
         return rc; // Return error code if table creation failed
     }
-    this->dataSvc.m_log.log_inf("Successfully created table in data service, schema=%s, table=%s", schema.c_str(), tabName.c_str());
+    this->dataSvc.m_log.log_inf("Successfully created table in data service, schema=%s, table=%s\n", schema.c_str(), tabName.c_str());
     return 0;
 }
 
-
-
-int CParser::buildSelectPlan(const TidbAstNode* stmt) {
+int CParser::buildSelectPlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out) {
     //TODO
     return -ENOTSUP; // Not supported yet
     return 0;
 }
 
-int CParser::buildDropPlan(const TidbAstNode* stmt) {
+int CParser::buildDropPlan(const TidbAstNode* stmt, CPlanHandle& out) {
     //TODO
     return -ENOTSUP; // Not supported yet
     return 0;
 }
 
-int CParser::buildInsertPlan(const TidbAstNode* stmt) {
+int CParser::buildInsertPlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out) {
     //TODO
-    return -ENOTSUP; // Not supported yet
+
+    
+    int rc = 0;
+    // parseName only support one table for now
+    std::string schema(
+        stmt->fields[static_cast<int>(insertPlanMap::Table)].value.node->fields[0].value.node->fields[0].value.node->fields[0].value.node->fields[0].value.object.fields[0].value.str.data, 
+        stmt->fields[static_cast<int>(insertPlanMap::Table)].value.node->fields[0].value.node->fields[0].value.node->fields[0].value.node->fields[0].value.object.fields[0].value.str.len
+    );
+    std::string tabName(
+        stmt->fields[static_cast<int>(insertPlanMap::Table)].value.node->fields[0].value.node->fields[0].value.node->fields[0].value.node->fields[1].value.object.fields[static_cast<int>(nameCase::Original)].value.str.data, 
+        stmt->fields[static_cast<int>(insertPlanMap::Table)].value.node->fields[0].value.node->fields[0].value.node->fields[0].value.node->fields[1].value.object.fields[static_cast<int>(nameCase::Original)].value.str.len
+    );
+
+    std::vector<std::string> planCols;
+    planCols.reserve(stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.len);
+
+    #ifdef PARSER_DEBUG
+
+    cout << "Insert Table: " << schema << "." << tabName << endl;
+    #endif
+
+    /*
+        Array Length: 4
+    Array Item 1:
+|       Node Type: github.com/pingcap/tidb/pkg/parser/ast.ColumnName
+|       Position: 0
+|       Field Count: 3
+|       Field 1 Name: Schema
+|   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+|   |       Field Count: 2
+|   |       object Field 1 Name: O
+|   |        kind : 5
+|   |        str value :
+|   |       object Field 2 Name: L
+|   |        kind : 5
+|   |        str value :
+|   |       ,
+|       Field 2 Name: Table
+|   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+|   |       Field Count: 2
+|   |       object Field 1 Name: O
+|   |        kind : 5
+|   |        str value :
+|   |       object Field 2 Name: L
+|   |        kind : 5
+|   |        str value :
+|   |       ,
+|       Field 3 Name: Name
+|   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+|   |       Field Count: 2
+|   |       object Field 1 Name: O
+|   |        kind : 5
+|   |        str value : A
+|   |       object Field 2 Name: L
+|   |        kind : 5
+|   |        str value : a
+|   |       ,
+
+    */
+
+    // parseColumns, if the column list is empty, means insert into all columns, otherwise insert into specified columns
+    // from an array
+    for (int i = 0; i < stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.len; ++i) {
+        const TidbAstValue& colVal = stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.items[i].node->fields[static_cast<int>(colNamefieldType::Name)].value.object.fields[static_cast<int>(nameCase::Original)].value; // get column name from ColumnName node
+        // std::string colName(colVal.value.str.data, colVal.value.str.len);
+        planCols.emplace_back(colVal.str.data, colVal.str.len);
+        #ifdef PARSER_DEBUG
+        cout << "Insert Column: " << planCols.back() << endl;
+        #endif
+    }
+
+    // int planColSize = 0;
+    // int planColSequence[MAX_COL_NUM];
+    // CFixLenVec<int, int, MAX_COL_NUM> planColVec(planColSequence, planColSize);
+    
+
+
+    // parseValues();
+    rc = dataSvc.createInsertPlan(osql, schema, tabName, planCols, out);
+    if (rc != 0) {
+        this->dataSvc.m_log.log_error("Failed to create insert plan in data service, rc=%d", rc);
+        return rc; // Return error code if insert plan creation failed
+    }
+
+    // TODO
+    // parse values and insert the data
+    // maybe more than one row to insert, so it's an array of array
+    std::vector<std::vector<CValue>> valVec;
+    // fullfill the valvec
+    for (;;) {
+
+    }
+
+    dataSvc.planInsert(out.plan, &valVec);
+
+
     return 0;
+    return -ENOTSUP; // Not supported yet
 }
 
-int CParser::buildDeletePlan(const TidbAstNode* stmt) {
+int CParser::buildDeletePlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& ph) {
     //TODO
 
     return -ENOTSUP; // Not supported yet

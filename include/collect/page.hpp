@@ -13,10 +13,6 @@ extern const size_t maxMemBlockLimit;
 class CPage;
 class PageClrFn;
 
-/*
-    TODO :: 
-    cacheStruct自动加载已失效的数据块
-*/
 
 // block index
 struct bidx {
@@ -377,6 +373,10 @@ public:
 
     }
 
+    /*
+        @note lock the cache, if cache pointer is change, reload the cache and try to lock again, if cache is not valid, return error
+        @return 0 on success, else on failure
+    */
     int lock() {
         int rc = 0;
         rc = m_cs->lock();
@@ -398,6 +398,10 @@ public:
         return m_cs->lock();
     }
 
+    /*
+        @note lock the cache, if cache pointer is change, reload the cache and try to lock again, if cache is not valid, return error
+        @return 0 on success, else on failure
+    */
     int read_lock() {
         int rc = 0;
         rc = m_cs->read_lock();

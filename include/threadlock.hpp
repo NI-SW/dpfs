@@ -79,6 +79,25 @@ public:
             m_lock.unlock();
         }
     }
+
+    int lockGuard() {
+        if (m_error_code == -ENOLCK) {
+            m_error_code = m_lock.lock();
+        }
+        return m_error_code;
+    }
+
+    /*
+        @note release the lock, after call this function, the guard will not hold the lock anymore, 
+        and you need to call lockGuard() to acquire the lock again if you want to use the guard.
+    */
+    void release() {
+        if (m_error_code == 0) {
+            m_lock.unlock();
+            m_error_code = -ENOLCK;
+        }
+    }
+
     int returnCode() const noexcept {
         return m_error_code;
     }

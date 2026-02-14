@@ -21,7 +21,15 @@ template<class T>
 class CClearFunc {
     public:
     CClearFunc(void* initArg){}
-    void operator()(T& p) {
+    void operator()(T& p, int* finish_indicator = nullptr) {
+        // clear cache, for example, write back to disk if dirty
+        // set finish_indicator to 1 when finish, set to negative value if error occurred
+        #ifdef __DPCACHE_DEBUG__
+        cout << "Clearing cache: " << p << endl;
+        #endif
+        if (finish_indicator) {
+            *finish_indicator = 1;
+        }
         
     }
     
@@ -264,18 +272,71 @@ public:
         return 0;
     }
 
+#if __cplusplus >= 201103L
+    /*
+        @param idx index of the cache
+        @param cache cache to insert
+        @note insert cache to LRU system, do not check if the cache inserted.
+    */
+    int insertCache(IDX&& idx, T&& cache) {
+        cacheIter* it = nullptr;
+        // if larger than max size, remove the last one
+        if (m_cachesList.size() >= m_cacheSize) {
+
+            m_lock.lock();
+
+            // reuse the mem
+            it = reinterpret_cast<cacheIter*>(m_cachesList.back());
+            // erase cache in map, and pop up the oldest unused cache
+            m_cacheMap.erase(it->idx);
+            m_cachesList.pop_back();
+            
+            m_lock.unlock();
+            
+            clrfunc(it->cache);
+        }
+        else {
+            it = new cacheIter;
+            if (!it) {
+                return -ENOMEM;
+            }
+        }
+
+        it->cache = std::move(cache);
+        it->idx = std::move(idx);
+
+        m_lock.lock();
+
+        m_cachesList.push_front(it);
+        m_cacheMap[it->idx] = it;
+        it->selfIter = m_cachesList.begin();
+        
+        m_lock.unlock();
+
+
+#ifdef __DPFS_CACHE_DEBUG__
+        cout << " now cache list: " << endl;
+        for (auto& it : m_cachesList) {
+            cout << ((cacheIter*)it)->idx << " : " << ((cacheIter*)it)->cache << endl;
+        }
+#endif
+        
+        return 0;
+    }
+
+    int insertCache(const IDX& idx, T&& cache) {
+        IDX tmp(idx);
+        return insertCache(std::move(tmp), std::move(cache));
+    }
+    
+#endif
     /*
         @note flush all cache to disk immediate
         @return 0 on success, else on failure
     */
     int flush() {
         m_lock.lock();
-        // for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
-        //     clrfunc.flush((*cacheIt).second->cache);
-        // }
-
         clrfunc.flush(&m_cacheMap);
-
         m_lock.unlock();
         return 0;
     }

@@ -11,7 +11,7 @@
 #include <string>
 #include <dpfssys/dpfsdata.hpp>
 #include <dpfssys/user.hpp>
-
+#include <log/loglocate.h>
 
 struct colTypeDef {
     dpfs_datatype_t type;
@@ -75,15 +75,18 @@ public:
         @return 0 on success, else on failure
         @note build execution plan from parse result
     */
-    int buildPlan();
+    int buildPlan(const std::string& osql, CPlanHandle& out);
+
+
+
 private:
-    int buildPlanForStmt(const TidbAstNode* stmt);
+    int buildPlanForStmt(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out);
 
 
     // todo build sql execution plan for different statement types
-    int buildCreatePlan(const TidbAstNode* stmt);
-    int buildSelectPlan(const TidbAstNode* stmt);
-    int buildDropPlan(const TidbAstNode* stmt);
-    int buildInsertPlan(const TidbAstNode* stmt);
-    int buildDeletePlan(const TidbAstNode* stmt);
+    int buildCreatePlan(const TidbAstNode* stmt, CPlanHandle& out);
+    int buildSelectPlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out);
+    int buildDropPlan(const TidbAstNode* stmt, CPlanHandle& out);
+    int buildInsertPlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out);
+    int buildDeletePlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out);
 };

@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
     }
     CCollection::collectionStruct bootcs(sysBoot.m_cltInfoCache->getPtr(), sysBoot.m_cltInfoCache->getLen());
     CItem itm(bootcs.m_cols);
-    bootLocker.unlock();
+    bootLocker.read_unlock();
 
     printValue(key, a->dataService->m_sysSchema->systemboot, &itm);
 
@@ -107,6 +107,8 @@ int main(int argc, char** argv) {
 
     CParser parser(usr, *a->dataService);
 
+    //TODO :: FINISH INSERT AND SELECT
+    
     while(1) {
         cout << "input sql : " << endl;
         string sql;
@@ -116,9 +118,17 @@ int main(int argc, char** argv) {
         }
 
         parser(sql);
-        parser.buildPlan();
+        CPlanHandle handle(a->dataService->m_page, a->dataService->m_diskMan);
+        rc = parser.buildPlan(sql, handle);
+        if (rc != 0) {
+            cout << "message " << parser.message << endl;
+            cerr << "Failed to build execution plan, rc=" << rc << endl;
+        } else {
+            cout << "Execution plan built successfully." << endl;
+        }
 
         
+
 
     }
 

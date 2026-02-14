@@ -532,6 +532,7 @@ CBPlusTree::iterator CBPlusTree::search(const KEY_T& key) {
             //     return it;
             // }
 
+            // return the closest key greater than or equal to the search key
             it.m_currentNode = cur;
             it.m_currentPos = pos;
             return it;            

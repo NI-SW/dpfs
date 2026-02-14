@@ -1,6 +1,7 @@
 #include <dpfssys/dpfsdata.hpp>
 #include <basic/dpfsconst.hpp>
 #include <dpfsdebug.hpp>
+
 /*
     basic system table :
     "sysdpfs" : "sysproducts", "systables", "syscolumns", "sysindexes"
@@ -80,7 +81,7 @@ errReturn:
     return rc;
 }
 
-int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollection& coll) {
+int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollection& coll, CPlanHandle& out) {
     // TODO : write the collection info to the storage, including the collection struct and some meta info, for example, the next auto increment id for this table
     int rc = 0;
     
@@ -140,13 +141,18 @@ int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollecti
         "ROOT",         dpfs_datatype_t::TYPE_BINARY,    16, 0, cf::NOT_NULL);                  
     */
     std::string nowTime = getCurrentTimestamp();
-    
-    item.updateValue(0, schema.c_str(), schema.size());
-    item.updateValue(1, coll.getName().c_str(), coll.getName().size());
-    item.updateValue(2, nowTime.c_str(), nowTime.size());
-    item.updateValue(3, &collCs.ds->m_pkColNum, sizeof(collCs.ds->m_pkColNum));
-    item.updateValue(4, &collCs.ds->m_ccid, sizeof(collCs.ds->m_ccid));
-    item.updateValue(5, &coll.m_collectionBid, sizeof(coll.m_collectionBid));
+
+    m_sysSchema->cidLock.lock();
+    collCs.ds->m_ccid = m_sysSchema->tableccid;
+    ++m_sysSchema->tableccid;
+    m_sysSchema->cidLock.unlock();
+
+    rc = item.updateValue(0, schema.c_str(), schema.size());                               if (rc <= 0) { m_log.log_error("Failed to update SYSTABLES value, rc=%d\n", rc); return rc; }
+    rc = item.updateValue(1, coll.getName().c_str(), coll.getName().size());               if (rc <= 0) { m_log.log_error("Failed to update SYSTABLES value, rc=%d\n", rc); return rc; }
+    rc = item.updateValue(2, nowTime.c_str(), nowTime.size());                             if (rc <= 0) { m_log.log_error("Failed to update SYSTABLES value, rc=%d\n", rc); return rc; }
+    rc = item.updateValue(3, &collCs.ds->m_pkColNum, sizeof(collCs.ds->m_pkColNum));       if (rc <= 0) { m_log.log_error("Failed to update SYSTABLES value, rc=%d\n", rc); return rc; }
+    rc = item.updateValue(4, &collCs.ds->m_ccid, sizeof(collCs.ds->m_ccid));               if (rc <= 0) { m_log.log_error("Failed to update SYSTABLES value, rc=%d\n", rc); return rc; }
+    rc = item.updateValue(5, &coll.m_collectionBid, sizeof(coll.m_collectionBid));         if (rc <= 0) { m_log.log_error("Failed to update SYSTABLES value, rc=%d\n", rc); return rc; }
 
 
 
@@ -180,8 +186,6 @@ int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollecti
 
     return 0;
 }
-
-
 
 int CDatasvc::checkPrivilege(const CUser& usr, const std::string& schema, const std::string& table, tbPrivilege allocPriv) const {
 
@@ -295,5 +299,106 @@ int CDatasvc::checkExist(const std::string& schema, const std::string& table) co
 
 }
 
+// TODO MAKE A HANDLE, return a handle of the plan, and execute the plan in executor with the handle, and release the handle after execution
+int CDatasvc::createInsertPlan(const std::string& osql, const std::string& schema, const std::string& table, const std::vector<std::string>& colNames, CPlanHandle& out) {
+    CPlan plan;
+    plan.originalSQL = osql;
+    CPlanObjects insertObj;
 
+    // search plan in cache
+    auto cachePlan = m_planCache.getCache(osql);
+    if (cachePlan) {
+        out.plan = cachePlan->cache;
+        out.type = planType::Insert;
+        return 0;
+    }
+
+    
+    // get collection bidx, search in systables
+    int rc = 0;
+    CCollection& sysTables = m_sysSchema->systables;
+
+    // 0 "TABLE_SCHEMA", dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);
+    // 1 "TABLE_NAME",   dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);
+    // 2 "CREATE_TIME",  dpfs_datatype_t::TYPE_TIMESTAMP, 64, 0, cf::NOT_NULL);                  
+    // 3 "KEYCOLUMNS",   dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL);                  
+    // 4 "TABLE_ID",     dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL | cf::UNIQUE);     
+    // 5 "ROOT",         dpfs_datatype_t::TYPE_BINARY,    16, 0, cf::NOT_NULL);                  
+
+    char tmpk[MAXKEYLEN];
+    KEY_T key(tmpk, 0, sysTables.m_cmpTyps);
+    memset(tmpk, 0, 64 * 2);
+    // input key word
+    memcpy(key.data, schema.data(), schema.size());
+    key.len += 64;
+    memcpy(key.data + key.len, table.data(), table.size());
+    key.len += 64;
+
+    // init item receiver
+    cacheLocker systabLocker(sysTables.m_cltInfoCache, sysTables.m_page);
+    rc = systabLocker.read_lock();
+    if (rc != 0) {
+        m_log.log_error("Failed to lock systables for reading, rc=%d\n", rc);
+        return rc;  
+    }
+    CCollection::collectionStruct systabcs(sysTables.m_cltInfoCache->getPtr(), sysTables.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem idxItem(systabcs.m_cols);
+    systabLocker.read_unlock();
+
+    rc = sysTables.getRow(key, &idxItem);
+    if (rc != 0) {
+        return rc;
+    }
+
+    CValue rootVal = idxItem.getValue(5);
+    if (rootVal.len != sizeof(bidx)) {
+        return -EINVAL;
+    }
+
+    bidx* collBid = reinterpret_cast<bidx*>(rootVal.data);
+
+    
+
+    CCollection coll(m_diskMan, m_page);
+
+    rc = coll.loadFrom(*collBid, false);
+    if (rc != 0) {
+        m_log.log_error("Failed to load collection for building insert plan, rc=%d\n", rc);
+        return rc;
+    }
+
+    cacheLocker collLocker(coll.m_cltInfoCache, coll.m_page);
+    CTemplateReadGuard collGuard(collLocker);
+    if (collGuard.returnCode() != 0) {
+        m_log.log_error("Failed to lock collection struct for reading, rc=%d\n", rc);
+        return collGuard.returnCode();
+    }
+    CCollection::collectionStruct collCs(coll.m_cltInfoCache->getPtr(), coll.m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    // init cplan's col pos
+    for(int i = 0; i < collCs.m_cols.size(); ++i) {
+        for(int j = 0; j < colNames.size(); ++j) {
+            if (collCs.m_cols[i].getName() == colNames[j]) {
+                insertObj.colSequences.emplace_back(i);
+                break;
+            }
+        }
+    }
+    collGuard.release();
+    insertObj.collectionBidx = *collBid;
+
+    plan.planObjects.emplace_back(std::move(insertObj));
+    out.plan = plan;
+    rc = m_planCache.insertCache(osql, std::move(plan));
+    if (rc != 0) {
+        m_log.log_error("Failed to insert plan into plan cache, rc=%d\n", rc);
+        return rc;
+    }
+
+    out.type = planType::Insert;
+
+    return 0;
+
+
+}
 

@@ -9,7 +9,7 @@
 
 #ifdef __DMDEBUG__
 static CSpin dm_glock;
-static size_t current_pos = 200;
+static size_t current_pos = 1000;
 #endif
 
 /*

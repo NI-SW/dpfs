@@ -46,7 +46,10 @@ public:
         @note read the system table from the storage engine, and load the collections
         @return 0 on success, else on failure
     */
-    bool readSuper() { return true; }
+    bool readSuper() { 
+        // TODO
+        return true; 
+    }
 
     /*
     
@@ -65,6 +68,9 @@ public:
     // tables that always exist in memory
     CCollection systemboot;
     CCollection systables;
+    // to identify the collection info, 0 for new collection
+    size_t tableccid = 1000;
+    CSpin cidLock;
     CCollection syscolumns;
     CCollection sysconstraints;
     CCollection sysindexes;
