@@ -1,11 +1,12 @@
 #include <collect/collect.hpp>
 #include <collect/bp.hpp>
 #include <collect/product.hpp>
+#include <mysql_decimal/my_decimal.h>
 constexpr size_t MAXROWLEN = 8 * 32 * 1024; // 256KB
 
 uint64_t nodeId = 0;
 
-CColumn::CColumn(const std::string& colName, dpfs_datatype_t dataType, size_t dataLen, size_t scale, uint8_t constraint) {
+CColumn::CColumn(const std::string& colName, dpfs_datatype_t dataType, size_t dataLen, size_t scale, uint8_t constraint, uint8_t genLen) {
     if (colName.size() == 0 || colName.size() > MAX_COL_NAME_LEN) {
         throw std::invalid_argument("Invalid column name length");
     }
@@ -15,6 +16,7 @@ CColumn::CColumn(const std::string& colName, dpfs_datatype_t dataType, size_t da
     dds.colAttrs.type = dataType;
     dds.colAttrs.len = dataLen;
     dds.colAttrs.scale = scale;
+    dds.colAttrs.genLen = genLen;
     dds.colAttrs.constraints.unionData = constraint;
 }
 
@@ -25,6 +27,7 @@ CColumn::CColumn(const CColumn& other) noexcept {
     dds.colAttrs.type = other.dds.colAttrs.type;
     dds.colAttrs.len = other.dds.colAttrs.len;
     dds.colAttrs.scale = other.dds.colAttrs.scale;
+    dds.colAttrs.genLen = other.dds.colAttrs.genLen;
     dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
 }
 
@@ -35,6 +38,7 @@ CColumn::CColumn(CColumn&& other) noexcept {
     dds.colAttrs.type = other.dds.colAttrs.type;
     dds.colAttrs.len = other.dds.colAttrs.len;
     dds.colAttrs.scale = other.dds.colAttrs.scale;
+    dds.colAttrs.genLen = other.dds.colAttrs.genLen;
     dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
 }
 
@@ -45,6 +49,7 @@ CColumn& CColumn::operator=(const CColumn& other) noexcept {
     dds.colAttrs.type = other.dds.colAttrs.type;
     dds.colAttrs.len = other.dds.colAttrs.len;
     dds.colAttrs.scale = other.dds.colAttrs.scale;
+    dds.colAttrs.genLen = other.dds.colAttrs.genLen;
     dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
 
     return *this;
@@ -57,6 +62,7 @@ CColumn& CColumn::operator=(CColumn&& other) noexcept {
     dds.colAttrs.type = other.dds.colAttrs.type;
     dds.colAttrs.len = other.dds.colAttrs.len;
     dds.colAttrs.scale = other.dds.colAttrs.scale;
+    dds.colAttrs.genLen = other.dds.colAttrs.genLen;
     dds.colAttrs.constraints.unionData = other.dds.colAttrs.constraints.unionData;
 
     return *this;
@@ -71,7 +77,7 @@ bool CColumn::operator==(const CColumn& other) const noexcept {
         return false;
 
     return (!strncmp((const char*)dds.colAttrs.colName, (const char*)other.dds.colAttrs.colName, dds.colAttrs.colNameLen) && 
-        (dds.colAttrs.type == other.dds.colAttrs.type && dds.colAttrs.scale == other.dds.colAttrs.scale && dds.colAttrs.len == other.dds.colAttrs.len));
+        (dds.colAttrs.type == other.dds.colAttrs.type && dds.colAttrs.scale == other.dds.colAttrs.scale && dds.colAttrs.len == other.dds.colAttrs.len && dds.colAttrs.genLen == other.dds.colAttrs.genLen));
 }
 
 uint8_t CColumn::getNameLen() const noexcept {
@@ -84,6 +90,7 @@ const char* CColumn::getName() const noexcept {
 
 dds_field CColumn::getDds() const noexcept{
     dds_field dds(this->dds.colAttrs.len, this->dds.colAttrs.scale, this->dds.colAttrs.type, this->dds.colAttrs.constraints.unionData);
+    dds.genLen = this->dds.colAttrs.genLen;
     return dds;
 }
 
@@ -568,7 +575,7 @@ endIter(this) {
 
     this->rowLen = len;
     this->maxRowNumber = maxRowNumber;
-    this->rowNumber = 1;
+    this->rowNumber = 0;
     this->rowPtr = data;
     this->rowOffsets.swap(rowOffsets);
 
@@ -587,20 +594,22 @@ int CItem::nextRow() noexcept {
     ++rowNumber;
     ++endIter.m_pos;
     endIter.m_ptr += rowLen;
+    rowPtr += rowLen;
+    validLen += rowLen;
 
-    for(auto& pos : cols) {
-        // if (isVariableType(pos.dds.colAttrs.type)) {
-        //     // first 4 bytes is actual length
-        //     uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
-        //     rowPtr += sizeof(uint32_t) + vallEN;
-        //     validLen += sizeof(uint32_t) + vallEN;
-        // } else {
-        //     rowPtr += pos.getLen();
-        //     validLen += pos.getLen();
-        // }
-        rowPtr += pos.getLen();
-        validLen += pos.getLen();
-    }
+    // for(auto& pos : cols) {
+    //     // if (isVariableType(pos.dds.colAttrs.type)) {
+    //     //     // first 4 bytes is actual length
+    //     //     uint32_t vallEN = *(uint32_t*)((char*)rowPtr);
+    //     //     rowPtr += sizeof(uint32_t) + vallEN;
+    //     //     validLen += sizeof(uint32_t) + vallEN;
+    //     // } else {
+    //     //     rowPtr += pos.getLen();
+    //     //     validLen += pos.getLen();
+    //     // }
+    //     rowPtr += pos.getLen();
+    //     validLen += pos.getLen();
+    // }
 
     return 0;
 }
@@ -775,9 +784,12 @@ int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t
     }
 
     // CColumn* col = nullptr;
-
+    uint8_t genlen = 0;
     switch(type) {
         case dpfs_datatype_t::TYPE_DECIMAL: 
+            genlen = len;
+            len = my_decimal_get_binary_size(len, scale);
+            break;
         case dpfs_datatype_t::TYPE_CHAR:
         case dpfs_datatype_t::TYPE_VARCHAR:
         case dpfs_datatype_t::TYPE_BINARY:
@@ -824,7 +836,7 @@ int CCollection::addCol(const std::string& colName, dpfs_datatype_t type, size_t
         cs.m_pkColPos.emplace_back(cs.m_cols.size());
     }
     m_lock.lock();
-    cs.m_cols.emplace_back(colName, type, len, scale, constraint);
+    cs.m_cols.emplace_back(colName, type, len, scale, constraint, genlen);
     m_lock.unlock();
     
     cs.ds->m_perms.perm.m_dirty = true;
@@ -1183,6 +1195,8 @@ int CCollection::loadFrom(const bidx& head, bool initBpt) {
     m_name.assign(cs.ds->m_name, cs.ds->m_nameLen);
     g.release();
 
+    inited = true;
+    m_collectionBid = head;
     if (cs.ds->m_perms.perm.m_btreeIndex && initBpt) {
         // this func will acquire the lock of collection info cache, so we need unlock the cache
         rc = initBPlusTreeIndex();
@@ -1191,12 +1205,14 @@ int CCollection::loadFrom(const bidx& head, bool initBpt) {
             goto errReturn;
         }
     }
-    inited = true;
-    m_collectionBid = head;
+
     
     return 0;
 
     errReturn:
+    inited = false;
+    m_collectionBid = {0, 0};
+    
     if (ce) {
         ce->release();
         ce = nullptr;
@@ -1215,22 +1231,22 @@ int CCollection::initialize(const CCollectionInitStruct& initStruct, const bidx&
         return 0;
     }
     int rc = 0;
-    void* zptr = m_page.alloczptr(MAX_CLT_INFO_LBA_LEN);
+    void* zptr = m_page.alloczptr(MAX_COLLECTION_INFO_LBA_SIZE);
     if (!zptr) {
         return -ENOMEM;
     }
     bidx tempBlock = {nodeId, 9999};
     if (!initStruct.m_perms.perm.m_systab) {
-        tempBlock.bid = m_diskMan.balloc(MAX_CLT_INFO_LBA_LEN);
+        tempBlock.bid = m_diskMan.balloc(MAX_COLLECTION_INFO_LBA_SIZE);
     } else {
         tempBlock = head;
     }
     
-    rc = m_page.put(tempBlock, zptr, nullptr, MAX_CLT_INFO_LBA_LEN, false, &m_cltInfoCache);
+    rc = m_page.put(tempBlock, zptr, nullptr, MAX_COLLECTION_INFO_LBA_SIZE, false, &m_cltInfoCache);
     if (rc != 0) {
-        m_page.freezptr(zptr, MAX_CLT_INFO_LBA_LEN);
+        m_page.freezptr(zptr, MAX_COLLECTION_INFO_LBA_SIZE);
         if (!initStruct.m_perms.perm.m_systab) {
-            m_diskMan.bfree(tempBlock.bid, MAX_CLT_INFO_LBA_LEN);
+            m_diskMan.bfree(tempBlock.bid, MAX_COLLECTION_INFO_LBA_SIZE);
         }
         return rc;
     }
@@ -1238,18 +1254,18 @@ int CCollection::initialize(const CCollectionInitStruct& initStruct, const bidx&
     CTemplateGuard guard(*m_cltInfoCache);
     if (guard.returnCode() != 0) {
         rc = guard.returnCode();
-        m_page.freezptr(zptr, MAX_CLT_INFO_LBA_LEN);
+        m_page.freezptr(zptr, MAX_COLLECTION_INFO_LBA_SIZE);
         if (!initStruct.m_perms.perm.m_systab) {
-            m_diskMan.bfree(tempBlock.bid, MAX_CLT_INFO_LBA_LEN);
+            m_diskMan.bfree(tempBlock.bid, MAX_COLLECTION_INFO_LBA_SIZE);
         }
         return rc;
     }
 
-    collectionStruct cs(zptr, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
+    collectionStruct cs(zptr, MAX_COLLECTION_INFO_LBA_SIZE * dpfs_lba_size);
 
-    // m_collectionStruct = new collectionStruct(zptr, MAX_CLT_INFO_LBA_LEN * dpfs_lba_size);
+    // m_collectionStruct = new collectionStruct(zptr, MAX_COLLECTION_INFO_LBA_SIZE * dpfs_lba_size);
     // if (!m_collectionStruct) {
-    //     m_page.freezptr(zptr, MAX_CLT_INFO_LBA_LEN);
+    //     m_page.freezptr(zptr, MAX_COLLECTION_INFO_LBA_SIZE);
     //     return -ENOMEM;
     // }
     m_collectionBid = tempBlock;
@@ -2124,7 +2140,8 @@ std::string CCollection::printStruct() const {
     res += "Columns: \n";
     for (uint32_t i = 0; i < cs.m_cols.size(); ++i) {
         const CColumn& col = cs.m_cols[i];
-        res += "  - Name: " + std::string(col.getName(), col.getNameLen()) + ", Type: " + std::to_string(static_cast<int>(col.getType())) + ", Len: " + std::to_string(col.getLen()) + "\n";
+        res += "  - Name: " + std::string(col.getName(), col.getNameLen()) + ", Type: " + std::to_string(static_cast<int>(col.getType())) + ", Len: " + 
+        (col.getType() == dpfs_datatype_t::TYPE_DECIMAL ? std::to_string(col.getDds().genLen) : std::to_string(col.getLen())) + ", Scale: " + std::to_string(col.getScale()) + "\n";
     }
 
     // indexes

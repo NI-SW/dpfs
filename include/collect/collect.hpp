@@ -10,6 +10,8 @@
 #include <vector>
 #include <collect/page.hpp>
 #include <collect/diskman.hpp>
+#include <collect/coltypedf.hpp>
+
 #include <basic/dpfsvec.hpp>
 
 #define __COLLECT_DEBUG__
@@ -41,32 +43,16 @@ COL2 : |NAMELEN|COLTYPE|COLLEN|COLSCALE|COLNAME|
 */
 
 // max collection info length
-constexpr size_t MAX_ClT_INFO_LEN =  4 /*col count len*/ + 
-((4 /*col info len*/ + 1 /*type*/ + 4 /*col data len*/ + 2 /*col scale*/ + MAX_COL_NAME_LEN) * MAX_COL_NUM) + /*col info len*/
-1/*perm*/ + 1/*namelen*/ + 4/*ccid*/ + 16 /*data root*/; /* collection info */
+// constexpr size_t MAX_ClT_INFO_LEN =  4 /*col count len*/ + 
+// ((4 /*col info len*/ + 1 /*type*/ + 4 /*col data len*/ + 2 /*col scale*/ + MAX_COL_NAME_LEN) * MAX_COL_NUM) + /*col info len*/
+// 1/*perm*/ + 1/*namelen*/ + 4/*ccid*/ + 16 /*data root*/; /* collection info */
 
-// max collection info length in lba size
-constexpr size_t MAX_CLT_INFO_LBA_LEN = MAX_ClT_INFO_LEN % dpfs_lba_size == 0 ? 
-    MAX_ClT_INFO_LEN / dpfs_lba_size : 
-    (MAX_ClT_INFO_LEN / dpfs_lba_size + 1);
+// // max collection info length in lba size
+// constexpr size_t MAX_CLT_INFO_LBA_LEN = MAX_ClT_INFO_LEN % dpfs_lba_size == 0 ? 
+//     MAX_ClT_INFO_LEN / dpfs_lba_size : 
+//     (MAX_ClT_INFO_LEN / dpfs_lba_size + 1);
 
 
-enum class dpfs_datatype_t : uint8_t {
-    TYPE_NULL = 0,
-    TYPE_INT,
-    TYPE_BIGINT,
-    TYPE_FLOAT,
-    TYPE_DECIMAL,
-    TYPE_DOUBLE,
-    TYPE_CHAR,
-    TYPE_VARCHAR,
-    TYPE_BINARY,
-    TYPE_BLOB,
-    TYPE_TIMESTAMP,
-    TYPE_BOOL,
-    TYPE_DATE,
-    MAX_TYPE
-};
 
 // data describe struct size = 8
 struct dds_field {
@@ -75,7 +61,8 @@ struct dds_field {
         constraints.unionData = constraint;
     };
     uint32_t len = 0; // for string or binary type
-    uint16_t scale = 0;
+    uint8_t scale = 0;
+    uint8_t genLen = 0;
     dpfs_datatype_t type = dpfs_datatype_t::TYPE_NULL;
     union {
         struct {
@@ -115,8 +102,9 @@ public:
         @param dataLen: length of the data, if not specified, will use 0
         @param scale: scale of the data, only useful for decimal type
         @param constraint: constraint flags of the column use CColumn::constraint_flags enum
+        @param genLen: generated length of the column, only useful for decimal type now
     */
-    CColumn(const std::string& colName, dpfs_datatype_t dataType, size_t dataLen = 0, size_t scale = 0, uint8_t constraint = 0);
+    CColumn(const std::string& colName, dpfs_datatype_t dataType, size_t dataLen = 0, size_t scale = 0, uint8_t constraint = 0, uint8_t genLen = 0);
     CColumn(const CColumn& other) noexcept;
     CColumn(CColumn&& other) noexcept;
     CColumn& operator=(const CColumn& other) noexcept;
@@ -169,10 +157,12 @@ private:
         ~colDds_t() = default;
         
         struct colAttr_t {
-            // column data length
+            // column data length(binary len)
             uint32_t len;
             // for decimal
-            uint16_t scale;
+            // genLen for example genLen is 5 for decimal(5, 2)
+            uint8_t genLen;
+            uint8_t scale;
             // 1B
             union {
                 struct {
@@ -271,10 +261,36 @@ public:
     // }
 
 
-
+    /*
+        set data on original pointer, if size is larger than maxLen, return -E2BIG, and do not update data and len
+            if size is smaller than or equal to maxLen, update data and len, and return 0
+    */
     int setData(const void* data, uint32_t size) noexcept {
         if (size > maxLen) {
             return -E2BIG;
+        }
+        len = size;
+        memcpy(this->data, data, size);
+        return 0;
+    }
+
+    /*
+        reset data with new pointer and size, if size is larger than maxLen, reallocate memory, if reallocate fail, return -ENOMEM, else update data and len, and return 0
+     
+    */
+    int resetData(const void* data, uint32_t size) noexcept {
+        if (size > maxLen) {
+            if (this->data) {
+                free(this->data);
+            }
+
+            this->data = (char*)malloc(size);
+            if (!this->data) {                
+                len = 0;
+                maxLen = 0;
+                return -ENOMEM;
+            }
+            maxLen = size;
         }
         len = size;
         memcpy(this->data, data, size);
@@ -947,6 +963,14 @@ public:
     // unit = B
     size_t curTmpDataLen = 0;
     char* tmpData = nullptr;
+
+    struct colInfos {
+        dpfs_datatype_t type;
+        uint32_t len;
+        uint32_t scale;
+    };
+    // TODO: fullfill the colInfos when addCol or removeCol, and use it for index compare and data copy, to avoid access the collectionStruct->m_cols which is on dma memory
+    std::vector<colInfos> m_colInfos;
 
     // when use this struct, the cache of the dataPtr should be locked.
     struct collectionStruct {

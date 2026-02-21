@@ -1,7 +1,7 @@
 #include <dpfssys/dpfsdata.hpp>
 #include <basic/dpfsconst.hpp>
 #include <dpfsdebug.hpp>
-
+#include <mysql_decimal/my_decimal.h>
 /*
     basic system table :
     "sysdpfs" : "sysproducts", "systables", "syscolumns", "sysindexes"
@@ -355,7 +355,7 @@ int CDatasvc::createInsertPlan(const std::string& osql, const std::string& schem
         return -EINVAL;
     }
 
-    bidx* collBid = reinterpret_cast<bidx*>(rootVal.data);
+    const bidx* collBid = reinterpret_cast<bidx*>(rootVal.data);
 
     
 
@@ -370,16 +370,16 @@ int CDatasvc::createInsertPlan(const std::string& osql, const std::string& schem
     cacheLocker collLocker(coll.m_cltInfoCache, coll.m_page);
     CTemplateReadGuard collGuard(collLocker);
     if (collGuard.returnCode() != 0) {
-        m_log.log_error("Failed to lock collection struct for reading, rc=%d\n", rc);
+        m_log.log_error("Failed to lock collection struct for reading, rc=%d\n", collGuard.returnCode());
         return collGuard.returnCode();
     }
     CCollection::collectionStruct collCs(coll.m_cltInfoCache->getPtr(), coll.m_cltInfoCache->getLen() * dpfs_lba_size);
 
     // init cplan's col pos
-    for(int i = 0; i < collCs.m_cols.size(); ++i) {
-        for(int j = 0; j < colNames.size(); ++j) {
-            if (collCs.m_cols[i].getName() == colNames[j]) {
-                insertObj.colSequences.emplace_back(i);
+    for(int i = 0; i < colNames.size(); ++i) {
+        for(int j = 0; j < collCs.m_cols.size(); ++j) {
+            if (collCs.m_cols[j].getName() == colNames[i]) {
+                insertObj.colSequences.emplace_back(j);
                 break;
             }
         }
@@ -402,3 +402,194 @@ int CDatasvc::createInsertPlan(const std::string& osql, const std::string& schem
 
 }
 
+/*
+    @param pl : the insert plan, including the collection bidx and the column sequence to insert
+    @param collcs : the collection struct of the target collection, used to get the column type for value conversion
+    @param valVecs : the values to insert, each inner vector is a row, each pair in the inner vector is a column value with its type.
+    @return 0 on success, less than 0 on failure, larger than 0 indicates warning.
+*/
+static int convertValueType(const CPlan& pl, const CCollection::collectionStruct& collcs, std::vector<std::vector<std::pair<dpfs_datatype_t, CValue>>>& valVecs) {
+    
+
+    // TODO
+    int rc = 0;
+    const auto& cols = collcs.m_cols;
+
+    // for each row
+    for (int i = 0; i < valVecs.size(); ++i) {
+        // for each column
+        for (int j = 0; j < valVecs[i].size(); ++j) {
+            auto& val = valVecs[i][j];
+            if (j >= pl.planObjects[0].colSequences.size()) {
+                return -EINVAL;
+            }
+            uint32_t colPos = pl.planObjects[0].colSequences[j];
+            if (colPos >= cols.size()) {
+                return -EINVAL;
+            }
+            auto& col = cols[colPos];
+            // convert val to col type
+            // TODO : currently just support int and char type, and the conversion is very simple, need to consider more complex type and conversion in the future
+            if (col.getType() == val.first && val.first != dpfs_datatype_t::TYPE_DECIMAL) {
+                continue;
+            } else {
+                if (col.getType() == dpfs_datatype_t::TYPE_INT && val.first == dpfs_datatype_t::TYPE_BIGINT) {
+                    // convert bigint to int
+                    int64_t* bigVal = reinterpret_cast<int64_t*>(val.second.data);
+                    if (*bigVal > INT32_MAX || *bigVal < INT32_MIN) {
+                        return -EINVAL;
+                    }
+                    int32_t intVal = static_cast<int32_t>(*bigVal);
+                    val.second.resetData(reinterpret_cast<char*>(&intVal), sizeof(int32_t));
+                    val.first = col.getType();
+
+                } else if ((col.getType() == dpfs_datatype_t::TYPE_CHAR || col.getType() == dpfs_datatype_t::TYPE_VARCHAR) && val.first == dpfs_datatype_t::TYPE_BIGINT) {
+                    // convert int to char
+                    int64_t intVal = 0;
+                    std::memcpy(&intVal, val.second.data, sizeof(int64_t));
+                    std::string strVal = std::to_string(intVal);
+                    val.second.resetData(strVal.c_str(), strVal.size());
+                    val.first = col.getType();
+                } else if (val.first == dpfs_datatype_t::TYPE_DECIMAL) {
+                    // process decimal or float/double
+                    uint8_t len = static_cast<uint8_t>(val.second.data[0]);
+                    uint8_t scale = static_cast<uint8_t>(val.second.data[1]);
+                    if (len > 68 || scale > len) {
+                        return -EINVAL;
+                    }
+                    my_decimal decVal;
+                    // larger than 0 means warning, for example, return 1 if the decimal value is truncated due to the precision and scale of the target column.
+                    rc = binary2my_decimal(0, reinterpret_cast<uchar*>(val.second.data + 2), &decVal, len, scale);
+                    if (rc != 0) {
+                        return rc;
+                    }
+
+                    if (col.getType() == dpfs_datatype_t::TYPE_DECIMAL) {
+
+                        // convert to target decimal type
+                        len = col.getDds().genLen;
+                        scale = static_cast<uint8_t>(col.getScale());
+
+                        uint8_t decbin[64];
+                        rc = my_decimal2binary(0, &decVal, decbin, len, scale);
+                        if (rc != 0) {
+                            if (rc == 2) {
+                                return -E2BIG;
+                            }
+                            return rc;
+                        }
+                        len = my_decimal_get_binary_size(len, scale);
+                        val.second.resetData(reinterpret_cast<char*>(decbin), len);
+
+                    } else if (col.getType() == dpfs_datatype_t::TYPE_FLOAT) {
+                        // convert decimal to float/double, currently just convert to double, and the conversion is very simple, need to consider more complex conversion in the future
+
+                        double doubleVal = 0.0;
+                        rc = my_decimal2double(0, &decVal, &doubleVal);
+                        if (rc != 0) {
+                            return rc;
+                        }
+                        
+                        float floatVal = static_cast<float>(doubleVal);
+                        val.second.resetData(reinterpret_cast<char*>(&floatVal), sizeof(float));
+
+                    } else if (col.getType() == dpfs_datatype_t::TYPE_DOUBLE) {
+                        // convert decimal to double
+
+                        double doubleVal = 0.0;
+                        rc = my_decimal2double(0, &decVal, &doubleVal);
+                        if (rc != 0) {
+                            return rc;
+                        }
+                        val.second.resetData(reinterpret_cast<char*>(&doubleVal), sizeof(double));
+                    } else {
+                        return -EINVAL;
+                    }
+                } 
+            }
+        }
+    }
+
+
+    return 0;
+}
+
+int CDatasvc::planInsert(const CPlan& pl, std::vector<std::vector<std::pair<dpfs_datatype_t, CValue>>>* valVecs) {
+    
+    if (!valVecs) {
+        return -EINVAL;
+    }
+    int rc = 0;
+    const bidx& cbid = pl.planObjects[0].collectionBidx; // get collection bidx
+
+    CCollection coll(m_diskMan, m_page);
+
+    rc = coll.loadFrom(cbid);
+    if (rc != 0) {
+        m_log.log_error("Failed to load collection for executing insert plan, rc=%d\n", rc);
+        return rc;
+    }
+
+    // TODO
+
+    // init item receiver
+    cacheLocker tabLocker(coll.m_cltInfoCache, coll.m_page);
+    CTemplateReadGuard tabReadGuard(tabLocker);
+    rc = tabReadGuard.returnCode();
+    if (rc != 0) {
+        m_log.log_error("Failed to lock coll for reading, rc=%d\n", rc);
+        return rc;  
+    }
+    CCollection::collectionStruct collcs(coll.m_cltInfoCache->getPtr(), coll.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem insertItem(collcs.m_cols, valVecs->size());
+
+
+
+
+    rc = convertValueType(pl, collcs, *valVecs);
+    if (rc < 0) {
+        m_log.log_error("Failed to convert value type, rc=%d\n", rc);
+        return rc;
+    }
+    if (rc == E_DEC_TRUNCATED) {
+        m_log.log_notic("Value truncated during type conversion, rc=%d\n", rc);
+    } else if (rc == E_DEC_OVERFLOW) {
+        m_log.log_notic("Value overflow during type conversion, rc=%d\n", rc);
+        return rc;
+    }
+    
+    // for each row
+    for (int i = 0; i < valVecs->size(); ++i) {
+        
+        if (i > 0) {
+            rc = insertItem.nextRow();
+            if (rc != 0) {
+                m_log.log_error("Failed to prepare item for inserting, rc=%d\n", rc);
+                return rc;
+            }
+        }
+
+        const auto& row = (*valVecs)[i];
+        // for each column 
+        for (int j = 0; j < row.size(); ++j) {
+            auto colseq = pl.planObjects[0].colSequences[j]; // get the column position in the collection struct, which is used to get the column type for value conversion
+            const auto& val = row[j];
+            rc = insertItem.updateValue(colseq, val.second.data, val.second.len);
+            if (rc < 0) {
+                m_log.log_error("Failed to update item value, rc=%d\n", rc);
+                return rc;
+            }
+        }
+
+    }
+
+    tabReadGuard.release();
+
+    rc = coll.addItem(insertItem); // add a new item to the collection, and update the item struct to the latest one, which is used to update the value in the following steps
+    if (rc != 0) {
+        m_log.log_error("Failed to add item to collection, rc=%d\n", rc);
+        return rc;
+    }
+
+    return 0;
+ }

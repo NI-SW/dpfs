@@ -1208,7 +1208,7 @@ void CBPlusTree::printTreeRecursive(const bidx& idx, bool isLeaf, int level) {
             uint32_t rowLen = 0;
             rc = node.rowVec->reference_at(i, rowData, &rowLen);
             if (rc == 0) {
-                size_t previewLen = rowLen < 32 ? rowLen : 32;
+                size_t previewLen = rowLen < 64 ? rowLen : 64;
                 for (size_t j = 0; j < previewLen; ++j) {
                     rowDataPreview[j * 2] = hex_chars[(rowData[j] >> 4) & 0x0F];
                     rowDataPreview[j * 2 + 1] = hex_chars[rowData[j] & 0x0F];

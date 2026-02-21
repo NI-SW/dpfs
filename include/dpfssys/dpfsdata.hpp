@@ -95,9 +95,9 @@ public:
         @param pl: execution plan for insert operation
         @param valVec: vector of values to insert, each inner vector is a row of values
         @return 0 on success, else on failure
-        @note execute the insert plan, insert the given values into the target collection
+        @note convert given values to the corresponding type in the collection, and push the item to the job queue
     */
-    int planInsert(const CPlan& pl, std::vector<std::vector<CValue>>* valVecs);
+    int planInsert(const CPlan& pl, std::vector<std::vector<std::pair<dpfs_datatype_t, CValue>>>* valVecs);
 private:
     /*
         @param usr : user info for privilege check
@@ -132,5 +132,7 @@ public:
     // std::vector<std::pair<bidx, std::string>> pdl;
     // // product cache, when trigger a query, 
     // CDpfsCache<bidx, CProduct*> pdCache;
+
+    
 
 };

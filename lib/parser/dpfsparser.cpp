@@ -2,6 +2,7 @@
 #include <tiparser/tidb_parser.h>
 #include <tiparser/tiparser_enum.hpp>
 #include <dpfssys/plan.hpp>
+#include <tiparser/decimal_convertor.hpp>
 
 #ifdef PARSER_DEBUG
 using namespace std;
@@ -158,6 +159,113 @@ static int parsColOptions(const TidbAstValue* optionNode, colOption& colOpt) {
 }
 
 /*
+    @param arrView: string view of the array definition, should be in the format of "[ str1 str2 str3 ... ]"
+    @param out: vector to store the parsed array values
+    @return 0 on success, else on failure
+    @note this function will parse the array definition and extract the values into a vector
+*/
+static int parsArray(const std::string_view& arrView, std::vector<std::string_view>& out) {
+    // TODO
+    size_t startPos = 0;
+    size_t sz = 0;
+
+    startPos = arrView.find('[');
+    if (startPos == std::string_view::npos) {
+        return -EINVAL; // Invalid format, missing '['
+    }
+    ++startPos; // Move past the '['
+
+    const char* data = nullptr;
+
+    for (; startPos < arrView.size(); ++startPos) {
+        if (arrView[startPos] == ' ' || arrView[startPos] == ']' || arrView[startPos] == '[') {
+            if (sz > 0) {
+                out.emplace_back(&arrView[startPos - sz], sz); // Extract the value
+                sz = 0; // Reset size for the next value
+            }
+            // ++startPos; // Skip delimiters
+        } else {
+            ++sz; // Increase size of current item
+        }
+    }
+
+
+    return 0;
+
+}
+
+/*
+    @param typeView: string view of the column type definition, should be in the format of "{ str1 str2 str3 str4 str5 ... }"
+    @param values: vector to store the parsed column parameters
+    @return 0 on success, else on failure
+    @note this function will parse the column type definition and extract the first 6 parameters into a vector
+*/
+static int parsParamStr(const string_view& typeView, std::vector<std::string>& values) {
+
+    values.clear();
+    values.reserve(16);
+
+    /*
+        pars forman { str1, str2, [array], str3 }
+    */
+    
+    size_t pos = typeView.find('{') + 1;
+    if (pos == string_view::npos) {
+        return -EINVAL; // Invalid format, missing '{'
+    }
+
+    size_t endPos = typeView.rfind('}');
+
+    if (endPos == string_view::npos || endPos <= pos) {
+        return -EINVAL; // Invalid format, missing '}' or misplaced
+    }
+
+    for (; pos < endPos; ++pos) {
+        std::string parm;
+        parm.reserve(16);
+        while (pos < endPos && typeView[pos] != ' ' && typeView[pos] != '}' && typeView[pos] != '[' && typeView[pos] != ']') {
+            parm += typeView[pos];
+            ++pos;
+        }
+        // found array definition, parse array and append to parm
+        if (typeView[pos] == '[') {
+            // parse array
+            size_t end = typeView.find(']', pos);
+            if (end == string_view::npos) {
+                return -EINVAL; // Invalid format, missing ']'
+            }
+            std::string_view arrv(&typeView[pos], end - pos + 1);
+
+            std::vector<std::string_view> arrItems;
+            int rc = parsArray(arrv, arrItems);
+            if (rc != 0) {
+                return rc; // Return error code if array parsing failed
+            }
+
+            // for each arritem, convert to binary and append to parm
+            for (const auto& item : arrItems) {
+                char c = 0;
+                c = static_cast<char>(std::atoi(item.data()));
+                parm += c; // Add space before each array item
+            }
+            
+            // for (const auto& item : arrItems) {
+            //     parm += ' '; // Add space before each array item
+            //     parm += item; // Append the array item to the parameter string
+            // }
+            
+            pos = end; // Move position to the end of the array definition
+        }
+        
+        values.emplace_back(std::move(parm));
+    }
+
+
+    return 0;
+}
+
+
+/*
     @param colDef: AST node of the column definition
     @param colParams: vector to store the parsed column parameters, should have at least 6 elements
     @return 0 on success, else on failure
@@ -184,26 +292,32 @@ pos:    0    1         2   3    4      5      6  7  8
         3    0        -1  -1    N      N      [] [] false
         type unknown  len scale binary binary [] [] unknown 
     */
-    std::string_view typeView(typeStr.c_str() + typeStr.find('{') + 1); 
+    std::string_view typeView(typeStr); 
 
 
     std::vector<std::string> colParams;
-    colParams.clear();
-    colParams.reserve(6);
 
-    for (int i = 0, j = 0; i < 6; ++i) {
-        const char* start = typeView.data() + j;
-        size_t sz = 0;
-
-        for (; typeView[j] != ' ' && typeView[j] != '\0' && typeView[j] != '}'; ++j) {
-            ++sz;
-        }
-        colParams.emplace_back(start, sz);
-    
-        if (typeView[j] == ' ') {
-            ++j; // skip space
-        }
+    rc = parsParamStr(typeView, colParams);
+    if (rc != 0) {
+        return rc; // Return error code if parameter parsing failed
     }
+
+    // colParams.clear();
+    // colParams.reserve(6);
+
+    // for (int i = 0, j = 0; i < 6; ++i) {
+    //     const char* start = typeView.data() + j;
+    //     size_t sz = 0;
+
+    //     for (; typeView[j] != ' ' && typeView[j] != '\0' && typeView[j] != '}'; ++j) {
+    //         ++sz;
+    //     }
+    //     colParams.emplace_back(start, sz);
+    
+    //     if (typeView[j] == ' ') {
+    //         ++j; // skip space
+    //     }
+    // }
 
     int typeCode = std::stoi(colParams[0]);
     int unknown = std::stoul(colParams[1]);
@@ -267,6 +381,110 @@ static int parsIndex(const TidbAstNode* indexDef, CCollection& coll) {
 
     return 0;
 }
+
+
+static int pushValue(std::vector<std::vector<std::pair<dpfs_datatype_t, CValue>>>& valVec, const std::vector<std::string>& colParams, const std::vector<std::string>& valParams, bool negative) {
+    // get value's col type
+    int typeCode = std::stoi(colParams[0]);
+    int unknown = std::stoul(colParams[1]);
+    int len = std::stoul(colParams[2]); if (len == -1) len = 0;
+    int scale = std::stoul(colParams[3]); if (scale == -1) scale = 0;
+    bool isBinary = colParams[4] == "binary";
+
+    dpfs_datatype_t colTp = dpfs_datatype_t::TYPE_NULL;
+    colTp = colTpCvt(static_cast<planColTypes>(typeCode), isBinary);
+
+    switch (colTp) {
+        case dpfs_datatype_t::TYPE_INT: {
+            CValue v(sizeof(int32_t));
+            int32_t val = std::stoi(valParams[1]);
+            if (negative) {
+                val = -val;
+            }
+            v.setData(&val, sizeof(int32_t));
+            valVec.back().emplace_back(std::make_pair(colTp, std::move(v)));
+            break;
+        }
+        case dpfs_datatype_t::TYPE_BIGINT: {
+            CValue v(sizeof(int64_t));
+            int64_t val = std::stoll(valParams[1]);
+            if (negative) {
+                val = -val;
+            }
+            v.setData(&val, sizeof(int64_t));
+            valVec.back().emplace_back(std::make_pair(colTp, std::move(v)));
+            break;
+        }
+        case dpfs_datatype_t::TYPE_FLOAT: {
+            CValue v(sizeof(float));
+            uint32_t val = std::stoul(valParams[1]);
+            if (negative) {
+                val = -val;
+            }
+            v.setData(&val, sizeof(float)); // directly use the binary representation of the float value
+            valVec.back().emplace_back(std::make_pair(colTp, std::move(v)));
+            break;
+        }
+        case dpfs_datatype_t::TYPE_DOUBLE: {
+            // {4 4667987610839285760 [] <nil>}
+            CValue v(sizeof(double));
+            uint64_t val = std::stoull(valParams[1]);
+            if (negative) {
+                val = -val;
+            }
+            v.setData(&val, sizeof(double)); // directly use the binary representation of the double value
+            valVec.back().emplace_back(std::make_pair(colTp, std::move(v)));
+            break;
+        }
+        case dpfs_datatype_t::TYPE_VARCHAR:
+        case dpfs_datatype_t::TYPE_CHAR:
+        case dpfs_datatype_t::TYPE_BINARY: {
+            // {5 0 [50 48 50 53 45 49 49 45 50 53 32 48 56 58 48 53 58 48 49] <nil>}
+            CValue v(valParams[2].size());
+            v.setData(valParams[2].data(), valParams[2].size());
+            valVec.back().emplace_back(std::make_pair(colTp, std::move(v)));
+            break;
+        }
+        case dpfs_datatype_t::TYPE_DECIMAL: {
+                uint64_t ptr = 0;
+                // 0x prefix is added in the string representation of the pointer, need to skip it when converting to uint64_t
+                std::string_view decPtrView(valParams[4].data() + 2, valParams[4].size() - 2);
+                ptr = std::stoull(decPtrView.data(), nullptr, 16);
+
+                char binaryDecimal[64];
+                int binLen = 0;
+                int rc = deccvt::tibinary2mybinary(reinterpret_cast<const char*>(ptr), (uint8_t*)binaryDecimal, 64, negative, &binLen);
+                if (rc != 0) {
+                    return rc; // Return error code if decimal conversion failed
+                }
+                CValue v(binLen); 
+                v.setData(binaryDecimal, binLen);
+                valVec.back().emplace_back(std::make_pair(dpfs_datatype_t::TYPE_DECIMAL, std::move(v)));
+            }
+            break;
+        case dpfs_datatype_t::TYPE_TIMESTAMP:
+        case dpfs_datatype_t::TYPE_DATE: {
+            // TODO : parse timestamp and date value
+            CValue v(valParams[2].size());
+            v.setData(valParams[2].data(), valParams[2].size());
+            valVec.back().emplace_back(std::make_pair(dpfs_datatype_t::TYPE_TIMESTAMP, std::move(v)));
+            break;
+        }
+        case dpfs_datatype_t::TYPE_BOOL: {
+            CValue bv(sizeof(bool));
+            valParams[1] == "1" ? bv.setData("\x01", 1) : bv.setData("\x00", 1);
+            // bv.setData(valParams[1] == "1" || valParams[1] == "true");
+            valVec.back().emplace_back(std::make_pair(dpfs_datatype_t::TYPE_BOOL, std::move(bv)));
+            break;  
+        }
+        default:
+            return -EINVAL; // Unsupported data type
+    }
+    
+
+    return 0;
+}
+
 
 int CParser::buildPlanForStmt(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out) {
     // Implementation for building plan for a single statement
@@ -510,17 +728,164 @@ int CParser::buildInsertPlan(const std::string& osql, const TidbAstNode* stmt, C
     // TODO
     // parse values and insert the data
     // maybe more than one row to insert, so it's an array of array
-    std::vector<std::vector<CValue>> valVec;
-    // fullfill the valvec
-    for (;;) {
+    std::vector<std::vector<std::pair<dpfs_datatype_t, CValue>>> valVec;
+    
+    // Lists
+
+    auto& lists = stmt->fields[static_cast<int>(insertPlanMap::Lists)].value.array;
+    valVec.reserve(lists.len);
+
+
+    // for each row tp insert
+    for (int i = 0; i < lists.len; ++i) {
+        valVec.emplace_back();
+
+        std::vector<std::string> colParams;
+        std::vector<std::string> valParams;
+        bool negative = false;
+        bool hasUnarrNode = false;
+        
+
+        const TidbAstNode* colValNode = nullptr;
+        // for each column
+        for (int j = 0; j < lists.items[i].array.len; ++j) {
+            negative = false;
+            if (lists.items[i].array.items[j].node)
+                colValNode = lists.items[i].array.items[j].node;
+
+            /*
+                op
+                V
+                    {
+                        exprnode
+                    }
+
+                exprNode
+            
+            */
+
+            if (memcmp(colValNode->fields[0].name.data, "Op", 2) == 0) {
+                // it's an operator node, currently only support unary minus for negative number
+                if (colValNode->fields[0].value.i64 == 12) { // UnaryMinus
+                    negative = true;
+                }
+                colValNode = colValNode->fields[1].value.node; // move to the actual value node
+            }
+
+            auto& typeExpr = colValNode->fields[0].value.object.fields[0].value.typed.inner->str;
+            auto& datum = colValNode->fields[1].value.typed.inner->str;
+
+            string_view typeExprView(typeExpr.data, typeExpr.len);
+            rc = parsParamStr(typeExprView, colParams);
+            if (rc != 0) {
+                return rc; // Return error code if parameter parsing failed
+            }
+
+            string_view datumView(datum.data, datum.len);
+            rc = parsParamStr(datumView, valParams);
+            if (rc != 0) {
+                return rc; // Return error code if parameter parsing failed
+            }
+
+            /*
+
+
+                0 -> type (how to parse?)      
+                    8 => pointer
+                    5 => string
+                    1 => int/bigint
+                    4 => double/float
+                1 -> int value
+                2 -> string value
+
+
+                // need convert to mysql_decimal
+                3 -> pointer value (for binary data or large data)
+            */
+
+            #ifdef PARSER_DEBUG
+            cout << "Column Parameters for value " << j + 1 << ": " << endl;
+            for (size_t k = 0; k < colParams.size(); ++k) {
+                cout << "  Param " << k + 1 << ": \"" << colParams[k] << "\"" << endl;
+            }
+            cout << "Value Parameters for value " << j + 1 << ": " << endl;
+            for (size_t k = 0; k < valParams.size(); ++k) {
+                if (negative && k == 1) { // if it's a negative number, add '-' before the value
+                    cout << "  Param " << k + 1 << ": \"-" << valParams[k] << "\"" << endl;
+                } else {
+                    cout << "  Param " << k + 1 << ": \"" << valParams[k] << "\"" << endl;
+                }
+            }
+            #endif
+
+            rc = pushValue(valVec, colParams, valParams, negative);
+            if (rc != 0) {
+                return rc; // Return error code if pushing value failed
+            }
+
+            // if (colTp == dpfs_datatype_t::TYPE_DECIMAL) {
+            //     uint64_t ptr = 0;
+            //     std::string_view decPtrView(valParams[4].data() + 2, valParams[4].size() - 2);
+            //     ptr = std::stoull(decPtrView.data(), nullptr, 16);
+            //     cout << "Decimal value pointer: " << hex << ptr << dec << endl;
+
+            //     char binaryDecimal[32];
+            //     int binLen = 0;
+            //     rc = deccvt::tibinary2mybinary(reinterpret_cast<const char*>(ptr), (uint8_t*)binaryDecimal, 32, negative, &binLen);
+            //     if (rc != 0) {
+            //         return rc; // Return error code if decimal conversion failed
+            //     }
+            //     CValue v(binLen); 
+            //     v.setData(binaryDecimal, binLen);
+            //     valVec.back().emplace_back(std::move(v));
+            // }
+        }
+
+
 
     }
 
-    dataSvc.planInsert(out.plan, &valVec);
+    #ifdef PARSER_DEBUG
+    cout << "Parsed Values: " << endl;
+    for (size_t i = 0; i < valVec.size(); ++i) {
+        cout << "Row " << i + 1 << ": " << endl;
+        for (size_t j = 0; j < valVec[i].size(); ++j) {
+            printMemory(valVec[i][j].second.data, valVec[i][j].second.len);
+            cout << endl;
+        }
+    }
+    #endif
 
+    // TODO :: insert the values
+
+    rc = dataSvc.planInsert(out.plan, &valVec);
+    if (rc != 0) {
+        this->dataSvc.m_log.log_error("Failed to plan insert in data service, rc=%d", rc);
+        return rc; // Return error code if insert planning failed
+    }
+
+    #ifdef PARSER_DEBUG
+
+    // test insert result by loading the collection and print the struct
+    const bidx& cbid = out.plan.planObjects[0].collectionBidx; // get collection bidx
+
+    CCollection coll(dataSvc.m_diskMan, dataSvc.m_page);
+
+    rc = coll.loadFrom(cbid);
+    if (rc != 0) {
+        dataSvc.m_log.log_error("Failed to load collection for executing insert plan, rc=%d\n", rc);
+        return rc;
+    }
+
+    std::string rest = coll.printStruct();
+    cout << "Collection struct after insert: " << rest << endl;
+
+    // coll.m_btreeIndex->printTree();
+
+    #endif
 
     return 0;
-    return -ENOTSUP; // Not supported yet
+
 }
 
 int CParser::buildDeletePlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& ph) {

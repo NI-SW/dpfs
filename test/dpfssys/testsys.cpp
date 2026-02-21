@@ -127,14 +127,14 @@ int main(int argc, char** argv) {
             cout << "Execution plan built successfully." << endl;
         }
 
-        
+        /*
+            create table qwer.asdf(a int not null primary key, b char(20), c double)
+            insert into qwer.asdf(a,b,c) values(-1, 'hello', -3.15) , (156, '123654', 315222.15898099997)
 
-
+            Create table test1.test(a int not null primary key, b int)
+        */
     }
 
-    // while(!g_exit) {
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    // }
 
 
 
