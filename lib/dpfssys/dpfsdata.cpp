@@ -288,6 +288,7 @@ int CDatasvc::checkExist(const std::string& schema, const std::string& table) co
     rc = sysTables.getRow(key, &idxItem);
     if (rc != 0) {
         if (rc == -ENOENT) {
+            m_log.log_error("Table %s.%s does not exist.\n", schema.c_str(), table.c_str());
             // table not exist, return 0
             return 0;
         }
@@ -347,6 +348,10 @@ int CDatasvc::createInsertPlan(const std::string& osql, const std::string& schem
 
     rc = sysTables.getRow(key, &idxItem);
     if (rc != 0) {
+        if (rc == -ENOENT) {
+            m_log.log_notic("Table %s.%s does not exist.\n", schema.c_str(), table.c_str());
+            return -ENOENT;
+        }
         return rc;
     }
 
@@ -376,12 +381,18 @@ int CDatasvc::createInsertPlan(const std::string& osql, const std::string& schem
     CCollection::collectionStruct collCs(coll.m_cltInfoCache->getPtr(), coll.m_cltInfoCache->getLen() * dpfs_lba_size);
 
     // init cplan's col pos
-    for(int i = 0; i < colNames.size(); ++i) {
-        for(int j = 0; j < collCs.m_cols.size(); ++j) {
-            if (collCs.m_cols[j].getName() == colNames[i]) {
-                insertObj.colSequences.emplace_back(j);
-                break;
+    if (colNames.size()) {
+        for(int i = 0; i < colNames.size(); ++i) {
+            for(int j = 0; j < collCs.m_cols.size(); ++j) {
+                if (collCs.m_cols[j].getName() == colNames[i]) {
+                    insertObj.colSequences.emplace_back(j);
+                    break;
+                }
             }
+        }
+    } else {
+        for(int i = 0; i < collCs.m_cols.size(); ++i) {
+            insertObj.colSequences.emplace_back(i);
         }
     }
     collGuard.release();

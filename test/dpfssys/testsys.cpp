@@ -117,7 +117,13 @@ int main(int argc, char** argv) {
             break;
         }
 
-        parser(sql);
+        rc = parser.parse(sql);
+        if (rc != 0) {
+            cout << "message " << parser.message << endl;
+            cerr << "Failed to parse SQL, rc=" << rc << endl;
+            continue;
+        }
+
         CPlanHandle handle(a->dataService->m_page, a->dataService->m_diskMan);
         rc = parser.buildPlan(sql, handle);
         if (rc != 0) {

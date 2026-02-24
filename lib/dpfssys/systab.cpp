@@ -4,14 +4,25 @@
 extern uint64_t nodeId;
 using cf = CColumn::constraint_flags;
 
+/*
+    systab init sequence:
+    1. boottab
+    2. tabletab
+    3. coltab
+    4. constab  
+    5. indextab
+    6. usertab
+    7. schematab
+    8. authtab
+*/
 int CSysSchemas::init() {
     int rc = 0;
     size_t baseBid = 16;
-    bidx sysBidx = {nodeId, baseBid};
-    bidx tmpbid = {nodeId, baseBid + MAX_COLLECTION_INFO_LBA_SIZE};
+    // bidx sysBidx = {nodeId, baseBid};
+    bidx tmpbid = {nodeId, baseBid};
     char version[4] = {dpfsVersion[0] + 0x30, dpfsVersion[1] + 0x30, dpfsVersion[2] + 0x30, dpfsVersion[3] + 0x30};
     
-    rc = initBootTab(sysBidx); if (rc != 0) { return -ENOMEM; }
+    rc = initBootTab(tmpbid); if (rc != 0) { return -ENOMEM; }
 
     cacheLocker cl(systemboot.m_cltInfoCache, systemboot.m_page);
     rc = cl.read_lock(); if (rc != 0) { return rc; }
@@ -101,8 +112,30 @@ errReturn:
 
 int CSysSchemas::load() {
     // TODO
+/*
+    systab init sequence:
+    1. boottab
+    2. tabletab
+    3. coltab
+    4. constab  
+    5. indextab
+    6. usertab
+    7. schematab
+    8. authtab
+*/
     int rc = 0;
-    return rc;
+    bidx sysBidx = {nodeId, 16};
+    rc = systemboot.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = systables.loadFrom(sysBidx);          sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = syscolumns.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysconstraints.loadFrom(sysBidx);     sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysindexes.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysusers.loadFrom(sysBidx);           sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysschemas.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysauths.loadFrom(sysBidx);                                                        if (rc != 0) { return rc; }     
+
+
+    return 0;
 }
 
 int CSysSchemas::initBootTab(const bidx& sysBidx) {

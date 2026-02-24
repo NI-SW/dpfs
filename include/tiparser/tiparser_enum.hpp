@@ -55,6 +55,53 @@ enum class insertPlanMap : int {
     PartitionNames
 };
 
+/*
+  Field 1: SelectStmtOpts
+  Field 2: Distinct
+  Field 3: From
+  Field 4: Where
+  Field 5: Fields
+  Field 6: GroupBy
+  Field 7: Having
+  Field 8: WindowSpecs
+  Field 9: OrderBy
+  Field 10: Limit
+  Field 11: LockInfo
+  Field 12: TableHints
+  Field 13: IsInBraces
+  Field 14: WithBeforeBraces
+  Field 15: QueryBlockOffset
+  Field 16: SelectIntoOpt
+  Field 17: AfterSetOperator
+  Field 18: Kind
+  Field 19: Lists
+  Field 20: With
+  Field 21: AsViewSchema
+*/
+enum class selectPlanMap : int {
+	SelectStmtOpts = 0,
+	Distinct,
+	From,
+	Where,
+	Fields,
+	GroupBy,
+	Having,
+	WindowSpecs,
+	OrderBy,
+	Limit,
+	LockInfo,
+	TableHints,
+	IsInBraces,
+	WithBeforeBraces,
+	QueryBlockOffset,
+	SelectIntoOpt,
+	AfterSetOperator,
+	Kind,
+	Lists,
+	With,
+	AsViewSchema
+};
+
 // translate from 
 // github.com/pingcap/tidb/pkg/parser@v0.0.0-20260205034954-d4f0daa8570e/mysql/type.go
 
@@ -191,4 +238,37 @@ enum class parsedValueTp {
 	POINTER = 8
 };
 
+enum class whereFlag : uint8_t {
+	LogicAnd = 1,
+	LeftShift,
+	RightShift,
+	LogicOr,
+	GE,
+	LE,
+	EQ,
+	NE,
+	LT,
+	GT,
+	Plus,
+	Minus,
+	And,
+	Or,
+	Mod,
+	Xor,
+	Div,
+	Mul,
+	Not,
+	Not2,
+	BitNeg,
+	IntDiv,
+	LogicXor,
+	NullEQ,
+	In,
+	Like,
+	Case,
+	Regexp,
+	IsNull,
+	IsTruth,
+	IsFalsity
 
+};

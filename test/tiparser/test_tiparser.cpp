@@ -5,11 +5,43 @@
 
 
 using namespace std;
-
+#define fieldName "Where"
 void printNode(const TidbAstNode* ast, std::string indent = "|");
 void printArray(const TidbAstArray& arr, std::string indent = "|");
 
-std::string SQL = "insert into qwer.asdf(a,b,c,d,e,f,g) values(true, -1.23e4, -2, -1.2, 'qwer', '2025-11-25 08:05:01', -1.23e50)"; //"INSERT INTO TEST1(a,B,C,D,E,F) VALUES(-11.8, -11.8, 'qwer', 1, -1, -5000000000);";
+// std::string SQL = "insert into qwer.asdf values(true, -1.23e4, -2, -1.2, 'qwer', '2025-11-25 08:05:01', -1.23e50)"; //"INSERT INTO TEST1(a,B,C,D,E,F) VALUES(-11.8, -11.8, 'qwer', 1, -1, -5000000000);";
+
+// test select
+// std::string SQL = "select a.a,b.b from qwer.asdf as a left join qwer.qqqq as b on a.a = b.a and a.c = b.c or a.b = b.b and a.c=c.c where a.a > 10 and b.b < 20";
+std::string SQL = "select a,b from qwer.asdf where a > 10 and b < 20 or c = 10 and 1 = 1;";
+
+/*
+op=2
+val=4 => logicOr
+    L : a>10 and b<20
+        op=2
+        val=1 => logicAnd
+            L : a>10
+                op=2 
+                val=10 => GT
+                L : a
+                R : 10
+            R : b<20
+                op=2
+                val=9 => LT
+                L : b
+                R : 20
+    R : C = 10
+        op=2
+        val=7
+        L : c
+        R : 10
+
+
+*/
+
+// test create
+// std::string SQL = "create table qwer.asdf(a int not null primary key, b char(20), c DECIMAL(25,15))";
 
 /*              |    ?                     |    | 3 |
 0xc0001563c0:   0x0a    0x03    0x03    0x00    0x03    0x00    0x00    0x00
@@ -164,7 +196,7 @@ int main() {
     
         for(auto j = 0; j < ast[i]->field_count; ++j) {
             std::cout << "  Field " << j + 1 << ": " << ast[i]->fields[j].name.data << std::endl;
-            if (memcmp(ast[i]->fields[j].name.data, "Lists", ast[i]->fields[j].name.len) == 0) {
+            if (memcmp(ast[i]->fields[j].name.data, fieldName, ast[i]->fields[j].name.len) == 0) {
                 cout << " Found, printing its AST node:" << endl;
                 if (ast[i]->fields[j].value.node != nullptr) {
                     printNode(ast[i]->fields[j].value.node, "    ");
@@ -182,3 +214,142 @@ int main() {
     return 0;
 
 }
+
+
+
+
+
+
+// Field 4: Where
+//  Found, printing its AST node:
+//     Node Type: github.com/pingcap/tidb/pkg/parser/ast.BinaryOperationExpr
+//     Position: 32
+//     Field Count: 3
+//     Field 1 Name: Op
+//     Value Kind: 2
+//     Value: 1
+//     Field 2 Name: L
+// |       Node Type: github.com/pingcap/tidb/pkg/parser/ast.BinaryOperationExpr
+// |       Position: 32
+// |       Field Count: 3
+// |       Field 1 Name: Op
+// |       Value Kind: 2
+// |       Value: 10
+// |       Field 2 Name: L
+// |   |       Node Type: github.com/pingcap/tidb/pkg/parser/ast.ColumnNameExpr
+// |   |       Position: 32
+// |   |       Field Count: 1
+// |   |       Field 1 Name: Name
+// |   |   |       Node Type: github.com/pingcap/tidb/pkg/parser/ast.ColumnName
+// |   |   |       Position: 0
+// |   |   |       Field Count: 3
+// |   |   |       Field 1 Name: Schema
+// |   |   |   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+// |   |   |   |       Field Count: 2
+// |   |   |   |       object Field 1 Name: O
+// |   |   |   |        kind : 5
+// |   |   |   |        str value :
+// |   |   |   |       object Field 2 Name: L
+// |   |   |   |        kind : 5
+// |   |   |   |        str value :
+// |   |   |   |       ,
+// |   |   |       Field 2 Name: Table
+// |   |   |   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+// |   |   |   |       Field Count: 2
+// |   |   |   |       object Field 1 Name: O
+// |   |   |   |        kind : 5
+// |   |   |   |        str value :
+// |   |   |   |       object Field 2 Name: L
+// |   |   |   |        kind : 5
+// |   |   |   |        str value :
+// |   |   |   |       ,
+// |   |   |       Field 3 Name: Name
+// |   |   |   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+// |   |   |   |       Field Count: 2
+// |   |   |   |       object Field 1 Name: O
+// |   |   |   |        kind : 5
+// |   |   |   |        str value : a
+// |   |   |   |       object Field 2 Name: L
+// |   |   |   |        kind : 5
+// |   |   |   |        str value : a
+// |   |   |   |       ,
+// |   |   |       ,
+// |   |       ,
+// |       Field 3 Name: R
+// |   |       Node Type: github.com/pingcap/tidb/pkg/parser/test_driver.ValueExpr
+// |   |       Position: 36
+// |   |       Field Count: 2
+// |   |       Field 1 Name: TexprNode
+// |   |   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.exprNode
+// |   |   |       Field Count: 1
+// |   |   |       object Field 1 Name: Type
+// |   |   |        kind : 11
+// |   |   |        typed value : {8 128 2 0 binary binary [] [] false}
+// |   |   |       ,
+// |   |       Field 2 Name: Datum
+// |   |   |       data : {1 10 [] <nil>}
+// |   |       ,
+// |       ,
+//     Field 3 Name: R
+// |       Node Type: github.com/pingcap/tidb/pkg/parser/ast.BinaryOperationExpr
+// |       Position: 43
+// |       Field Count: 3
+// |       Field 1 Name: Op
+// |       Value Kind: 2
+// |       Value: 9
+// |       Field 2 Name: L
+// |   |       Node Type: github.com/pingcap/tidb/pkg/parser/ast.ColumnNameExpr
+// |   |       Position: 43
+// |   |       Field Count: 1
+// |   |       Field 1 Name: Name
+// |   |   |       Node Type: github.com/pingcap/tidb/pkg/parser/ast.ColumnName
+// |   |   |       Position: 0
+// |   |   |       Field Count: 3
+// |   |   |       Field 1 Name: Schema
+// |   |   |   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+// |   |   |   |       Field Count: 2
+// |   |   |   |       object Field 1 Name: O
+// |   |   |   |        kind : 5
+// |   |   |   |        str value :
+// |   |   |   |       object Field 2 Name: L
+// |   |   |   |        kind : 5
+// |   |   |   |        str value :
+// |   |   |   |       ,
+// |   |   |       Field 2 Name: Table
+// |   |   |   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+// |   |   |   |       Field Count: 2
+// |   |   |   |       object Field 1 Name: O
+// |   |   |   |        kind : 5
+// |   |   |   |        str value :
+// |   |   |   |       object Field 2 Name: L
+// |   |   |   |        kind : 5
+// |   |   |   |        str value :
+// |   |   |   |       ,
+// |   |   |       Field 3 Name: Name
+// |   |   |   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+// |   |   |   |       Field Count: 2
+// |   |   |   |       object Field 1 Name: O
+// |   |   |   |        kind : 5
+// |   |   |   |        str value : b
+// |   |   |   |       object Field 2 Name: L
+// |   |   |   |        kind : 5
+// |   |   |   |        str value : b
+// |   |   |   |       ,
+// |   |   |       ,
+// |   |       ,
+// |       Field 3 Name: R
+// |   |       Node Type: github.com/pingcap/tidb/pkg/parser/test_driver.ValueExpr
+// |   |       Position: 47
+// |   |       Field Count: 2
+// |   |       Field 1 Name: TexprNode
+// |   |   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.exprNode
+// |   |   |       Field Count: 1
+// |   |   |       object Field 1 Name: Type
+// |   |   |        kind : 11
+// |   |   |        typed value : {8 128 2 0 binary binary [] [] false}
+// |   |   |       ,
+// |   |       Field 2 Name: Datum
+// |   |   |       data : {1 20 [] <nil>}
+// |   |       ,
+// |       ,
+//     ,

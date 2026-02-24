@@ -114,23 +114,25 @@ class CPlanHandle {
 public:
     CPlanHandle(CPage& pge, CDiskMan& dm) : 
     m_page(pge), 
-    m_diskMan(dm),
-    tmpTable(m_diskMan, m_page) {
+    m_diskMan(dm) {
 
     }
     CPlanHandle(const CPlanHandle& h) = delete;
 
     CPlanHandle(CPlanHandle&& h) :
     m_page(h.m_page),
-    m_diskMan(h.m_diskMan),
-    tmpTable(m_diskMan, m_page) {
+    m_diskMan(h.m_diskMan) {
         plan = std::move(h.plan);
-        tmpTable = std::move(h.tmpTable);
+        tmpTables = std::move(h.tmpTables);
         type = h.type;
     }
 
     ~CPlanHandle() {
-        
+        for (auto* t : tmpTables) {
+            t->destroy();
+            delete t;
+        }
+        tmpTables.clear();
     }
 
 
@@ -141,7 +143,7 @@ public:
             return *this;
         }
         plan = std::move(h.plan);
-        tmpTable = std::move(h.tmpTable);
+        tmpTables = std::move(h.tmpTables);
         type = h.type;
         return *this;
     }
@@ -151,5 +153,6 @@ public:
     CPlan plan;
     planType type = planType::PLAN_NULL;
     // temp table for select
-    CCollection tmpTable; 
+    std::vector<CCollection*> tmpTables;
+    // CCollection tmpTable; 
 };

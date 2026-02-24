@@ -79,7 +79,16 @@ int CParser::operator()(const std::string& sql) {
     }
 
     m_pParseResult = TidbParseSQL(const_cast<char*>(sql.c_str()));
-    return m_pParseResult ? 0 : -1;
+    if (m_pParseResult->ok) {
+        return 0; // Successfully parsed
+    } else {
+        message = "Failed to parse SQL: " + sql;
+        // Free the parse result if parsing failed
+        TidbFreeParseResult(m_pParseResult);
+        m_pParseResult = nullptr;
+        return -1; // Failed to parse
+    }
+
 }
 
 
@@ -327,6 +336,7 @@ pos:    0    1         2   3    4      5      6  7  8
     bool isBinary = colParams[4] == "binary";
     dpfs_datatype_t colTp = dpfs_datatype_t::TYPE_NULL;
     colOption colOpt;
+    colOpt.flg.constraints = 0;
     if (optionNode.kind == TIDB_AST_ARRAY) {
         // find which is primary key, and other constraints, and set the column constraint accordingly, currently just set binary flag
         rc = parsColOptions(&optionNode, colOpt);
@@ -627,8 +637,83 @@ int CParser::buildCreatePlan(const TidbAstNode* stmt, CPlanHandle& out) {
     return 0;
 }
 
+static int buildTableTree(const TidbAstNode* fromNode, CTableTree& out) {
+    // TODO
+
+    // table refs
+    // fromNode->fields[0];
+    enum tabrefMap {
+        Left = 0,
+        Right,
+        Tp,
+        On,
+        Using,
+        NaturalJoin,
+        StraightJoin,
+        ExplicitParens
+    };
+
+
+    fromNode->fields[0].value.node->fields[tabrefMap::Left];
+
+    auto* nameNode = fromNode->fields[0].value.node->fields[tabrefMap::Left].value.node->fields[0/* source */].value.node;
+    out.schemaName = nameNode->fields[0].value.object.fields[0].value.str.data;
+    out.tableName = nameNode->fields[1].value.object.fields[0].value.str.data;
+
+    #ifdef PARSER_DEBUG
+    cout << "Table Tree - Schema: " << out.schemaName << ", Table: " << out.tableName << endl;
+    #endif
+
+    return 0;
+}
+
+/*
+    @param whereNode: AST node of the WHERE clause
+    @param out: vector to store the sequence of conditions extracted from the condition tree
+    @return 0 on success, else on failure
+    @note convert a condition tree to sequence of conditions.
+*/
+static int buildConditionSequence(const TidbAstNode* whereNode, CWhereSeq& out) {
+    // TODO
+
+
+
+    return 0;
+}
+
 int CParser::buildSelectPlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out) {
-    //TODO
+    // DOING
+    int rc = 0;
+
+    
+
+    // parseName only support one table for now
+    CTableTree tableTree;
+    rc = buildTableTree(stmt->fields[static_cast<int>(selectPlanMap::From)].value.node, tableTree);
+    if (rc != 0) {
+        return rc; // Return error code if table tree building failed
+    }
+
+    
+
+    // 构建可用的查询序列，查询时针对每行进行过滤 dpfsdata.cpp:82
+    CWhereSeq whereSeq;
+    rc = buildConditionSequence(stmt->fields[static_cast<int>(selectPlanMap::Where)].value.node, whereSeq);
+    if (rc != 0) {
+        return rc; // Return error code if condition sequence building failed
+    }
+
+    rc = dataSvc.resortWhereSequence(tableTree.schemaName, tableTree.tableName, whereSeq, out);
+    if (rc != 0) {
+        return rc; // Return error code if where sequence resorting failed
+    }
+
+    rc = dataSvc.makeTmpCollection(whereSeq.conditionSeq[0], out);
+    if (rc != 0) {
+        return rc; // Return error code if temporary collection creation failed
+    }
+
+
     return -ENOTSUP; // Not supported yet
     return 0;
 }
@@ -640,7 +725,6 @@ int CParser::buildDropPlan(const TidbAstNode* stmt, CPlanHandle& out) {
 }
 
 int CParser::buildInsertPlan(const std::string& osql, const TidbAstNode* stmt, CPlanHandle& out) {
-    //TODO
 
     
     int rc = 0;
@@ -654,8 +738,6 @@ int CParser::buildInsertPlan(const std::string& osql, const TidbAstNode* stmt, C
         stmt->fields[static_cast<int>(insertPlanMap::Table)].value.node->fields[0].value.node->fields[0].value.node->fields[0].value.node->fields[1].value.object.fields[static_cast<int>(nameCase::Original)].value.str.len
     );
 
-    std::vector<std::string> planCols;
-    planCols.reserve(stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.len);
 
     #ifdef PARSER_DEBUG
 
@@ -700,16 +782,21 @@ int CParser::buildInsertPlan(const std::string& osql, const TidbAstNode* stmt, C
 |   |       ,
 
     */
+    
+    std::vector<std::string> planCols;
+    planCols.reserve(stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.len);
 
     // parseColumns, if the column list is empty, means insert into all columns, otherwise insert into specified columns
-    // from an array
-    for (int i = 0; i < stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.len; ++i) {
-        const TidbAstValue& colVal = stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.items[i].node->fields[static_cast<int>(colNamefieldType::Name)].value.object.fields[static_cast<int>(nameCase::Original)].value; // get column name from ColumnName node
-        // std::string colName(colVal.value.str.data, colVal.value.str.len);
-        planCols.emplace_back(colVal.str.data, colVal.str.len);
-        #ifdef PARSER_DEBUG
-        cout << "Insert Column: " << planCols.back() << endl;
-        #endif
+    if (stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.len) {
+        // from an array
+        for (int i = 0; i < stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.len; ++i) {
+            const TidbAstValue& colVal = stmt->fields[static_cast<int>(insertPlanMap::Columns)].value.array.items[i].node->fields[static_cast<int>(colNamefieldType::Name)].value.object.fields[static_cast<int>(nameCase::Original)].value; // get column name from ColumnName node
+            // std::string colName(colVal.value.str.data, colVal.value.str.len);
+            planCols.emplace_back(colVal.str.data, colVal.str.len);
+            #ifdef PARSER_DEBUG
+            cout << "Insert Column: " << planCols.back() << endl;
+            #endif
+        }
     }
 
     // int planColSize = 0;

@@ -73,6 +73,35 @@ public:
     // */
     // int buildExecPlan();
 
+    /*
+        @param wb: where condition object, indicate a filter condition of a select statement
+        @param out: execution plan handle to store the generated plan and temp tables
+        @return 0 on success, else on failure
+        @note build the sql execution plan from the parse result, but do not execute the plan. for select statement, will create temp table to store the selected result, and return the pointer in out.tmpTable
+    */
+    int makeTmpCollection(const CWhereObject& wb, CPlanHandle& out);
+
+    /*
+        
+        @param schema: schema name of the collection to select from
+        @param name: table name of the collection to select from
+        @param whereSeq: sequence of conditions extracted from the where clause of a select statement
+        @param out: execution plan handle to store the generated plan and temp tables
+        @return 0 on success, else on failure
+        @note resort the where sequence to make it more efficient for execution, for example, put the condition with index at the front of the sequence, and put the condition with large filter ratio at the front of the sequence    
+        根据表的索引信息和条件的过滤率对条件序列进行重新排序，使得执行效率更高，例如将有索引的条件放在序列前面，将过滤率较大的条件放在序列前面
+    */
+    int resortWhereSequence(const std::string& schema, const std::string& name, CWhereSeq& whereSeq, CPlanHandle& out) {
+        // target table: 
+        // multi object is not allow for now.
+        
+        out.plan.planObjects[0].collectionBidx;
+
+
+
+        return 0;
+    }
+
 
     /*
         @param coll: collection to create
