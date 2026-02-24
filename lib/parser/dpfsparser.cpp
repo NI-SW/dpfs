@@ -656,7 +656,7 @@ static int buildTableTree(const TidbAstNode* fromNode, CTableTree& out) {
 
     fromNode->fields[0].value.node->fields[tabrefMap::Left];
 
-    auto* nameNode = fromNode->fields[0].value.node->fields[tabrefMap::Left].value.node->fields[0/* source */].value.node;
+    auto* nameNode = fromNode->fields[0 /* Source */].value.node->fields[tabrefMap::Left].value.node->fields[0/* source */].value.node;
     out.schemaName = nameNode->fields[0].value.object.fields[0].value.str.data;
     out.tableName = nameNode->fields[1].value.object.fields[0].value.str.data;
 

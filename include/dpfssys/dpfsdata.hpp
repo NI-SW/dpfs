@@ -79,7 +79,9 @@ public:
         @return 0 on success, else on failure
         @note build the sql execution plan from the parse result, but do not execute the plan. for select statement, will create temp table to store the selected result, and return the pointer in out.tmpTable
     */
-    int makeTmpCollection(const CWhereObject& wb, CPlanHandle& out);
+    int makeTmpCollection(const CWhereObject& wb, CPlanHandle& out) {
+        return -ENOTSUP;
+    }
 
     /*
         
@@ -98,7 +100,7 @@ public:
         out.plan.planObjects[0].collectionBidx;
 
 
-
+        return -ENOTSUP;
         return 0;
     }
 

@@ -98,8 +98,12 @@ int main() {
         }
         cout << "System product loaded from disk." << endl;
 
-        cout << sysdpfs->fixedInfo.m_collectionStruct->m_cols.size() << " cols loaded." << endl;
-        for(auto col : sysdpfs->fixedInfo.m_collectionStruct->m_cols) {
+        CTemplateGuard guard(sysdpfs->fixedInfo.m_cltInfoCache);
+
+        CCollection::collectionStruct cs(sysdpfs->fixedInfo.m_cltInfoCache->getPtr(), sysdpfs->fixedInfo.m_cltInfoCache->getLen());
+
+        cout << cs.m_cols.size() << " cols loaded." << endl;
+        for(auto col : cs.m_cols) {
             cout << "Col name: " << col.getName() << ", type: " << (int)col.getType() << ", len: " << col.getLen() << endl;
         }
 

@@ -33,11 +33,11 @@ int main(){
 
     usr.userid = 0;
     usr.username = "SYSTEM";
-    usr.dbprivilege = DBPRIVILEGE_FATAL;
+    usr.dbprivilege = dbPrivilege::DBPRIVILEGE_FATAL;
 
     // yy::CParser parser(usr);
 
-    dpfsDriver driver(usr);
+    dpfsDriver driver;
 
 
     string testa;

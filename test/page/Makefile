@@ -8,7 +8,7 @@ DPFS_ROOT_DIR := $(abspath $(CURDIR)/../..)
 include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 
 CXXFLAG += -g
-CXXLIB += -ldpfs_collect -ldpfs_engine -ldpfs_nvmf -ldpfs_log 
+CXXLIB += -ldpfs_collect -ldpfs_engine -ldpfs_nvmf -ldpfs_log  -lmydecimal
 
 
 APP := test_page

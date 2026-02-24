@@ -156,3 +156,41 @@ public:
     std::vector<CCollection*> tmpTables;
     // CCollection tmpTable; 
 };
+
+enum class exprType : uint8_t {
+    columnName = 0,
+    valueExpr,
+};
+
+struct CWhereObject {
+
+    whereFlag op;
+    std::string schemaName;
+    std::string tableName;
+    std::string colName;
+
+    exprType leftType;
+    exprType rightType;
+
+    // 0 for left, 1 for right
+    dpfs_datatype_t valueType[2];
+    std::string strVal[2];
+
+    union simpleval
+    {
+        int64_t i64Val;
+        uint64_t u64Val;
+        double f64Val;
+        bool bVal;
+    } value[2];
+    
+};
+
+
+class CWhereSeq {
+public:
+    CWhereSeq() = default;
+    ~CWhereSeq() = default;
+    std::vector<CWhereObject> conditionSeq;
+
+};

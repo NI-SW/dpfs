@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := item nvmf diskman dpfssys tcp client page collect bp parser tiparser mysql_decimal
+SUBDIRS := item nvmf diskman dpfssys tcp client page bp tiparser mysql_decimal
 
 all clean::
 	@for subdir in $(SUBDIRS); \
