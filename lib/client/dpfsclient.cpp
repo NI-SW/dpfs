@@ -226,3 +226,7 @@ int CDpfsSysCli::execute(const char* execStr) {
     return rc;
 
 }
+
+void* newGrpcClient() {
+    return new CDpfsSysCli();
+}

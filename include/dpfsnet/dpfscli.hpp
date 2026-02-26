@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <cstddef>
+#include <cerrno>
 
 class CDpfscli {
 public:
@@ -83,6 +84,13 @@ public:
         @return name of the object
     */
     virtual const char* name() const = 0;
+
+    /*
+        @note send test message to server, for test purpose.
+    */
+    virtual int sendTestMsg() {
+        return -ENOTSUP;
+    }
 };
 
 

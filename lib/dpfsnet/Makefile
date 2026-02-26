@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := tcp net
+SUBDIRS := grpc tcp net
 
 all clean::
 	@for subdir in $(SUBDIRS); \

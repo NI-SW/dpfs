@@ -26,42 +26,54 @@ enum class tbPrivilege : uint16_t {
 // when connect, use key to find user record in USERAUTH table
 class CUser {
 public:
-    CUser() : privilegeCache(100, &clrfunction) {};
+    CUser() {};
     ~CUser() {
         
     };
+
+    CUser(const CUser& other) = default;
+    CUser(CUser&& other);
+    CUser& operator=(const CUser& other) = default;
+    CUser& operator=(CUser&& other);
+
+
     int32_t userid = 1000;
     std::string username = "NULLID";
     std::string currentSchema = "NULLID";
     dbPrivilege dbprivilege = dbPrivilege::DBPRIVILEGE_NONE;
+
+    // seconds since epoch
+    std::chrono::seconds lastActiveTime{0}; // last active time of the user, used for session management
+
+    bool logOff = false; // whether the user has logged off, if true, the user session should be closed and removed from cache
 
     /*
         dbprivilege
         tbprivilege
         tempTable Pointer
     */
-    struct cacheStruct {
-        uint32_t tid = 0;
-        uint16_t privilege = 0;
-    };
+    // struct cacheStruct {
+    //     uint32_t tid = 0;
+    //     uint16_t privilege = 0;
+    // };
 
-    class clrfn {
-        public:
-        clrfn(void* arg = nullptr) {
+    // class clrfn {
+    //     public:
+    //     clrfn(void* arg = nullptr) {
 
-        }
-        ~clrfn() {}
-        void operator()(cacheStruct , int* finish_indicator = nullptr) { 
-            if (finish_indicator) *finish_indicator = 1;
-            return; 
-        }
-        void flush(const std::list<void*>& cacheList) {
-            return;
-        }
-    };
+    //     }
+    //     ~clrfn() {}
+    //     void operator()(cacheStruct , int* finish_indicator = nullptr) { 
+    //         if (finish_indicator) *finish_indicator = 1;
+    //         return; 
+    //     }
+    //     void flush(const std::list<void*>& cacheList) {
+    //         return;
+    //     }
+    // };
 
     // table id - privilege number
-    clrfn clrfunction;
-    CDpfsCache<uint64_t, cacheStruct, clrfn> privilegeCache;
+    // clrfn clrfunction;
+    // CDpfsCache<uint64_t, cacheStruct, clrfn> privilegeCache;
 
 };

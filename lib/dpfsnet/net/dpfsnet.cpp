@@ -2,13 +2,17 @@
 #include <string>
 #include <unordered_map>
 // defination in dpfstcp.cpp (-ldpfs_tcp)
-void* newTcpClient();
+extern void* newTcpClient();
 // defination in dpfstcpsvr.cpp (-ldpfs_tcp)
-void* newTcpServer();
+extern void* newTcpServer();
 
-std::unordered_map<std::string, void* (*)()> clientTypes {{"tcp", newTcpClient}};
-std::unordered_map<std::string, void* (*)()> serverTypes {{"tcp", newTcpServer}};
+// -ldpfs_grpc
+// extern void* newGrpcClient();
+extern void* newGrpcServer();
 
+std::unordered_map<std::string, void* (*)()> clientTypes {{"tcp", newTcpClient}, {"grpc", nullptr}};
+std::unordered_map<std::string, void* (*)()> serverTypes {{"tcp", newTcpServer}, {"grpc", newGrpcServer}};
+    
 
 CDpfscli* newClient(const std::string& client_type) {
     if(clientTypes.find(client_type) != clientTypes.end()) {

@@ -97,8 +97,7 @@ public:
         // target table: 
         // multi object is not allow for now.
         
-        out.plan.planObjects[0].collectionBidx;
-
+        // out.plan.planObjects[0].collectionBidx;
 
         return -ENOTSUP;
         return 0;

@@ -3,12 +3,12 @@
 #  All rights reserved.
 #
 
-DPFS_ROOT_DIR := $(abspath $(CURDIR)/../..)
+DPFS_ROOT_DIR := $(abspath $(CURDIR)/../../..)
 
 include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 
 CXXFLAG += -g
-CXXLIB += -ldpfs_log -ldpfs_net -ldpfs_tcp -ldpfs_basic -ldpfs_client
+CXXLIB += -ldpfs_log -ldpfs_net -ldpfs_tcp -ldpfs_basic -ldpfs_client -lgrpc++ -lprotobuf -ldpfs_proto -ldpfs_client -ldpfs_grpc
 
 
 APP := test_client

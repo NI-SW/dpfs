@@ -15,28 +15,6 @@
 #include <ctime>
 #include <sstream>
 #include <iomanip>
-std::string getCurrentTimestamp() {
-    // 获取当前时间点
-    auto now = std::chrono::system_clock::now();
-    // 转换为time_t以用于localtime
-    auto now_c = std::chrono::system_clock::to_time_t(now);
-    // 转换为tm结构，这是ctime库需要的格式
-    // unsafe 
-    // std::tm* ptm = std::localtime(&now_c);
-
-	// thread safe
-	std::tm tm;
-    #ifdef __linux__
-    localtime_r(&now_c, &tm);
-    #elif _WIN32
-    localtime_s(&tm, &now_c);
-    #endif
-
-    // 使用stringstream来格式化输出
-    std::stringstream ss;
-    ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-    return ss.str();
-}
 
 // node id to determine which nvmfhost belongs to this instance 
 extern uint64_t nodeId;

@@ -13,7 +13,7 @@ int main() {
     
     // 110B84CF560979DB
     int rc = 0;
-    char* str = "315222.15898099997";
+    const char* str = "315222.15898099997";
 
     const char *end = str + strlen(str);
     rc = str2my_decimal(0, str, &dec, &end);

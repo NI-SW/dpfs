@@ -22,10 +22,6 @@ int main(int argc, char* argv[]) {
         cerr << "Error initializing dpfsSystem: " << e.what() << endl;
         return -1;
     }
-
-    
-
-    
     while(a.is_connected() && !g_exit) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }

@@ -7,6 +7,9 @@
 
 using listenCallback = void (*)(CDpfscli& cli, void* cb_arg);
 
+using grpcCallBack = void (*)(void* grpcService);
+// using grpcStop = void (*)(void* grpcServer);
+
 class CDpfssvr {
 public:
     CDpfssvr() = default;
@@ -19,7 +22,22 @@ public:
         @return 0 on success, else on failure.
         @example "ip:0.0.0.0 port:20500"(for tcp protocol)
     */
-    virtual int listen(const char* server_string, listenCallback cb, void* cb_arg) = 0;
+    virtual int listen(const char* server_string, listenCallback cb, void* cb_arg) {
+        // override by tcp server
+        return -ENOTSUP;
+    }
+
+    /*
+        @note listen for grpc
+        @param server_string: Server listening string for the network connection.
+        @param cb: Callback function to be called when a new connection is established.
+        @return 0 on success, else on failure.
+        @example "ip:0.0.0.0 port:20500"(for tcp protocol)
+    */
+    virtual int listen(const char* server_string, void* service) {
+        // override by grpc server
+        return -ENOTSUP;
+    }
 
     /*
         @note close all connections and stop the server.
@@ -48,6 +66,8 @@ public:
         @return statue of the server, false for stopped, true for running.
     */
     virtual bool is_listening() const = 0;
+
+    
     
 };
 

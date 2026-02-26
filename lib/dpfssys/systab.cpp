@@ -328,10 +328,33 @@ int CSysSchemas::initUserTab(const bidx& sysBidx) {
     rc = sysusers.addCol("CREATE_TIME",       dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
     rc = sysusers.addCol("LAST_LOGIN",        dpfs_datatype_t::TYPE_TIMESTAMP, 10,  0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
     rc = sysusers.addCol("PASSWORD",          dpfs_datatype_t::TYPE_BINARY,    128, 0, cf::NOT_NULL);                     if (rc != 0) { goto errReturn; }
+    rc = sysusers.addCol("USERID",            dpfs_datatype_t::TYPE_INT,       4,   0, cf::NOT_NULL | cf::UNIQUE);        if (rc != 0) { goto errReturn; }
     rc = sysusers.initBPlusTreeIndex();                                                                                   if (rc != 0) { goto errReturn; }
     rc = sysusers.save();                                                                                                 if (rc != 0) { goto errReturn; }
 
-    
+    // insert a root user with all privileges
+    {
+        CTemplateReadGuard tg(*sysusers.m_cltInfoCache);
+        CCollection::collectionStruct sysuserscs(sysusers.m_cltInfoCache->getPtr(), sysusers.m_cltInfoCache->getLen() * dpfs_lba_size);
+
+        CItem useritm(sysuserscs.m_cols);
+        uint8_t dbprivilege = 4;
+        std::string tmstmp = getCurrentTimestamp();
+        // user = root
+        // default passwd = root
+        rc = useritm.updateValue(0, "root", sizeof("root"));                if (rc < 0) { goto errReturn; }
+        rc = useritm.updateValue(1, &dbprivilege, sizeof(dbprivilege));     if (rc < 0) { goto errReturn; }
+        rc = useritm.updateValue(2, tmstmp.c_str(), tmstmp.length() + 1);   if (rc < 0) { goto errReturn; }
+        rc = useritm.updateValue(3, tmstmp.c_str(), tmstmp.length() + 1);   if (rc < 0) { goto errReturn; }
+        rc = useritm.updateValue(4, "root", sizeof("root"));                if (rc < 0) { goto errReturn; }
+        int32_t userid = 1;
+        rc = useritm.updateValue(5, &userid, sizeof(userid));               if (rc < 0) { goto errReturn; }
+        // unlock
+        tg.release();
+
+        rc = sysusers.addItem(useritm); if (rc != 0) { goto errReturn; }
+    }
+
     return 0;
 errReturn:
     if(sysusers.m_btreeIndex) {
@@ -364,7 +387,7 @@ int CSysSchemas::initSchemaTab(const bidx& sysBidx) {
     rc = sysschemas.save();                                                                                        if (rc != 0) { goto errReturn; }
 
 
-    
+    // insert a default schema
     return 0;
 errReturn:
     if(sysschemas.m_btreeIndex) {

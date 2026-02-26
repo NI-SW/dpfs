@@ -3,6 +3,8 @@
 #include <log/logbinary.h>
 #include <dpfsmodule/module.hpp>
 #include "dpfscontrol.hpp"
+#include <dpfssys/user.hpp>
+
 class CDatasvc;
 class CReplicatesvc;
 
@@ -81,7 +83,7 @@ public:
     std::string replicationSvrStr = "0.0.0.0:20502";
     dpfsnetType repSvrType = dpfsnetType::TCP;
 
-
+    void* ctlSvrImpHandle = nullptr;
     CDpfssvr* ctrlSvr = nullptr;
     CDpfssvr* dataSvr = nullptr;
     CDpfssvr* repSvr = nullptr;
@@ -102,6 +104,10 @@ public:
     volatile bool m_start = false;
     volatile bool m_exit = false;
     CModuleMan m_modules;
+
+    CSpin m_usrCacheLock;
+    int32_t m_usrHandleCount = 0;
+    std::unordered_map<int32_t, CUser> m_userCache; // user cache for authentication, key is the hash of the username
 };
 
 

@@ -2,17 +2,20 @@
 #include <dpendian.hpp>
 #include <cstdint>
 #include <cstddef>
+#include <string>
 
 constexpr char dpfsVersion[] = {0, 0, 0, 1}; // version 0.0.0.1 version.release.build.bugfix
 constexpr uint32_t versionSize = sizeof(dpfsVersion);
 
 enum class dpfsnetType : int {
     TCP = 0,
+    GRPC,
     MAX,
 };
 
 constexpr const char* dpfsnetTypeStr[] = {
     "tcp",
+    "grpc"
 };
 
 /*
@@ -137,6 +140,8 @@ int parse_string(const char* str, const char* key, char* value, size_t size);
     @note convert long long int to string
 */
 int ull2str(long long int l, char* buf, size_t len) noexcept;
+
+std::string getCurrentTimestamp();
 
 
 // using msgCallback = dpfs_rsp* (*)(const dpfs_cmd* cmd);

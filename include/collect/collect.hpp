@@ -859,7 +859,7 @@ public:
     /*
         @return total items in the collection
     */
-    int getItemCount();
+    int getItemCount() = delete;
 
     /*
         @param colName: column name to search
