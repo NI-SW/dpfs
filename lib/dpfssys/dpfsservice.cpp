@@ -1,6 +1,21 @@
 #include <dpfssys/dpfsservice.hpp>
+#include <dpfssys/dpfsdata.hpp>
+#include <parser/dpfsparser.hpp>
 
-
+int sysCtlServiceImpl::getUserInfo(int32_t husr, CUser*& user) noexcept {
+    system->m_usrCacheLock.lock();
+    auto iter = system->m_userCache.find(husr);
+    if (iter != system->m_userCache.end()) {
+        user = &iter->second;
+    } else {
+        system->m_usrCacheLock.unlock();
+        return -ENOENT; // user handle not found
+    }
+    user->lastActiveTime = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
+    system->m_usrCacheLock.unlock();
+    
+    return 0;
+}
 
 Status sysCtlServiceImpl::login(ServerContext* context, const dpfsgrpc::loginReq* request, dpfsgrpc::loginReply* response) {
     // Implement your login logic here
@@ -121,3 +136,62 @@ Status sysCtlServiceImpl::logoff(ServerContext* context, const dpfsgrpc::logoffR
     response->set_rc(0);
     return Status::OK;
 }
+
+
+Status sysCtlServiceImpl::execSQL(ServerContext* context, const dpfsgrpc::exesql* request, dpfsgrpc::operateReply* response) {
+
+    int32_t husr = request->husr();
+    const std::string& sql = request->sql();
+
+    // get user info from cache
+    
+    CUser* puser = nullptr;
+    int rc = getUserInfo(husr, puser);
+    if (rc != 0) {
+        response->set_msg("Failed to get user info for handle: " + std::to_string(husr));
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    CUser& usr = *puser;
+
+    
+    CParser parser(usr, *system->dataService);
+
+    rc = parser(sql);
+    if (rc != 0) {
+        response->set_msg("Failed to parse and build execution plan for SQL: " + sql);
+        response->set_rc(rc);
+    }
+    CPlanHandle out(system->dataService->m_page, system->dataService->m_diskMan);
+
+    rc = parser.buildPlan(sql, out);
+    if (rc != 0) {
+        response->set_msg("Failed to build execution plan for SQL: " + sql);
+        response->set_rc(rc);
+        return Status::OK;
+    } 
+    
+    
+    response->set_msg("SQL command completed successfully.");
+    response->set_rc(0);
+
+    return Status::OK;
+}
+
+Status sysCtlServiceImpl::getTableHandle(ServerContext* context, const dpfsgrpc::getTableRequest* request, dpfsgrpc::getTableReply* response) {
+
+    int husr = request->husr();
+    CUser* pusr = nullptr;
+    int rc = getUserInfo(husr, pusr);
+    if (rc != 0) {
+        response->set_msg("Failed to get user info for handle: " + std::to_string(husr));
+        response->set_rc(rc);
+        
+        return Status::OK;
+    }
+
+    request->tablename();
+    return Status::OK;
+}
+

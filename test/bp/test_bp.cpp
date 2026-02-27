@@ -1,4 +1,5 @@
 #include <storage/engine.hpp>
+#include <dpfsdebug.hpp>
 #define private public
 #define protected public
 #include <collect/bp.hpp>
@@ -22,6 +23,7 @@
 #define __TEST_INDEX_SEARCH__
 #define __PRINT_INDEX_TREE__
 #define __TEST_INDEX_ITERATOR__
+#define __TEST_PK_INDEX_ITERATOR__
 #define __TEST_SCAN_ITERATOR__
 
 
@@ -469,6 +471,51 @@ int main() {
 }
 #endif
 
+
+#ifdef __TEST_PK_INDEX_ITERATOR__
+{
+
+    // get index iter
+    cout << "-------------------------------------------------------------------------------------------test get PK index iterator-------------------------------------------------------------------------" << endl;
+    CCollection::CIdxIter indexIter;
+    row[0] = 2;
+    row[1] = 3;
+    keyVals.emplace_back(sizeof(uint64_t));
+    keyVals[0].setData(&row[0], sizeof(uint64_t));
+    keyVals.emplace_back(sizeof(uint64_t));
+    keyVals[1].setData(&row[1], sizeof(uint64_t));
+
+    rc = coll->getIdxIter({"pk", "val"}, keyVals, indexIter);
+    if (rc != 0) {
+        cout << " get index iterator fail, rc=" << rc << endl;
+        goto errReturn;
+    }
+
+    // use index iter to get main tree data
+    CItem tmpItm(cs.m_cols);
+    rc = 0;
+    while (rc == 0) {
+        rc = coll->getByIndexIter(indexIter, tmpItm);
+        if (rc != 0) {
+            cout << " get by index iterator fail, rc=" << rc << endl;
+            goto errReturn;
+        }
+
+        cout << " get data :: " << endl;
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
+            CValue val = tmpItm.getValue(i);
+            cout << " col " << i << " name: " << cs.m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
+            for (uint32_t j = 0; j < val.len; ++j) {
+                printf("%02X", ((unsigned char*)val.data)[j]);
+            }
+            cout << endl;
+        }
+
+        rc = ++indexIter;
+    }
+
+}
+#endif
 
 #ifdef __TEST_SCAN_ITERATOR__
 {

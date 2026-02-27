@@ -43,10 +43,36 @@ int main(int argc, char* argv[]) {
     } else {
         cout << "Login failed for user: " << username << ", error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
+        return 0;
+    }
+
+    // test sql execution
+
+    /*
+    
+    CREATE TABLE OOO.PPP (A INT NOT NULL PRIMARY KEY, B DOUBLE, C CHAR(20))
+    insert into OOO.PPP values (1, 1.1, 'hello'), (2, 2.2, 'world')
+    
+    */
+    cout << "Input SQL:" << endl;
+    string sql;
+    while (getline(cin, sql)) {
+        if (sql == "exit") {
+            break;
+        }
+        int rc = client.execSQL(sql);
+        if (rc == 0) {
+            cout << "SQL executed successfully" << endl;
+            cout << "Message: " << client.msg << endl;
+        } else {
+            cout << "SQL execution failed, error code: " << rc << endl;
+            cout << "Error message: " << client.msg << endl;
+        }
+        cout << "Input SQL:" << endl;
     }
 
     // Simulate some work after login
-    this_thread::sleep_for(chrono::seconds(2));
+    // this_thread::sleep_for(chrono::seconds(2));
 
     rc = client.logoff();
     if (rc == 0) {

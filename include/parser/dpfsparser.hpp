@@ -12,6 +12,7 @@
 #include <dpfssys/dpfsdata.hpp>
 #include <dpfssys/user.hpp>
 #include <log/loglocate.h>
+#include <dpfssys/user.hpp>
 
 struct colTypeDef {
     dpfs_datatype_t type;

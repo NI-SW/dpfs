@@ -2,7 +2,7 @@
 #pragma once
 #include <collect/collect.hpp>
 #include <tiparser/tiparser_enum.hpp>
-
+#define __PLAN_DEBUG__
 
 struct CPlanObjects {
 
@@ -155,6 +155,11 @@ public:
     // temp table for select
     std::vector<CCollection*> tmpTables;
     // CCollection tmpTable; 
+
+    #ifdef __PLAN_DEBUG__
+    std::string debugInfo;
+    #endif 
+
 };
 
 enum class exprType : uint8_t {

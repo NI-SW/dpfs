@@ -15,11 +15,14 @@ class sysCtlServiceImpl final : public dpfsgrpc::sysCtl::Service {
 
     dpfsSystem* system = nullptr;
 
+    int getUserInfo(int32_t husr, CUser*& user) noexcept;
+
     // login to the system, return a user handle for subsequent operations, the user handle is an integer that uniquely identifies the user session
     Status login(ServerContext* context, const dpfsgrpc::loginReq* request, dpfsgrpc::loginReply* response) override;
     Status logoff(ServerContext* context, const dpfsgrpc::logoffReq* request, dpfsgrpc::operateReply* response) override;
-
-    
+    Status execSQL(ServerContext* context, const dpfsgrpc::exesql* request, dpfsgrpc::operateReply* response) override;
+    // DOING
+    Status getTableHandle(ServerContext* context, const dpfsgrpc::getTableRequest* request, dpfsgrpc::getTableReply* response) override;
 
 public:
     sysCtlServiceImpl(void* arg) : Service() {

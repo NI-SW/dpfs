@@ -14,7 +14,7 @@
 
 #include <basic/dpfsvec.hpp>
 
-#define __COLLECT_DEBUG__
+// #define __COLLECT_DEBUG__
 
 #ifdef __COLLECT_DEBUG__
 #include <dpfsdebug.hpp>
@@ -735,11 +735,13 @@ public:
         private:
         
         
-        int assign(const void* it, CCollectIndexInfo* idxInfo, cacheStruct* cache);
+        int assign(const void* it, int idxPos, cacheStruct* cache, bool isPkIdx = false);
         friend class CCollection;
         uint8_t* m_collIdxIterPtr;
-        CCollectIndexInfo* indexInfo = nullptr;
+        int indexInfoPos = -1;
+        // CCollectIndexInfo* indexInfo = nullptr;
         cacheStruct* cache = nullptr;
+        bool isPkIter = false;
     };
 
     // use ccid to locate the collection (search in system collection table)
@@ -845,6 +847,7 @@ public:
         @param keyVals: key values to search
         @param outIter: index iterator to store (unique, primaryKey) of the main tree
         @return 0 on success, else on failure
+        @warning this interface is only for test, it may be removed in future, because the pos parameter is not stable, better to use getIdxIter with column names
     */
     int getIdxIter(const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals, CIdxIter& outIter) const;
 

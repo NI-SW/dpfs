@@ -71,14 +71,14 @@ message getTableRequest {
   string tableName = 3;
 }
 
-// TODO:::::::::
 
 // The response message containing the greetings
 message getTableReply {
   int32 tableHandle = 1;
-  string msg = 2;
+  int32 rc = 2;
+  string msg = 3;
   // m_cltInfoCache中的zptr指针指向的内容
-  bytes tableInfos = 3;
+  bytes tableInfos = 4;
 }
 
 message getRowRequest {

@@ -519,10 +519,12 @@ int CParser::buildPlanForStmt(const std::string& osql, const TidbAstNode* stmt, 
         rc = buildCreatePlan(stmt, out);
     } else if (typeName == "SelectStmt") {
         // Handle Select statement
+        // TODO ::
         std::cout << "Building plan for Select statement" << std::endl;
         rc = buildSelectPlan(osql, stmt, out);
     } else if (typeName == "DropTableStmt") {
         // Handle other statement types
+        // TODO ::
         std::cout << "Building plan for DropTable statement" << std::endl;
         rc = buildDropPlan(stmt, out);
     } else if (typeName == "InsertStmt") {
@@ -531,6 +533,7 @@ int CParser::buildPlanForStmt(const std::string& osql, const TidbAstNode* stmt, 
         rc = buildInsertPlan(osql, stmt, out);
     } else if (typeName == "DeleteStmt") {
         // Handle Delete statement
+        // TODO ::
         std::cout << "Building plan for Delete statement" << std::endl;
         rc = buildDeletePlan(osql, stmt, out);
     } else {
@@ -626,6 +629,12 @@ int CParser::buildCreatePlan(const TidbAstNode* stmt, CPlanHandle& out) {
     cout << "Create Table: " << schema << "." << tabName << endl;
     cout << "If Not Exists: " << (ifNotExist ? "Yes" : "No") << endl;
     cout << "struct : " << coll.printStruct() << endl;
+    #endif
+
+    #ifdef __PLAN_DEBUG__
+    out.debugInfo += "Create Table: " + schema + "." + tabName + "\n";
+    out.debugInfo += "If Not Exists: " + std::string(ifNotExist ? "Yes" : "No") + "\n";
+    out.debugInfo += "struct : " + coll.printStruct() + "\n";
     #endif
     
     rc = this->dataSvc.createTable(usr, schema, coll, out);
@@ -742,7 +751,6 @@ int CParser::buildInsertPlan(const std::string& osql, const TidbAstNode* stmt, C
 
 
     #ifdef PARSER_DEBUG
-
     cout << "Insert Table: " << schema << "." << tabName << endl;
     #endif
 

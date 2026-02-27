@@ -47,6 +47,19 @@ public:
 
     bool logOff = false; // whether the user has logged off, if true, the user session should be closed and removed from cache
 
+    // if use index to search
+    // CCollection::CIdxIter parserIdxIter; 
+
+
+
+    /*  
+        each user has a parser instance, used for parsing SQL statements, 
+        the parser will check user privilege when parsing SQL and building execution plan, 
+        and the parser will be initialized with the user information when login, 
+        so that it can check user privilege when parsing SQL and building execution plan
+    */
+    // CParser parser; 
+
     /*
         dbprivilege
         tbprivilege

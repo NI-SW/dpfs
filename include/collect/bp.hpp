@@ -1240,12 +1240,12 @@ address         0 1 2 3 4 5 6 7 8
     int32_t borrowKey(NodeData& parent, NodeData& fromNode, NodeData& toNode, bool isLeaf, bool fromLeft, int targetIdx);
     int32_t mergeNode(NodeData& parent, NodeData& fromNode, NodeData& toNode, bool isLeaf, bool fromLeft, int targetIdx);
 
-    int reinitBase(uint8_t* high, bidx* m_root, bidx* m_begin, bidx* m_end) noexcept {
+    void reinitBase(uint8_t* high, bidx* m_root, bidx* m_begin, bidx* m_end) noexcept {
         this->high = high;
         this->m_root = m_root;
         this->m_begin = m_begin;
         this->m_end = m_end;
-        return 0;
+        // return 0;
     }
 
 private:
