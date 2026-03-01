@@ -46,6 +46,9 @@ int CSysSchemas::init() {
 
     // SYSTABLES ROOT BIDX
     tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
+
+    std::cout << "Initializing SYSTABLES with root bidx: " << tmpbid.gid << "." << tmpbid.bid << std::endl;
+
     rc = initTableTab(tmpbid);                                           if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSTABLESRT", sizeof("SYSTABLESRT"));      if (rc < 0) { goto errReturn; }
@@ -53,6 +56,9 @@ int CSysSchemas::init() {
 
     // SYSCOLUMNS ROOT BIDX
     tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
+
+    std::cout << "Initializing SYSCOLUMNS with root bidx: " << tmpbid.gid << "." << tmpbid.bid << std::endl;
+
     rc = initColTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSCOLUMNSRT", sizeof("SYSCOLUMNSRT"));    if (rc < 0) { goto errReturn; }
@@ -60,6 +66,9 @@ int CSysSchemas::init() {
     
     // SYSCONSTRAINTS ROOT BIDX
     tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
+
+    std::cout << "Initializing SYSCONSTRAINTS with root bidx: " << tmpbid.gid << "." << tmpbid.bid << std::endl;
+
     rc = initConTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSCONSTRT", sizeof("SYSCONSTRT"));        if (rc < 0) { goto errReturn; }
@@ -67,6 +76,9 @@ int CSysSchemas::init() {
     
     // SYSINDEXES ROOT BIDX
     tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
+    
+    std::cout << "Initializing SYSINDEXES with root bidx: " << tmpbid.gid << "." << tmpbid.bid << std::endl;
+
     rc = initIdxTab(tmpbid);                                             if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSINDEXRT", sizeof("SYSINDEXRT"));        if (rc < 0) { goto errReturn; }
@@ -74,6 +86,9 @@ int CSysSchemas::init() {
 
     // SYSUSERS ROOT BIDX
     tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
+
+    std::cout << "Initializing SYSUSERS with root bidx: " << tmpbid.gid << "." << tmpbid.bid << std::endl;
+
     rc = initUserTab(tmpbid);                                            if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSUSERSRT", sizeof("SYSUSERSRT"));        if (rc < 0) { goto errReturn; }
@@ -81,6 +96,9 @@ int CSysSchemas::init() {
 
     // SYSSCHEMAS ROOT BIDX
     tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
+
+    std::cout << "Initializing SYSSCHEMAS with root bidx: " << tmpbid.gid << "." << tmpbid.bid << std::endl;
+
     rc = initSchemaTab(tmpbid);                                          if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                 if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSSCHEMASRT", sizeof("SYSSCHEMASRT"));    if (rc < 0) { goto errReturn; }
@@ -88,6 +106,9 @@ int CSysSchemas::init() {
 
     // SYSAUTHS ROOT BIDX
     tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
+    
+    std::cout << "Initializing SYSAUTHS with root bidx: " << tmpbid.gid << "." << tmpbid.bid << std::endl;
+
     rc = initAuthTab(tmpbid);                                           if (rc != 0) { goto errReturn; }
     rc = itm.nextRow();                                                if (rc != 0) { goto errReturn; }
     rc = itm.updateValue(0, "SYSAUTHRT", sizeof("SYSAUTHRT"));         if (rc < 0) { goto errReturn; }
@@ -125,14 +146,34 @@ int CSysSchemas::load() {
 */
     int rc = 0;
     bidx sysBidx = {nodeId, 16};
-    rc = systemboot.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    rc = systables.loadFrom(sysBidx);          sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    rc = syscolumns.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    rc = sysconstraints.loadFrom(sysBidx);     sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    rc = sysindexes.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    rc = sysusers.loadFrom(sysBidx);           sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    rc = sysschemas.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    rc = sysauths.loadFrom(sysBidx);                                                        if (rc != 0) { return rc; }     
+    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = systemboot.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = systables.loadFrom(sysBidx);          sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = syscolumns.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysconstraints.loadFrom(sysBidx);     sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysindexes.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysusers.loadFrom(sysBidx);           sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysschemas.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysauths.loadFrom(sysBidx);                                                        if (rc != 0) { return rc; }     
+
+    // test sysusers load
+    // cacheLocker cl(sysusers.m_cltInfoCache, sysusers.m_page);
+    // rc = cl.read_lock(); if (rc != 0) { return rc; }
+    // CCollection::collectionStruct sysuserscs(sysusers.m_cltInfoCache->getPtr(), sysusers.m_cltInfoCache->getLen() * dpfs_lba_size);
+    // CItem itm(sysuserscs.m_cols, 16);
+    // cl.read_unlock();
+
+    // char r[] = "root";
+    // KEY_T k(r, sizeof(r), {{0, dpfs_datatype_t::TYPE_CHAR}});
+
+    // rc = sysusers.getRow(k, &itm);
+    // if (rc != 0) {
+    //     std::cout << "Failed to get root user from sysusers, rc=" << rc << std::endl;
+    //     return rc;
+    // }
+
+
+
+
 
 
     return 0;

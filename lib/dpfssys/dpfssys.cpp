@@ -477,7 +477,7 @@ int dpfsSystem::initDataSvc() {
         return -EINVAL;
     }
 
-    int rc = dataService->init();
+    int rc = dataService->init(engine_list[nodeId]->size());
     if(rc != 0) {
         return rc; // Return error if initialization fails
     }

@@ -276,7 +276,6 @@ public:
 
     /*
         reset data with new pointer and size, if size is larger than maxLen, reallocate memory, if reallocate fail, return -ENOMEM, else update data and len, and return 0
-     
     */
     int resetData(const void* data, uint32_t size) noexcept {
         if (size > maxLen) {
@@ -726,7 +725,15 @@ public:
         CIdxIter& operator=(const CIdxIter& other);
         ~CIdxIter();
 
+        /*
+            @note switch to next row, return -ENOENT if no more row, else return 0
+            @return 0 on success, else on failure
+        */
         int operator++();
+        /*
+            @note switch to next row, return -ENOENT if no more row, else return 0
+            @return 0 on success, else on failure
+        */
         int operator--();
         int loadData(void* outKey, uint32_t outKeyLen, uint32_t& keyLen, void* outRow, uint32_t outRowLen, uint32_t& rowLen);
 

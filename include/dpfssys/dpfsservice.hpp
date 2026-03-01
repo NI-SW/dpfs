@@ -21,7 +21,7 @@ class sysCtlServiceImpl final : public dpfsgrpc::sysCtl::Service {
     Status login(ServerContext* context, const dpfsgrpc::loginReq* request, dpfsgrpc::loginReply* response) override;
     Status logoff(ServerContext* context, const dpfsgrpc::logoffReq* request, dpfsgrpc::operateReply* response) override;
     Status execSQL(ServerContext* context, const dpfsgrpc::exesql* request, dpfsgrpc::operateReply* response) override;
-    // DOING
+    // DOING ::: 
     Status getTableHandle(ServerContext* context, const dpfsgrpc::getTableRequest* request, dpfsgrpc::getTableReply* response) override;
 
 public:

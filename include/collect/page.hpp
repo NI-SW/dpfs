@@ -131,6 +131,7 @@ public:
                 default:
                     break;
             }
+            std::this_thread::yield();
         }
         csLock.lock();
         if(status != VALID || readRefs > 0) {
@@ -158,6 +159,7 @@ public:
                 default:
                     break;
             }
+            std::this_thread::yield();
         }
         csLock.lock();
         if(status != VALID && status != WRITING) {

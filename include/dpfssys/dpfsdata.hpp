@@ -45,7 +45,7 @@ public:
 */
 class CDatasvc {
 public:
-    CDatasvc(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : m_diskMan(nullptr), m_page(engine_list, cacheSize, log), m_planCache(MAX_CACHED_SQL, nullptr) {
+    CDatasvc(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : m_page(engine_list, cacheSize, log), m_diskMan(nullptr), m_planCache(MAX_CACHED_SQL, nullptr) {
         m_diskMan.m_page = &m_page;
         m_sysSchema = new CSysSchemas(m_diskMan, m_page);
     }
@@ -59,7 +59,7 @@ public:
         @return 0 on success, else on failure
         @note init the data service, create super block, system tables and some necessary structures on disk
     */
-    int init();
+    int init(size_t diskSize);
 
     /*
         @return 0 on success, else on failure
@@ -122,13 +122,21 @@ public:
     int createInsertPlan(const std::string& osql, const std::string& schema, const std::string& table, const std::vector<std::string>& colNames, CPlanHandle& out);
    
     /*
+        @param schema: schema name
+        @param table: table name
+        @return pointer to the collection, nullptr if not exist or on failure
+        @note get the collection pointer for the given table, this function will first check the system table for the collection info, then load the collection info from disk, and create a collection pointer, and return it. the caller can use this pointer to operate on the collection, but should not delete it, and should call freeTablePtr to free the pointer after use
+    */
+    int getTableBidx(const std::string& schema, const std::string& table, bidx& outBidx);
+
+    /*
         @param pl: execution plan for insert operation
         @param valVec: vector of values to insert, each inner vector is a row of values
         @return 0 on success, else on failure
         @note convert given values to the corresponding type in the collection, and push the item to the job queue
     */
     int planInsert(const CPlan& pl, std::vector<std::vector<std::pair<dpfs_datatype_t, CValue>>>* valVecs);
-private:
+
     /*
         @param usr : user info for privilege check
         @param schema : schema name to operate on
@@ -149,8 +157,8 @@ private:
 
 public:
     // engines managed by this service
-    CDiskMan m_diskMan;
     CPage m_page;
+    CDiskMan m_diskMan;
     mutable logrecord m_log;
     // system collection
     CSysSchemas* m_sysSchema = nullptr;

@@ -52,6 +52,8 @@ int main(int argc, char* argv[]) {
     
     CREATE TABLE OOO.PPP (A INT NOT NULL PRIMARY KEY, B DOUBLE, C CHAR(20))
     insert into OOO.PPP values (1, 1.1, 'hello'), (2, 2.2, 'world')
+    insert into OOO.PPP values (3, 123.4, 'wuhudasima')
+    insert into OOO.PPP values (4, 2.29, 'world1'), (5, 1.15, 'hello2'), (6, 2.32, 'nihao')
     
     */
     cout << "Input SQL:" << endl;
@@ -73,6 +75,17 @@ int main(int argc, char* argv[]) {
 
     // Simulate some work after login
     // this_thread::sleep_for(chrono::seconds(2));
+
+
+    // test get table handle 0.1085
+    rc = client.getTableHandle("OOO", "PPP");
+    if (rc != 0) {
+        cout << "Get table handle failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+    } else {
+        cout << "Get table handle successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+    }
 
     rc = client.logoff();
     if (rc == 0) {

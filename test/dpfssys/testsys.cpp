@@ -67,6 +67,52 @@ int main(int argc, char** argv) {
         cout << "data System loaded." << endl;
     }
 
+
+    // check sysuser table;
+
+    cout << a->dataService->m_sysSchema->sysusers.printStruct() << endl;;
+    cout << "---------------------------------------------------------------------------------------- print sysusers b+ tree ---------------------------------------------------------------------------------------------- " << endl;
+    a->dataService->m_sysSchema->sysusers.m_btreeIndex->printTree();
+    cout << "---------------------------------------------------------------------------------------- print sysboots b+ tree ---------------------------------------------------------------------------------------------- " << endl;
+    a->dataService->m_sysSchema->systemboot.m_btreeIndex->printTree();
+    cout << "-----------------------------------------------------------------------" << endl;
+
+    if (0) {
+        cout << "Checking sysusers table..." << endl;
+        auto& sysUsr = a->dataService->m_sysSchema->sysusers;
+        cacheLocker usrLocker(sysUsr.m_cltInfoCache, sysUsr.m_page);
+        rc = usrLocker.read_lock();
+        if (rc != 0) {
+            cerr << "Failed to lock sysusers cache, rc=" << rc << endl;
+        } else {
+            cout << "sysusers cache locked successfully." << endl;
+        }
+        CCollection::collectionStruct usrCs(sysUsr.m_cltInfoCache->getPtr(), sysUsr.m_cltInfoCache->getLen());
+        CItem usrItm(usrCs.m_cols);
+        usrLocker.read_unlock();
+
+        // "USER_NAME",  
+        // "DBPRIVILEGE",
+        // "CREATE_TIME",
+        // "LAST_LOGIN", 
+        // "PASSWORD",   
+        // "USERID",     
+        CCollection::CIdxIter usrIt;
+        std::vector<CValue> keyValues(1);
+        keyValues[0].resetData("root", sizeof("root"));
+        rc = sysUsr.getIdxIter({"USER_NAME"}, keyValues, usrIt); if (rc != 0) { cerr << "Failed to get index iterator for sysusers, rc=" << rc << endl; }
+        
+        sysUsr.getByIndexIter(usrIt, usrItm);
+        cout << "User: " << (char*)usrItm.getValue(0).data << ", Privilege: " << (int)usrItm.getValue(1).data[0] << endl;
+        while (++usrIt) {
+            sysUsr.getByIndexIter(usrIt, usrItm);
+            cout << "User: " << (char*)usrItm.getValue(0).data << ", Privilege: " << (int)usrItm.getValue(1).data[0] << endl;
+        }
+    }
+
+
+
+
     char buffer[64];
     KEY_T key(buffer, sizeof(buffer), a->dataService->m_sysSchema->systemboot.m_cmpTyps);
 

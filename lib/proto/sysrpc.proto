@@ -74,7 +74,7 @@ message getTableRequest {
 
 // The response message containing the greetings
 message getTableReply {
-  int32 tableHandle = 1;
+  bytes tableHandle = 1;
   int32 rc = 2;
   string msg = 3;
   // m_cltInfoCache中的zptr指针指向的内容

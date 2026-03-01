@@ -26,7 +26,17 @@ public:
         
     };
     
-    ~CSysSchemas() {};
+    ~CSysSchemas() {
+
+        systemboot      .save();
+        systables       .save();
+        syscolumns      .save();
+        sysconstraints  .save();
+        sysindexes      .save();
+        sysusers        .save();
+        sysschemas      .save();
+        sysauths        .save();
+    };
     
 
     /*

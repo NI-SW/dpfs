@@ -8,8 +8,9 @@
 #define __DMDEBUG__
 
 #ifdef __DMDEBUG__
-static CSpin dm_glock;
-static size_t current_pos = 1000;
+#include <iostream>
+using namespace std;
+
 #endif
 
 /*
@@ -23,7 +24,24 @@ class CDiskMan {
 public:
     CDiskMan() = delete;
     CDiskMan(CPage* pge) : m_page(pge), m_cbt(pge){};
-    ~CDiskMan() = default;
+    ~CDiskMan() {
+        #ifdef __DMDEBUG__
+                
+        cacheStruct *cs = nullptr;
+        m_page->get(cs, {nodeId, 999}, 1);
+        if (cs != nullptr) {
+            cs->lock();
+            
+            dm_glock.lock();
+            cout << "save to disk, current_pos: " << current_pos << endl;
+            *((size_t*)(cs->getPtr())) = current_pos; 
+            dm_glock.unlock();
+
+            cs->unlock();
+            cs->release();
+        }
+        #endif
+    }
 
     /*
         @param lba_count: number of logic blocks to allocate
@@ -61,12 +79,31 @@ public:
     */
     int load()
     {
+#ifdef __DMDEBUG__
+        cacheStruct *cs = nullptr;
+        m_page->get(cs, {nodeId, 999}, 1);
+        if (cs == nullptr) {
+            return -EIO;
+        }
+        cs->read_lock();
+        current_pos = *((size_t*)(cs->getPtr()));
+        // memcpy(&current_pos, cs->getPtr(), sizeof(size_t));
+        cs->read_unlock();
+        cs->release();
+        cout << "load from disk, current_pos: " << current_pos << endl;
+        return 0;
+#endif
         m_cbt.Load();
         return 0;
     }
 
     int init(uint64_t gid, int64_t count)
     {
+#ifdef __DMDEBUG__
+        // current_pos = 1000;
+        cout << "init diskman, current_pos: " << current_pos << endl;
+        return 0;
+#endif
         m_cbt.Init(gid, count);
         return 0;
     }
@@ -82,6 +119,11 @@ public:
     }
     CPage* m_page;
     Cbt m_cbt;
+
+    #ifdef __DMDEBUG__
+    CSpin dm_glock;
+    size_t current_pos = 1000;
+    #endif
 
 };
 

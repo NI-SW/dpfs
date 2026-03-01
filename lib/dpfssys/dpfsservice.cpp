@@ -25,24 +25,34 @@ Status sysCtlServiceImpl::login(ServerContext* context, const dpfsgrpc::loginReq
     int rc = 0;
     std::string usrName = request->username();
     std::string password = request->password();
+    system->log.log_notic("Login attempt from user: %s\n", usrName.c_str());
 
+    // cout << "Login attempt from user: " << usrName << endl;
     // check the user authentication.
     
-    auto& sysUsrAuth = system->dataService->m_sysSchema->sysusers;
-    KEY_T userName(const_cast<char*>(usrName.data()), usrName.size(), sysUsrAuth.m_cmpTyps);
+    const auto& sysUsr = system->dataService->m_sysSchema->sysusers;
+    KEY_T userName(const_cast<char*>(usrName.data()), usrName.size(), sysUsr.m_cmpTyps);
 
-    CTemplateReadGuard guard(*sysUsrAuth.m_cltInfoCache);
+    cacheLocker cl(sysUsr.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard guard(cl);
     if (guard.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on sysusers cache, rc=%d\n", guard.returnCode());
+
         response->set_msg("Failed to acquire read lock on sysusers cache");
         response->set_husr(0);
         response->set_rc(-EAGAIN);
         return Status::OK;
     }
     
-    CCollection::collectionStruct sysUserCs(sysUsrAuth.m_cltInfoCache->getPtr(), sysUsrAuth.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CCollection::collectionStruct sysUserCs(sysUsr.m_cltInfoCache->getPtr(), sysUsr.m_cltInfoCache->getLen() * dpfs_lba_size);
     
     CItem rowData(sysUserCs.m_cols);
-    rc = sysUsrAuth.getRow(userName, &rowData);
+
+
+    // release the lock before get row, since get row will acquire the lock again, and the lock is not recursive, if not release, will cause deadlock
+    guard.release();
+
+    rc = sysUsr.getRow(userName, &rowData);
     if (rc != 0) {
         response->set_msg("Authentication failed: user not found");
         response->set_husr(0);
@@ -50,9 +60,11 @@ Status sysCtlServiceImpl::login(ServerContext* context, const dpfsgrpc::loginReq
         return Status::OK;
     }
 
+
     CValue pwd = rowData.beginIter[4];
     size_t pwdLen = strnlen(pwd.data, pwd.len); // ensure the password is null-terminated
     if (pwdLen != password.size()) {
+        system->log.log_notic("Authentication failed for user: %s, incorrect password\n", usrName.c_str());
         response->set_msg("Authentication failed: incorrect password: received length does not match expected length rcvLen = " + std::to_string(password.size()) + ", expectedLen = " + std::to_string(pwd.len));
         response->set_husr(0);
         response->set_rc(-EACCES);
@@ -60,14 +72,12 @@ Status sysCtlServiceImpl::login(ServerContext* context, const dpfsgrpc::loginReq
     }
 
     if (memcmp(pwd.data, password.data(), pwdLen) != 0) {
+        system->log.log_notic("Authentication failed for user: %s, incorrect password\n", usrName.c_str());
         response->set_msg("Authentication failed: incorrect password for user " + usrName + ": passwd = " + std::string(pwd.data, pwd.len));
         response->set_husr(0);
         response->set_rc(-EACCES);
         return Status::OK;
     }
-
-    // unlock
-    guard.release();
 
 
 
@@ -110,6 +120,7 @@ Status sysCtlServiceImpl::login(ServerContext* context, const dpfsgrpc::loginReq
     }
     system->m_usrCacheLock.unlock();
 
+    system->log.log_notic("User logged in, handle: %d, username: %s\n", response->husr(), usrName.c_str());
 
     response->set_msg("Login successful for user: " + usrName);
     response->set_rc(0);
@@ -175,7 +186,6 @@ Status sysCtlServiceImpl::execSQL(ServerContext* context, const dpfsgrpc::exesql
     
     response->set_msg("SQL command completed successfully.");
     response->set_rc(0);
-
     return Status::OK;
 }
 
@@ -190,8 +200,59 @@ Status sysCtlServiceImpl::getTableHandle(ServerContext* context, const dpfsgrpc:
         
         return Status::OK;
     }
+    
+    // TODO ::
+    const std::string& schemaName = request->schemaname();
+    const std::string& tableName = request->tablename();
 
-    request->tablename();
+
+    rc = system->dataService->checkExist(schemaName, tableName);
+    if (rc != -EEXIST) {
+        response->set_msg("Table does not exist: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    rc = system->dataService->checkPrivilege(*pusr, schemaName, tableName, tbPrivilege::TBPRIVILEGE_SELECT);
+    if (rc != 0) {
+        response->set_msg("User does not have access privilege on table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    // from systables get table info
+    bidx tableBidx;
+    rc = system->dataService->getTableBidx(schemaName, tableName, tableBidx);
+    if (rc != 0) {
+        response->set_msg("Failed to get table bidx for table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    // If we get here, the user has select privilege on the table
+    // get table info from system schema
+    
+
+
+
+    CCollection c(system->dataService->m_diskMan, system->dataService->m_page);
+    c.loadFrom(tableBidx, false);
+    
+    rc = c.m_cltInfoCache->read_lock();
+    if (rc != 0) {
+        response->set_msg("Failed to acquire lock on collection info cache for table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    response->set_tableinfos(c.m_cltInfoCache->getPtr(), c.m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    response->set_tablehandle((void*)&tableBidx, sizeof(tableBidx));
+    c.m_cltInfoCache->read_unlock();
+    response->set_rc(0);
+    
+    std::cout << "User " << pusr->username << " get table handle for " << schemaName << "." << tableName << ", bidx: (" << tableBidx.gid << ", " << tableBidx.bid << ")\n";
+
     return Status::OK;
 }
 

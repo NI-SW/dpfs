@@ -24,6 +24,7 @@ public:
     int login(const std::string& user, const std::string& password);
     int logoff();
     int execSQL(const std::string& sql);
+    int getTableHandle(const std::string& schema, const std::string& table);
 
 
 
@@ -31,4 +32,6 @@ public:
 private:
     std::unique_ptr<dpfsgrpc::sysCtl::Stub> _stub;
     int32_t husr = 0;
+    uint8_t htab[16];
+    
 };

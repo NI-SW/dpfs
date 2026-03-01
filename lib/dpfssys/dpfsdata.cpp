@@ -20,9 +20,15 @@
 extern uint64_t nodeId;
 bidx sysBidx = {nodeId, 16};
 
-int CDatasvc::init() {
+int CDatasvc::init(size_t diskSize) {
     int rc = 0;
 
+
+    
+    rc = m_diskMan.init(nodeId, diskSize);
+    if(rc != 0) {
+        goto errReturn;
+    }
 
     // TODO
     rc = m_sysSchema->init();
@@ -48,6 +54,12 @@ int CDatasvc::load() {
     // load include node id
     int rc = 0;
     // TODO
+
+    rc = m_diskMan.load();
+    if(rc != 0) {
+        goto errReturn;
+    }
+
     rc = m_sysSchema->load();
     if(rc != 0) {
         goto errReturn;
@@ -175,6 +187,34 @@ int CDatasvc::checkPrivilege(const CUser& usr, const std::string& schema, const 
         // if user is the owner of the schema, grant full privilege
         return 0;
     }
+
+    // if usr has access privilege to the database
+    if (usr.dbprivilege >= dbPrivilege::DBPRIVILEGE_ACCESS) {
+        // if only access privilege is required, return 0 directly
+        if (allocPriv == tbPrivilege::TBPRIVILEGE_SELECT) {
+            // if no privilege is required, return 0 directly
+            return 0;
+        }
+    } else if (usr.dbprivilege >= dbPrivilege::DBPRIVILEGE_CONTROL) {
+        // if user has control privilege, grant full privilege
+        // TODO :: check if the table is system table, if is system table
+
+        // if (isSystab(table)) {
+        //      if (allocPriv != tbPrivilege::TBPRIVILEGE_SELECT) {
+        //       return -EPERM;
+        //     }
+        // }
+
+        return 0;
+    } else if (usr.dbprivilege >= dbPrivilege::DBPRIVILEGE_SYSTEM) {
+        // if user has system privilege, grant full privilege except delete and drop
+        if (allocPriv == tbPrivilege::TBPRIVILEGE_DELETE || allocPriv == tbPrivilege::TBPRIVILEGE_DROP) {
+            return -EPERM;
+        }
+        return 0;
+    }
+
+
 
     int rc = 0;
 
@@ -389,6 +429,59 @@ int CDatasvc::createInsertPlan(const std::string& osql, const std::string& schem
     return 0;
 
 
+}
+
+int CDatasvc::getTableBidx(const std::string& schema, const std::string& table, bidx& outBidx) {
+   
+    // get collection bidx, search in systables
+    int rc = 0;
+    CCollection& sysTables = m_sysSchema->systables;
+
+    // 0 "TABLE_SCHEMA", dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);
+    // 1 "TABLE_NAME",   dpfs_datatype_t::TYPE_CHAR,      64, 0, cf::NOT_NULL | cf::PRIMARY_KEY);
+    // 2 "CREATE_TIME",  dpfs_datatype_t::TYPE_TIMESTAMP, 64, 0, cf::NOT_NULL);                  
+    // 3 "KEYCOLUMNS",   dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL);                  
+    // 4 "TABLE_ID",     dpfs_datatype_t::TYPE_INT,       4,  0, cf::NOT_NULL | cf::UNIQUE);     
+    // 5 "ROOT",         dpfs_datatype_t::TYPE_BINARY,    16, 0, cf::NOT_NULL);                  
+
+    char tmpk[MAXKEYLEN];
+    KEY_T key(tmpk, 0, sysTables.m_cmpTyps);
+    memset(tmpk, 0, 64 * 2);
+    // input key word
+    memcpy(key.data, schema.data(), schema.size());
+    key.len += 64;
+    memcpy(key.data + key.len, table.data(), table.size());
+    key.len += 64;
+
+    // init item receiver
+    cacheLocker systabLocker(sysTables.m_cltInfoCache, sysTables.m_page);
+    rc = systabLocker.read_lock();
+    if (rc != 0) {
+        m_log.log_error("Failed to lock systables for reading, rc=%d\n", rc);
+        return rc;  
+    }
+    CCollection::collectionStruct systabcs(sysTables.m_cltInfoCache->getPtr(), sysTables.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem idxItem(systabcs.m_cols);
+    systabLocker.read_unlock();
+
+    rc = sysTables.getRow(key, &idxItem);
+    if (rc != 0) {
+        if (rc == -ENOENT) {
+            m_log.log_notic("Table %s.%s does not exist.\n", schema.c_str(), table.c_str());
+            return -ENOENT;
+        }
+        return rc;
+    }
+
+    CValue rootVal = idxItem.getValue(5);
+    if (rootVal.len != sizeof(bidx)) {
+        return -EINVAL;
+    }
+
+    const bidx* collBid = reinterpret_cast<bidx*>(rootVal.data);
+    
+    outBidx = *collBid;
+    return 0;
 }
 
 /*

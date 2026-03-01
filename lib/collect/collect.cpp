@@ -1171,11 +1171,11 @@ int CCollection::loadFrom(const bidx& head, bool initBpt) {
         return -EIO;
     }
 
-    CTemplateGuard g(*ce);
+    cacheLocker cl(ce, m_page);
+    CTemplateGuard g(cl);
     if (g.returnCode() != 0) {
         rc = g.returnCode();
-        ce->release();
-        ce = nullptr;
+        message = "read lock collection info cache failed.";
         return rc;
     }
 

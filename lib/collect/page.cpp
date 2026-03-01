@@ -97,6 +97,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
             updateCache = true;
         }
     }
+    m_log.log_debug("cache %s for idx: { gid=%llu bid=%llu }, len = %llu\n", ptr ? (updateCache ? "need update" : "hit") : "miss", idx.gid, idx.bid, len);
 
     // reget the cache if not found or need update
     if(!ptr || updateCache) {
@@ -152,7 +153,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
 
 
         // use lambda to define callback func
-        cbs->m_cb = [&cptr, cbs](void* arg, const dpfs_compeletion* dcp) {
+        cbs->m_cb = [cptr, cbs](void* arg, const dpfs_compeletion* dcp) {
             CPage* pge = static_cast<CPage*>(arg);
             if(!pge) {
                 // free(cbs);
@@ -549,7 +550,12 @@ int CPage::fresh(cacheStruct*& cache) {
 
     int rc = 0;
 
-
+    CTemplateGuard cg(*cache);
+    if (cg.returnCode() != 0) {
+        rc = cg.returnCode();
+        m_log.log_error("lock cache err before fresh, gid=%llu bid=%llu len=%llu rc = %d, status: %s\n", cache->idx.gid, cache->idx.bid, cache->len, rc, cacheStruct::statusEnumStr[cache->status - 1000].c_str());
+        return rc;
+    }
 
     CSpinGuard guard(m_cacheLock);
 
@@ -580,6 +586,9 @@ int CPage::fresh(cacheStruct*& cache) {
 
     // change status to reading
     cache->status = cacheStruct::READING;
+
+
+    cg.release();
 
 
     dpfs_engine_cb_struct* cbs = alloccbs();// new dpfs_engine_cb_struct;
@@ -641,6 +650,11 @@ int CPage::fresh(cacheStruct*& cache) {
         }
     }
 
+    m_currentSizeInByte += cache->len * dpfs_lba_size;
+    
+    // + 1 for lru
+    cache->refs += 1;
+
     do {
         rc = m_cache.insertCache(cache->idx, cache);
         if(rc) {
@@ -648,10 +662,7 @@ int CPage::fresh(cacheStruct*& cache) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     } while (rc);
-    m_currentSizeInByte += cache->len * dpfs_lba_size;
-    
-    // + 1 for lru
-    cache->refs += 1;
+
 
     return 0;
 
