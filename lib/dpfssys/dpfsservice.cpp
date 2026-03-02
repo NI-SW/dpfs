@@ -17,7 +17,7 @@ int sysCtlServiceImpl::getUserInfo(int32_t husr, CUser*& user) noexcept {
     return 0;
 }
 
-Status sysCtlServiceImpl::login(ServerContext* context, const dpfsgrpc::loginReq* request, dpfsgrpc::loginReply* response) {
+Status sysCtlServiceImpl::Login(ServerContext* context, const dpfsgrpc::LoginReq* request, dpfsgrpc::LoginReply* response) {
     // Implement your login logic here
     // For demonstration, we will just set a dummy user handle
     // response->set_userid(12345);
@@ -129,7 +129,7 @@ Status sysCtlServiceImpl::login(ServerContext* context, const dpfsgrpc::loginReq
 }
 
 
-Status sysCtlServiceImpl::logoff(ServerContext* context, const dpfsgrpc::logoffReq* request, dpfsgrpc::operateReply* response) {
+Status sysCtlServiceImpl::Logoff(ServerContext* context, const dpfsgrpc::LogoffReq* request, dpfsgrpc::OperateReply* response) {
     // Implement your logoff logic here
     // For demonstration, we will just set a dummy response
 
@@ -149,7 +149,7 @@ Status sysCtlServiceImpl::logoff(ServerContext* context, const dpfsgrpc::logoffR
 }
 
 
-Status sysCtlServiceImpl::execSQL(ServerContext* context, const dpfsgrpc::exesql* request, dpfsgrpc::operateReply* response) {
+Status sysCtlServiceImpl::ExecSQL(ServerContext* context, const dpfsgrpc::Exesql* request, dpfsgrpc::OperateReply* response) {
 
     int32_t husr = request->husr();
     const std::string& sql = request->sql();
@@ -189,7 +189,7 @@ Status sysCtlServiceImpl::execSQL(ServerContext* context, const dpfsgrpc::exesql
     return Status::OK;
 }
 
-Status sysCtlServiceImpl::getTableHandle(ServerContext* context, const dpfsgrpc::getTableRequest* request, dpfsgrpc::getTableReply* response) {
+Status sysCtlServiceImpl::GetTableHandle(ServerContext* context, const dpfsgrpc::GetTableRequest* request, dpfsgrpc::GetTableReply* response) {
 
     int husr = request->husr();
     CUser* pusr = nullptr;
@@ -202,8 +202,8 @@ Status sysCtlServiceImpl::getTableHandle(ServerContext* context, const dpfsgrpc:
     }
     
     // TODO ::
-    const std::string& schemaName = request->schemaname();
-    const std::string& tableName = request->tablename();
+    const std::string& schemaName = request->schema_name();
+    const std::string& tableName = request->table_name();
 
 
     rc = system->dataService->checkExist(schemaName, tableName);
@@ -244,10 +244,9 @@ Status sysCtlServiceImpl::getTableHandle(ServerContext* context, const dpfsgrpc:
         response->set_rc(rc);
         return Status::OK;
     }
-
-    response->set_tableinfos(c.m_cltInfoCache->getPtr(), c.m_cltInfoCache->getLen() * dpfs_lba_size);
-
-    response->set_tablehandle((void*)&tableBidx, sizeof(tableBidx));
+    response->set_table_infos(c.m_cltInfoCache->getPtr(), c.m_cltInfoCache->getLen() * dpfs_lba_size);  
+    
+    response->set_table_handle((void*)&tableBidx, sizeof(tableBidx));
     c.m_cltInfoCache->read_unlock();
     response->set_rc(0);
     
@@ -255,4 +254,105 @@ Status sysCtlServiceImpl::getTableHandle(ServerContext* context, const dpfsgrpc:
 
     return Status::OK;
 }
+
+// 传入表句柄和一行数据，插入到表中
+Status sysCtlServiceImpl::InsertTable(ServerContext* context, const dpfsgrpc::InsertRequest* request, dpfsgrpc::OperateReply* response) {
+    return Status::OK;
+}
+// 传入主键，返回一行数据
+Status sysCtlServiceImpl::GetRow(ServerContext* context, const dpfsgrpc::GetRowRequest* request, dpfsgrpc::GetRowReply* response) {
+    return Status::OK;
+}
+
+/*
+
+
+client -> getidxiter -> acquire and idxhandle
+server -> getidxiter -> acquire idxIter and return idxHandle
+
+
+*/
+Status sysCtlServiceImpl::GetIdxIter(ServerContext* context, const dpfsgrpc::GetIdxIterReq* request, dpfsgrpc::GetIdxIterReply* response) {
+
+    int rc = 0;
+    int husr = request->husr();
+    CUser* puser = nullptr;
+    rc = getUserInfo(husr, puser);
+    if (rc != 0) {
+        response->set_msg("Failed to get user info for handle: " + std::to_string(husr));
+        response->set_rc(rc);
+        return Status::OK;
+    }
+    CUser& usr = *puser;
+
+    std::vector<std::string> colNames;
+    // maybe bad memory sequence
+    std::vector<CValue> keyVals;
+    keyVals.resize(request->key_vals_size());
+
+    for (int i = 0; i < request->col_names_size(); ++i) {
+        colNames.push_back(std::move(request->col_names(i)));
+    }
+
+    for (int i = 0; i < request->key_vals_size(); ++i) {
+        keyVals[i].resetData(request->key_vals(i).data(), request->key_vals(i).size());
+    }
+
+    bidx tabIdx = *(bidx*)request->table_handle().data();
+    CCollection c(system->dataService->m_diskMan, system->dataService->m_page);
+    c.loadFrom(tabIdx);
+
+    // init iter
+    CCollection::CIdxIter iter;
+    
+    rc = c.getIdxIter(colNames, keyVals, iter);
+    if (rc != 0) {
+        system->log.log_error("Failed to get index iterator for table: %s.%s, rc=%d\n", std::to_string(tabIdx.gid).c_str(), std::to_string(tabIdx.bid).c_str(), rc);
+        response->set_msg("Failed to get index iterator for table: " + std::to_string(tabIdx.gid) + "." + std::to_string(tabIdx.bid));
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    usr.idxIterMap.emplace(usr.idxHandleCount, std::move(iter));
+
+    response->set_hidx(usr.idxHandleCount);
+    ++usr.idxHandleCount;
+    #ifdef __DEBUG_GRPCSERVICE__
+    response->set_msg("Get index iterator successfully for table: " + std::to_string(tabIdx.gid) + "." + std::to_string(tabIdx.bid));
+    system->log.log_debug("Get index iterator successfully for table: %s.%s, handle count: %d\n", std::to_string(tabIdx.gid).c_str(), std::to_string(tabIdx.bid).c_str(), usr.idxHandleCount);
+    #endif
+    response->set_rc(0);
+
+    
+
+    return Status::OK;
+}
+
+Status sysCtlServiceImpl::ReleaseIdxIter(ServerContext* context, const dpfsgrpc::ReleaseIdxIterReq* request, dpfsgrpc::OperateReply* response) {
+    int husr = request->husr();
+    int hidx = request->hidx();
+
+    CUser* puser = nullptr;
+    int rc = getUserInfo(husr, puser);
+    if (rc != 0) {
+        response->set_msg("Failed to get user info for handle: " + std::to_string(husr));
+        response->set_rc(rc);
+        return Status::OK;
+    }
+    CUser& usr = *puser;
+
+    auto iter = usr.idxIterMap.find(hidx);
+    if (iter == usr.idxIterMap.end()) {
+        response->set_msg("Index iterator handle not found: " + std::to_string(hidx));
+        response->set_rc(-ENOENT);
+        return Status::OK;
+    }
+
+    usr.idxIterMap.erase(iter);
+
+    response->set_msg("Index iterator released successfully for handle: " + std::to_string(hidx));
+    response->set_rc(0);
+    return Status::OK;
+}
+
 

@@ -586,6 +586,34 @@ endIter(this) {
     endIter.m_pos = 1;
     endIter.m_ptr = data + rowLen;
 }
+    
+CItem::CItem(CItem&& other) noexcept : 
+cols(other.cols), 
+beginIter(this), 
+endIter(this) {
+
+    data = other.data;
+    rowLen = other.rowLen;
+    maxRowNumber = other.maxRowNumber;
+    rowNumber = other.rowNumber;
+    rowPtr = other.rowPtr;
+    validLen = other.validLen;
+    rowOffsets = std::move(other.rowOffsets);
+    locked = other.locked;
+    error = other.error;
+    beginIter.m_pos = other.beginIter.m_pos;
+    beginIter.m_ptr = other.beginIter.m_ptr;
+    endIter.m_pos = other.endIter.m_pos;
+    endIter.m_ptr = other.endIter.m_ptr;
+
+    // Reset the moved-from object's state
+    other.data = nullptr;
+    other.rowLen = 0;
+    other.maxRowNumber = 0;
+    other.rowNumber = 0;
+    other.rowPtr = nullptr;
+    other.validLen = 0;
+}
 
 int CItem::nextRow() noexcept {
     if (rowNumber + 1 >= maxRowNumber) {

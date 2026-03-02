@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+// THIS FILE IS INCOMPLETE AND STILL IN DESIGNING TO SUPPORT SQL SELECT STATEMENT.
 
 #include <collect/bp.hpp>
 #include <collect/collect.hpp>

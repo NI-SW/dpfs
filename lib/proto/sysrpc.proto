@@ -2,94 +2,93 @@ syntax = "proto3";
 
 package dpfsgrpc;
 
-service sysCtl {
-  rpc login(loginReq) returns (loginReply) {}
-  rpc logoff(logoffReq) returns (operateReply) {}
+/*
+  * SysCtl service definition
+  * This service provides system control operations, such as login, logoff, execSQL, getTableHandle, getIdxIter, etc.
+  * The service is implemented by the server and called by the client through gRPC.
+*/
+service SysCtl {
+  // 登录，返回登录结果和用户句柄
+  rpc Login(LoginReq) returns (LoginReply) {}
 
-  rpc execSQL (exesql) returns (operateReply) {}
+  // 注销登录用户
+  rpc Logoff(LogoffReq) returns (OperateReply) {}
+
+  // 输入SQL语句，返回执行结果
+  rpc ExecSQL (Exesql) returns (OperateReply) {}
   // 返回整表信息 ：： CCollection::m_cltInfoCache中的zptr指针指向的内容, 客户端直接使用CCollection::collectionStruct加载表信息
-  rpc getTableHandle  (getTableRequest) returns (getTableReply) {}
+  rpc GetTableHandle  (GetTableRequest) returns (GetTableReply) {}
   // 传入要插入的数据，返回执行结果
-  rpc insertTable     (insertRequest) returns (operateReply) {}
+  rpc InsertTable     (InsertRequest) returns (OperateReply) {}
   // 传入主键，返回一行数据
-  rpc getrow          (getRowRequest) returns (getRowReply) {}
-  // 传入索引列名和值，返回检索迭代器，可以使用++或--遍历结果集
-  rpc getIdxIter      (getIdxIterReq) returns (hidxHandle) {}
+  rpc GetRow          (GetRowRequest) returns (GetRowReply) {}
+  // 传入索引列名和值，返回检索迭代器
+  rpc GetIdxIter      (GetIdxIterReq) returns (GetIdxIterReply) {}
+  // 传入迭代器标识，释放服务器端的迭代器资源
+  rpc ReleaseIdxIter   (ReleaseIdxIterReq) returns (OperateReply) {}
+
+  // 继续向后获取结果集
+  // rpc nextRowSets () returns () {}
+  // 继续向前获取结果集
+  // rpc prevRowSets () returns () {}
+
   // 传入要删除的行，返回执行结果
   // rpc deleteItem      (htable) returns (operateReply) {}
   // 输入表名，删除表
   // rpc dropTable       (htable) returns (operateReply) {}
 }
 
-message loginReq {
+message LoginReq {
   string username = 1;
   string password = 2;
 }
 
-message loginReply {
+message LoginReply {
   int32 rc = 1;
   int32 husr = 2;
   string msg = 3;
 }
-message logoffReq {
+message LogoffReq {
   int32 husr = 1;
 }
 
 
-// The data service definition, maybe deprecate
-// service dataCtl {
-//   rpc execSQL (exesql) returns (operateReply) {}
-//   // 返回整表信息 ：： CCollection::m_cltInfoCache中的zptr指针指向的内容, 客户端直接使用CCollection::collectionStruct加载表信息
-//   rpc getTableHandle  (getTableRequest) returns (getTableReply) {}
-//   // 传入要插入的数据，返回执行结果
-//   rpc insertTable     (insertRequest) returns (operateReply) {}
-//   // 传入主键，返回一行数据
-//   rpc getrow          (getRowRequest) returns (getRowReply) {}
-//   // 传入索引列名和值，返回检索迭代器，可以使用++或--遍历结果集
-//   rpc getIdxIter      (getIdxIterReq) returns (hidxHandle) {}
-//   // 传入要删除的行，返回执行结果
-//   // rpc deleteItem      (htable) returns (operateReply) {}
-//   // 输入表名，删除表
-//   // rpc dropTable       (htable) returns (operateReply) {}
-// 
-// }
-
-message exesql {
+message Exesql {
   int32 husr = 1;
   string sql = 2;
 }
 
-message operateReply {
+message OperateReply {
   int32 rc = 1;
   string msg = 2;
 }
 
 // The request message containing the user's name.
-message getTableRequest {
+message GetTableRequest {
   int32 husr = 1;
-  string schemaName = 2;
-  string tableName = 3;
+  string schema_name = 2;
+  string table_name = 3;
 }
 
 
 // The response message containing the greetings
-message getTableReply {
-  bytes tableHandle = 1;
+message GetTableReply {
+  bytes table_handle = 1;
   int32 rc = 2;
   string msg = 3;
   // m_cltInfoCache中的zptr指针指向的内容
-  bytes tableInfos = 4;
+  bytes table_infos = 4;
 }
 
-message getRowRequest {
+message GetRowRequest {
   // table bidx
   int32 husr = 1;
-  string schemaName = 2;
-  string tabName = 3;
-  bytes keyVal = 4;
+  string schema_name = 2;
+  string tab_name = 3;
+  bytes key_val = 4;
 }
 
-message getRowReply {
+message GetRowReply {
   // return code
   int32 rc = 1;
 
@@ -97,27 +96,44 @@ message getRowReply {
   string msg = 2;
 
   // row data, copy to CItem's m_ptr 
-  bytes rowData = 3;
+  bytes row_data = 3;
 }
 
-message insertRequest {
+message InsertRequest {
   int32 husr = 1;
-  int32 tableHandle = 2;
+  bytes table_handle = 2;
   // fullfile CItem's rowNumber
-  uint32 rowNumber = 3;
+  uint32 row_number = 3;
   // copy to CItem's m_ptr 
-  bytes rowData = 4;
+  bytes row_data = 4;
 }
 
-message getIdxIterReq {
+message GetIdxIterReq {
   int32 husr = 1;
-  repeated string colNames = 2;
-  repeated bytes keyVals = 3;
+  bytes table_handle = 2;
+  repeated string col_names = 3;
+  repeated bytes key_vals = 4;
 }
 
-message hidxHandle {
-  int32 h = 1;
+message GetIdxIterReply {
+  int32 rc = 1;
+  string msg = 2;
+  // idxIterIdentifier, used to identify the iterator on the server side, and used for subsequent data I/O operations on this table, such as query, etc.
+  int32 hidx = 3;
 }
+
+message GetNextRowSetsReqs {
+  int32 rc = 1;
+  int32 husr = 2;
+  int32 hidx = 3;
+}
+
+message ReleaseIdxIterReq {
+  int32 rc = 1;
+  int32 husr = 2;
+  int32 hidx = 3;
+}
+
 
 /*
 protoc -I . --grpc_out=. --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` sysrpc.proto

@@ -77,7 +77,9 @@ int main(int argc, char* argv[]) {
     // this_thread::sleep_for(chrono::seconds(2));
 
 
-    // test get table handle 0.1085
+    /* 
+        test get table handle
+    */
     rc = client.getTableHandle("OOO", "PPP");
     if (rc != 0) {
         cout << "Get table handle failed, error code: " << rc << endl;
@@ -86,6 +88,34 @@ int main(int argc, char* argv[]) {
         cout << "Get table handle successfully" << endl;
         cout << "Message: " << client.msg << endl;
     }
+
+    /*
+        test get table index iterator
+    */
+    vector<string> idxCol = {"A"};
+
+    // if key is not string, use the string like an int pointer
+    vector<string> idxVals;
+
+    idxVals.resize(1);
+    int val = 1;
+    idxVals[0].resize(sizeof(val));
+    memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
+    
+    IDXHANDLE hidx;
+
+    rc = client.getIdxIter(idxCol, idxVals, &hidx);
+    if (rc != 0) {
+        cout << "Get index iterator failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+    } else {
+        cout << "Get index iterator successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+        cout << "Index handle: " << hidx << endl;
+    }
+
+    client;
+
 
     rc = client.logoff();
     if (rc == 0) {

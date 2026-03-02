@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string>
 #include <basic/dpfscache.hpp>
+#include <collect/collect.hpp>
 
 // privilege to db
 enum class dbPrivilege : uint8_t {
@@ -46,6 +47,10 @@ public:
     std::chrono::seconds lastActiveTime{0}; // last active time of the user, used for session management
 
     bool logOff = false; // whether the user has logged off, if true, the user session should be closed and removed from cache
+
+    // use cidxiter to read from collection, struct = <idxiterIdentifier, CIdxIter>
+    std::unordered_map<uint32_t, CCollection::CIdxIter> idxIterMap;
+    int idxHandleCount = 0;
 
     // if use index to search
     // CCollection::CIdxIter parserIdxIter; 

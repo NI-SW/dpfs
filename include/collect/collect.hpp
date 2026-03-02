@@ -546,6 +546,8 @@ public:
     CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs);
     CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber);
     CItem(const CItem& other) = delete;
+    CItem(CItem&& other) noexcept;
+
     ~CItem();
 private:
     int dataCopy(size_t pos, const CValue& value) noexcept;
@@ -996,6 +998,30 @@ public:
                 // TODO: convert from little endian to big endian
             }
         };
+        
+        collectionStruct(const collectionStruct& cs) noexcept : 
+        ds(cs.ds),
+            data(cs.data),
+            size(cs.size),
+            m_pkColPos(ds->m_pkPos, ds->m_pkColNum),
+            m_cols(ds->m_colsData, ds->m_colSize),
+            m_indexInfos(ds->m_indexInfos, ds->m_indexSize) {
+            if (B_END) {
+                // TODO: convert from little endian to big endian
+            }
+        };
+
+        collectionStruct(collectionStruct&& cs) noexcept : 
+        ds(cs.ds),
+            data(cs.data),
+            size(cs.size),
+            m_pkColPos(ds->m_pkPos, ds->m_pkColNum),
+            m_cols(ds->m_colsData, ds->m_colSize),
+            m_indexInfos(ds->m_indexInfos, ds->m_indexSize) {
+            if (B_END) {
+                // TODO: convert from little endian to big endian
+            }
+        };
 
         ~collectionStruct() {
             data = nullptr;
@@ -1057,6 +1083,7 @@ public:
             // name of the collection
             char m_name[MAX_NAME_LEN];
         }* ds = nullptr;
+        
         uint8_t* data = nullptr;
         size_t size = 0;
         

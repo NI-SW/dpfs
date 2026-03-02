@@ -144,9 +144,6 @@ int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollecti
     rc = item.updateValue(4, &collCs.ds->m_ccid, sizeof(collCs.ds->m_ccid));               if (rc <= 0) { m_log.log_error("Failed to update SYSTABLES value, rc=%d\n", rc); return rc; }
     rc = item.updateValue(5, &coll.m_collectionBid, sizeof(coll.m_collectionBid));         if (rc <= 0) { m_log.log_error("Failed to update SYSTABLES value, rc=%d\n", rc); return rc; }
 
-
-
-
     rc = sysTables.addItem(item);
     if (rc != 0) {
         coll.destroy();

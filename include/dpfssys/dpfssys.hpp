@@ -1,3 +1,5 @@
+#pragma once
+
 #include <storage/engine.hpp>
 #include <dpfsnet/dpfssvr.hpp>
 #include <log/logbinary.h>
