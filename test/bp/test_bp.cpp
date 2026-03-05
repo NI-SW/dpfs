@@ -12,7 +12,7 @@
 #include <iostream>
 #include <vector>
 
-#define __LOAD__ 0
+#define __LOAD__ 1
 
 #define __TEST_INSERT__
 #define __TEST_DELETE__
@@ -28,7 +28,7 @@
 
 
 
-const bidx BOOTDIX = {0, 1};
+const bidx BOOTDIX = {0, 1000};
 
 
 uint8_t gdata[MAXKEYLEN] { 0 };

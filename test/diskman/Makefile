@@ -8,7 +8,8 @@ DPFS_ROOT_DIR := $(abspath $(CURDIR)/../..)
 include $(DPFS_ROOT_DIR)/mk/dpfs.common.mk
 
 CXXFLAG += -g
-CXXLIB += -ldpfs_parser -ldpfs_collect -ldpfs_engine -ldpfs_nvmf -ldpfs_log  -lmydecimal -ltiparser -ldpfs_dpfssys -ldpfs_module -ldpfs_net
+CXXLIB += -ldpfs_parser -ldpfs_collect -ldpfs_engine -ldpfs_nvmf -ldpfs_log  -lmydecimal -ltiparser -ldpfs_dpfssys -ldpfs_module -ldpfs_net \
+-ldpfs_proto -lgrpc++ -ldpfs_grpc
 
 
 APP := test_diskman
