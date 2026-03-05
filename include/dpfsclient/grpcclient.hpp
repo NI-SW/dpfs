@@ -3,10 +3,14 @@
 #include <proto/sysrpc.grpc.pb.h>
 #include <collect/collect.hpp>
 
+#define __DEBUG_GRPCCLIENT__
+
+#ifdef __DEBUG_GRPCCLIENT__
+#include <dpfsdebug.hpp>
+#endif
 
 #define IDXHANDLE int32_t
 #define SERVER_IDXHANDLE int32_t
-#define DEFAULT_FETCH_ROW_NUMBER 50
 
 class CGrpcCli {
 public:
@@ -54,9 +58,23 @@ public:
     int getIdxIter(const std::vector<std::string>& idxCol, const std::vector<std::string>& idxVals, IDXHANDLE* hidx);
     int releaseIdxIter(const IDXHANDLE& hidx);
 
+    /*
+        @param hidx the index iterator handle returned by getIdxIter
+        @param colPos the column position to get value, start from 0
+        @param value the value of the column at current row, will return binary data in string format.
+        @return 0 if get value success, otherwise return the error code, and set msg to the error message
+    */
     int getRowByIdxIter(const IDXHANDLE& hidx, int colPos, std::string& value);
-
+    // fetch next row, maybe trigger the server to fetch next batch of rows if the current batch is all fetched.
+    int fetchNextRow(const IDXHANDLE& hidx);
+    
     std::string msg;
+    
+private:
+    // fetch next batch of rows.
+    int fetchNextRowSets(const IDXHANDLE& hidx);
+
+
 private:
     std::unique_ptr<dpfsgrpc::SysCtl::Stub> _stub;
     int32_t husr = -1;
@@ -72,22 +90,26 @@ private:
             const std::string& tabStructInfo, 
             size_t maxRowNumber = DEFAULT_FETCH_ROW_NUMBER
         ) : serverIdxHandle(serverIdxHandle),
-        cs(const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(tabStructInfo.data())), tabStructInfo.size()),
+        m_tabStructInfo(tabStructInfo.data(), tabStructInfo.size()),
+        cs(const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(m_tabStructInfo.data())), m_tabStructInfo.size()),
         item(cs.m_cols, maxRowNumber) {
-
+            currentRowPos = 0;
         }
 
         tableResultCache(const tableResultCache& other) = delete;
+
         tableResultCache(tableResultCache&& other) noexcept :
         serverIdxHandle(other.serverIdxHandle),
-        cs(other.cs),
-        item(std::move(other.item)) {
-
+        m_tabStructInfo(std::move(other.m_tabStructInfo)),
+        cs(const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(m_tabStructInfo.data())), m_tabStructInfo.size()),
+        item(cs.m_cols, other.item.maxSize()) {
+            currentRowPos = other.currentRowPos;
         }
 
         ~tableResultCache() = default;
 
         SERVER_IDXHANDLE serverIdxHandle;
+        std::string m_tabStructInfo;
         const CCollection::collectionStruct cs;
         CItem item;
         int currentRowPos = -1;
@@ -97,4 +119,5 @@ private:
     std::unordered_map<IDXHANDLE, tableResultCache> idxHandles;
     IDXHANDLE idxHandleCount = 0;
 
+    int fetch_row_number = DEFAULT_FETCH_ROW_NUMBER;
 };

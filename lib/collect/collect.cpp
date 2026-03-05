@@ -106,14 +106,17 @@ CValue CItem::getValue(size_t pos) const noexcept {
 
     size_t offSet = getDataOffset(pos);
 
-    if (cols[pos].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
-        // first 4 bytes is actual length
-        val.len = *(uint32_t*)((char*)rowPtr + offSet);
-        val.data = (char*)rowPtr + offSet + sizeof(uint32_t);
-    } else {
-        val.len = cols[pos].dds.colAttrs.len;
-        val.data = (char*)rowPtr + offSet;
-    }
+    val.len = cols[pos].dds.colAttrs.len;
+    val.data = (char*)rowPtr + offSet;
+    
+    // if (cols[pos].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
+    //     // first 4 bytes is actual length
+    //     val.len = *(uint32_t*)((char*)rowPtr + offSet);
+    //     val.data = (char*)rowPtr + offSet + sizeof(uint32_t);
+    // } else {
+    //     val.len = cols[pos].dds.colAttrs.len;
+    //     val.data = (char*)rowPtr + offSet;
+    // }
 
     return val;
 }
@@ -269,6 +272,37 @@ int CItem::updateValueByKey(const CColumn& col, const CValue& value) noexcept {
     // values not found
     return -ENXIO;
 }
+
+
+int CItem::assign(const uint8_t* data, size_t rowCount) noexcept {
+    if (rowCount > maxRowNumber) {
+        return -E2BIG;
+    }
+    size_t len = rowCount * rowLen;
+    memcpy(this->data, data, len);
+    rowPtr = (char*)this->data;
+    validLen = len;
+    rowNumber = rowCount;
+    return 0;
+}
+
+int CItem::assignOneRow(const void* data, size_t dataPtrLen) noexcept {
+
+    void* beginPtr = (char*)this->data + (rowNumber * rowLen);
+
+    if (dataPtrLen != 0 && dataPtrLen > rowLen) {
+        return -E2BIG;
+    }
+    if (dataPtrLen == 0) {
+        dataPtrLen = rowLen;
+    }
+
+    memcpy(beginPtr, data, dataPtrLen);
+
+    // ++rowNumber;
+    return 0;
+}
+
 
 
 /*
@@ -613,6 +647,17 @@ endIter(this) {
     other.rowNumber = 0;
     other.rowPtr = nullptr;
     other.validLen = 0;
+}
+
+int CItem::clear() noexcept {
+    rowNumber = 0;
+    rowPtr = data;
+    validLen = 0;
+    beginIter.m_pos = 0;
+    beginIter.m_ptr = data;
+    endIter.m_pos = 1;
+    endIter.m_ptr = data + rowLen;
+    return 0;
 }
 
 int CItem::nextRow() noexcept {
@@ -984,7 +1029,6 @@ int CCollection::addItem(const CItem& item) {
             KEY_T key(keyBuf, 0, m_btreeIndex->cmpTyps);
 
 
-            uint32_t kl = 0;
             // get primary key columns and length
             auto& pkCols = cs.m_pkColPos;
             for (uint32_t i = 0; i < pkCols.size(); ++i) {
@@ -994,14 +1038,14 @@ int CCollection::addItem(const CItem& item) {
                 key.len += item.cols[pkCols[i]].getLen();
             }
 
-            // #ifdef __COLLECT_DEBUG__
-            // cout << " key :: " << endl;
-            // printMemory(key.data, key.len);
-            // cout << " value :: " << endl;
-            // printMemory(it.getRowPtr(), it.getRowLen());
-            // cout << "pos " << (it - item.begin()) << " insert key len " << key.len << " value len " << it.getRowLen() << endl;
-            // cout << "------------------------" << endl;
-            // #endif
+            #ifdef __COLLECT_DEBUG__
+            cout << " key :: " << endl;
+            printMemory(key.data, key.len);
+            cout << " value :: " << endl;
+            printMemory(it.getRowPtr(), it.getRowLen());
+            cout << "pos " << (it - item.begin()) << " insert key len " << key.len << " value len " << it.getRowLen() << endl;
+            cout << "------------------------" << endl;
+            #endif
             
 
             // insert to b plus tree index
@@ -1104,6 +1148,28 @@ errReturn:
 }
 
 /*
+    @param item: item to remove, use pk or index to locate the item, if the item is not found, return -ENOENT
+    @return 0 on success, else on failure
+    @note this function will remove the item from the collection, and update the index, while not commit, storage the change to temporary disk block
+    TODO:
+*/
+int CCollection::delItem(const CItem& item) {
+    // TODO
+    return -ENOTSUP;
+}
+
+/*
+    @param item: CItem pointer to update, use pk or index to locate the item, if the item is not found, return -ENOENT
+    @return 0 on success, else on failure
+    @note this function will update the item in the collection, and update the index, while not commit, storage the change to temporary disk block
+    TODO:
+*/
+int CCollection::updateItem(const CItem& item) {
+    // TODO
+    return -ENOTSUP;
+}
+
+/*
     @note save the collection info to the storage
     @return 0 on success, else on failure
 */
@@ -1139,16 +1205,6 @@ int CCollection::save() {
         }
         return 0;
     }   
-
-    // if (!m_collectionStruct) {
-    //     rc = -EINVAL;
-    //     goto errReturn;
-    // }
-
-    // rc = this->m_page.put(head, m_collectionStruct->data, &indicate, MAX_COLLECTION_INFO_LBA_SIZE, true, &m_cltInfoCache);
-    // if (rc) {
-    //     goto errReturn;
-    // }
 
     rc = m_page.writeBack(m_cltInfoCache, &indicate);
     if (rc != 0) {
@@ -1476,7 +1532,6 @@ int CCollection::getRow(KEY_T key, CItem* out) const {
 int CCollection::createIdx(const CIndexInitStruct& initStruct) {
 
     int rc = 0;
-    bool locked = false;
     
     rc = m_cltInfoCache->read_lock();
     if (rc != 0) {
@@ -1859,7 +1914,7 @@ int CCollection::getByIndex(const std::vector<std::string>& colNames, const std:
     char keydata[1024];
     KEY_T indexKey(keydata, indexInfo->indexKeyLen, cmpTp);
     uint32_t offset = 0;
-    for(int i = 0; i < keyVals.size(); ++i) {
+    for(size_t i = 0; i < keyVals.size(); ++i) {
         std::memcpy(keydata + offset, keyVals[i].data, keyVals[i].len);
         offset += keyVals[i].len;
     }
@@ -1886,6 +1941,7 @@ int CCollection::getByIndex(const std::vector<std::string>& colNames, const std:
 
     KEY_T oriKey(pkVal.data, pkVal.len, m_cmpTyps);
 
+    guard.release();
 
     rc = getRow(oriKey, &out);
     if (rc != 0) {
@@ -2000,6 +2056,12 @@ int CCollection::getByIndexIter(CIdxIter& idxIter, CItem& out) const  {
         return 0;
 
     }
+
+    if (idxIter.indexInfoPos < 0 || idxIter.indexInfoPos >= cs.m_indexInfos.size()) {
+        message = "invalid index iterator.";
+        return -EINVAL;
+    }
+
     auto& idxInfo = cs.m_indexInfos[idxIter.indexInfoPos];
     const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM> indexCols(idxInfo.indexCol, idxInfo.idxColNum);
 
@@ -2024,6 +2086,8 @@ int CCollection::getByIndexIter(CIdxIter& idxIter, CItem& out) const  {
     memcpy(pkData.data, pkVal.data, pkVal.len);
     pkData.len = pkVal.len;
     
+    guard.release();
+
     // get from primary tree
     rc = getRow(pkData, &out);
     if (rc != 0) {
@@ -2050,7 +2114,7 @@ int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std:
     cacheLocker cl(m_cltInfoCache, m_page);
     CTemplateReadGuard guard(cl);
     if (guard.returnCode() != 0) {
-        int rc = guard.returnCode();
+        rc = guard.returnCode();
         message = "read lock collection info cache failed.";
         return rc;
     }
@@ -2059,7 +2123,7 @@ int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std:
 
     bool isPkIdx = true;
     // check if it is pk
-    for (int i = 0; i < cs.m_pkColPos.size(); ++i) {
+    for (size_t i = 0; i < cs.m_pkColPos.size(); ++i) {
         auto& col = cs.m_cols[cs.m_pkColPos[i]];
         if (col.getNameLen() != colNames[i].size() || memcmp(col.getName(), colNames[i].c_str(), col.getNameLen()) != 0) {
             indexInfo = nullptr;
@@ -2076,7 +2140,7 @@ int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std:
         char keydata[MAXKEYLEN];
         KEY_T indexKey(keydata, m_keyLen, m_cmpTyps);
         uint32_t offset = 0;
-        for(int i = 0; i < keyVals.size(); ++i) {
+        for(size_t i = 0; i < keyVals.size(); ++i) {
             std::memcpy(indexKey.data + offset, keyVals[i].data, keyVals[i].len);
             offset += m_cmpTyps[i].first;
         }
@@ -2151,7 +2215,7 @@ int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std:
     char keydata[MAXKEYLEN];
     KEY_T indexKey(keydata, indexInfo->indexKeyLen, cmpTp);
     uint32_t offset = 0;
-    for(int i = 0; i < keyVals.size(); ++i) {
+    for(size_t i = 0; i < keyVals.size(); ++i) {
         std::memcpy(indexKey.data + offset, keyVals[i].data, keyVals[i].len);
         offset += cmpTp[i].first;
     }
@@ -2173,6 +2237,11 @@ int CCollection::getIdxIter(const std::vector<std::string>& colNames, const std:
 */
 int CCollection::getIdxIter(int pos, const std::vector<CValue>& keyVals, CIdxIter& outIter) const {
 
+    if (pos < 0) {
+        message = "invalid index position.";
+        return -EINVAL;
+    }
+
     cacheLocker cl(m_cltInfoCache, m_page);
     CTemplateReadGuard guard(cl);
     if (guard.returnCode() != 0) {
@@ -2183,7 +2252,7 @@ int CCollection::getIdxIter(int pos, const std::vector<CValue>& keyVals, CIdxIte
 
     collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
 
-    if (pos >= cs.m_indexInfos.size()) {
+    if (static_cast<uint32_t>(pos) >= cs.m_indexInfos.size()) {
         message = "invalid index position.";
         return -EINVAL;
     }
@@ -2205,7 +2274,7 @@ int CCollection::getIdxIter(int pos, const std::vector<CValue>& keyVals, CIdxIte
     char keydata[MAXKEYLEN];
     KEY_T indexKey(keydata, indexInfo->indexKeyLen, cmpTp);
     uint32_t offset = 0;
-    for(int i = 0; i < keyVals.size(); ++i) {
+    for(size_t i = 0; i < keyVals.size(); ++i) {
         std::memcpy(indexKey.data + offset, keyVals[i].data, keyVals[i].len);
         offset += keyVals[i].len;
     }
@@ -2272,42 +2341,56 @@ CCollection::CIdxIter::CIdxIter() {
     indexInfoPos = -1;
 }
 
-CCollection::CIdxIter::CIdxIter(const CIdxIter& other) {
+// CCollection::CIdxIter::CIdxIter(const CIdxIter& other) {
 
-    m_collIdxIterPtr = (uint8_t*)new CBPlusTree::iterator(*(CBPlusTree::iterator*)other.m_collIdxIterPtr);
-    indexInfoPos = other.indexInfoPos;
-}
+//     m_collIdxIterPtr = (uint8_t*)new CBPlusTree::iterator(*(CBPlusTree::iterator*)other.m_collIdxIterPtr);
+//     indexInfoPos = other.indexInfoPos;
+
+//     this->m_collIdxIterPtr = other.m_collIdxIterPtr;
+//     this->isPkIter = other.isPkIter;
+//     this->cache;
+
+//     this->indexInfoPos = other.indexInfoPos;
+// }
 
 CCollection::CIdxIter::CIdxIter(CIdxIter&& other) noexcept {
 
-    m_collIdxIterPtr = other.m_collIdxIterPtr;
-    indexInfoPos = other.indexInfoPos;
+    this->m_collIdxIterPtr = other.m_collIdxIterPtr;
+    this->isPkIter = other.isPkIter;
+    this->cache = other.cache;
+    this->indexInfoPos = other.indexInfoPos;
 
+    other.cache = nullptr;
     other.m_collIdxIterPtr = nullptr;
     other.indexInfoPos = -1;
 }
 
 
-CCollection::CIdxIter& CCollection::CIdxIter::operator=(const CIdxIter& other) {
-    if (this != &other) {
-        if(m_collIdxIterPtr) {
-            *bptIt = *((CBPlusTree::iterator*)other.m_collIdxIterPtr);
-        } else {
-            m_collIdxIterPtr = (uint8_t*)new CBPlusTree::iterator(*(CBPlusTree::iterator*)other.m_collIdxIterPtr);
-            if (!m_collIdxIterPtr) {
-                // memory error
-                throw std::bad_alloc();
-            }
-        }
-        indexInfoPos = other.indexInfoPos;
-    }
-    return *this;
-}
+// CCollection::CIdxIter& CCollection::CIdxIter::operator=(const CIdxIter& other) {
+//     if (this != &other) {
+//         if(m_collIdxIterPtr) {
+//             *bptIt = *((CBPlusTree::iterator*)other.m_collIdxIterPtr);
+//         } else {
+//             m_collIdxIterPtr = (uint8_t*)new CBPlusTree::iterator(*(CBPlusTree::iterator*)other.m_collIdxIterPtr);
+//             if (!m_collIdxIterPtr) {
+//                 // memory error
+//                 throw std::bad_alloc();
+//             }
+//         }
+//         indexInfoPos = other.indexInfoPos;
+//     }
+//     return *this;
+// }
 
 CCollection::CIdxIter::~CIdxIter() {
     if (bptIt) {
         delete bptIt;
         m_collIdxIterPtr = nullptr;
+    }
+
+    if (cache) {
+        cache->release();
+        cache = nullptr;
     }
 
     m_collIdxIterPtr = nullptr;
@@ -2326,7 +2409,7 @@ int CCollection::CIdxIter::assign(const void* it, int idxPos, cacheStruct* cache
     }
 
     this->indexInfoPos = idxPos;
-    this->cache = cache;
+    this->cache = cache->getReference();
     this->isPkIter = isPkIdx;
     return 0;
 }

@@ -1,4 +1,8 @@
 // #include <storage/engine.hpp>
+// for test only, not include in header file
+#define private public
+#define protected public
+
 #include <collect/collect.hpp>
 #include <collect/product.hpp>
 #include <basic/dpfsconst.hpp>
@@ -21,21 +25,22 @@ int main() {
 
     bidx sysBidx = {0, 0};
     std::string data = "";
-    CProduct* sysdpfs = nullptr; // = new CProduct();
-    CItem* itm = nullptr;
+    // CProduct* sysdpfs = nullptr; // = new CProduct();
     CValue val(32);
 
+    
     // signal(SIGINT, sigfun);
     // signal(SIGKILL, sigfun);
     CDiskMan* dskman = nullptr;
     CTempStorage* tempstor = nullptr;
-
+    
+    CCollection* testCollect = nullptr;
 	dpfsEngine* engine = nullptr; // new CNvmfhost();
 	CPage* pge = nullptr;
 	int rc = 0;
-
+    
     char version[4] = {dpfsVersion[0] + 0x30, dpfsVersion[1] + 0x30, dpfsVersion[2] + 0x30, dpfsVersion[3] + 0x30};
-
+    
 
 	engine = newEngine("nvmf");
 	if(!engine) {
@@ -88,19 +93,20 @@ int main() {
     // sysdpfs->fixedInfo.addCol("CODESET", dpfs_datatype_t::TYPE_VARCHAR, 16);
     // sysdpfs->fixedInfo.addCol("DPFS_NODE_ID", dpfs_datatype_t::TYPE_BIGINT);
 
-    sysdpfs = new CProduct(*pge, *dskman, testLog);
+    testCollect = new CCollection(*dskman, *pge);
+    // sysdpfs = new CProduct(*pge, *dskman, testLog);
 
     if(__LOAD__) {
-        rc = sysdpfs->fixedInfo.loadFrom(sysBidx);
+        rc = testCollect->loadFrom(sysBidx);
         if(rc) {
             cout << "Load system product fail, rc: " << rc << endl;
             goto errReturn;
         }
         cout << "System product loaded from disk." << endl;
 
-        CTemplateGuard guard(sysdpfs->fixedInfo.m_cltInfoCache);
+        CTemplateGuard guard(*testCollect->m_cltInfoCache);
 
-        CCollection::collectionStruct cs(sysdpfs->fixedInfo.m_cltInfoCache->getPtr(), sysdpfs->fixedInfo.m_cltInfoCache->getLen());
+        CCollection::collectionStruct cs(testCollect->m_cltInfoCache->getPtr(), testCollect->m_cltInfoCache->getLen());
 
         cout << cs.m_cols.size() << " cols loaded." << endl;
         for(auto col : cs.m_cols) {
@@ -108,81 +114,101 @@ int main() {
         }
 
         goto __DONE;
+    } else {
+        testCollect->initialize();
+        testCollect->addCol("KEY", dpfs_datatype_t::TYPE_CHAR, 32, 0, CColumn::constraint_flags::PRIMARY_KEY | CColumn::constraint_flags::NOT_NULL);
+        testCollect->addCol("VALUE", dpfs_datatype_t::TYPE_CHAR, 32, 0, CColumn::constraint_flags::NOT_NULL);
+        testCollect->initBPlusTreeIndex();
+        testCollect->save();
     }
-    sysdpfs->fixedInfo.initialize();
-
-
-    sysdpfs->pid = sysBidx;
-    sysdpfs->fixedInfo.m_collectionStruct->ds->m_perms.perm.m_btreeIndex = false;
-
-    sysdpfs->fixedInfo.addCol("KEY", dpfs_datatype_t::TYPE_CHAR, 32, 0, CColumn::constraint_flags::PRIMARY_KEY | CColumn::constraint_flags::NOT_NULL);
-    sysdpfs->fixedInfo.addCol("VALUE", dpfs_datatype_t::TYPE_CHAR, 32, 0, CColumn::constraint_flags::NOT_NULL);
-
-    sysdpfs->fixedInfo.saveTo({nodeId, 0});
-
     
+    {   
+        cacheLocker cl(testCollect->m_cltInfoCache, testCollect->m_page);
+        CTemplateReadGuard guard(cl);
+        if (guard.returnCode() != 0) {
+            rc = guard.returnCode();
+            cout << "lock collection info cache failed, rc: " << rc << endl;
+            goto errReturn;
+        }
+        CCollection::collectionStruct cs(testCollect->m_cltInfoCache->getPtr(), testCollect->m_cltInfoCache->getLen() * dpfs_lba_size);
 
-    itm = CItem::newItems(sysdpfs->fixedInfo.m_collectionStruct->m_cols, 10);
-    if(!itm) {
-        rc = -ENOMEM;
-        goto errReturn;
+        CItem itm(cs.m_cols, 10);
+
+
+        if(!val.maxLen) {
+            rc = -ENOMEM;
+            goto errReturn;
+        }
+        // set system version
+
+        val.setData("VERSION", sizeof("VERSION"));
+        rc = itm.updateValue(0, val); 
+        cout << "Update rc: " << rc << endl;
+
+        
+        val.setData(version, sizeof(version));
+        rc = itm.updateValue(1, val); 
+        cout << "Update rc: " << rc << endl;
+        printMemory(itm.data, 128);
+        printf("\n");
+        itm.nextRow();
+
+        printMemory(itm.data, 128);
+        printf("\n");
+
+
+        // set system codeset
+        val.setData("CODESET", sizeof("CODESET"));
+        itm.updateValue(0, val);
+
+        val.setData("UTF-8", sizeof("UTF-8"));
+        itm.updateValue(1, val); 
+
+        itm.nextRow();
+
+        printMemory(itm.data, 128);
+        printf("\n");
+
+
+        // set system node id
+        val.setData("DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));
+        itm.updateValue(0, val);
+
+        val.setData("50", sizeof("50"));
+        itm.updateValue(1, val);
+
+        printMemory(itm.data, 256);
+        printf("\n");
+
+        CValue testAssignRow;
+
+        char test[64] {0};
+
+        memcpy(test, "TEST_ASSIGN_ROW", sizeof("TEST_ASSIGN_ROW"));
+        memcpy(test + 32, "TEST_ASSIGN_ROW_2", sizeof("TEST_ASSIGN_ROW_2"));
+        testAssignRow.resetData(test, 64);
+        itm.nextRow();
+        itm.assignOneRow(testAssignRow.data, testAssignRow.len);
+
+
+        memcpy(test, "TEST_ASSIGN_ROW_3", sizeof("TEST_ASSIGN_ROW_3"));
+        memcpy(test + 32, "TEST_ASSIGN_ROW_4", sizeof("TEST_ASSIGN_ROW_4"));
+        testAssignRow.resetData(test, 64);
+        itm.nextRow();
+        itm.assignOneRow(testAssignRow.data, testAssignRow.len);
+        
+        cout << "col 0\t\t\tcol 1" << endl;
+        for(auto it = itm.begin(); it != itm.end(); ++it) {
+            cout << string(it[0].data, 32) << "\t\t\t" << string(it[1].data, 32) << endl;
+        }
+
+        guard.release();
+        // memory problem here
+        testCollect->addItem(itm);
     }
-
-    if(!val.maxLen) {
-        rc = -ENOMEM;
-        goto errReturn;
-    }
-    // set system version
-
-    val.setData("VERSION", sizeof("VERSION"));
-    rc = itm->updateValue(0, val); 
-    cout << "Update rc: " << rc << endl;
-
-    
-    val.setData(version, sizeof(version));
-    rc = itm->updateValue(1, val); 
-    cout << "Update rc: " << rc << endl;
-    printMemory(itm->data, 128);
-    printf("\n");
-    itm->nextRow();
-
-    printMemory(itm->data, 128);
-    printf("\n");
-
-
-    // set system codeset
-    val.setData("CODESET", sizeof("CODESET"));
-    itm->updateValue(0, val);
-
-    val.setData("UTF-8", sizeof("UTF-8"));
-    itm->updateValue(1, val); 
-
-    itm->nextRow();
-
-    printMemory(itm->data, 128);
-    printf("\n");
-
-
-    // set system node id
-    val.setData("DPFS_NODE_ID", sizeof("DPFS_NODE_ID"));
-    itm->updateValue(0, val);
-
-    val.setData("50", sizeof("50"));
-    itm->updateValue(1, val);
-
-	printMemory(itm->data, 256);
-    printf("\n");
-
-    cout << "col 0\t\t\tcol 1" << endl;
-    for(auto it : *itm) {
-        cout << string(it[0].data, 32) << "\t\t\t" << string(it[1].data, 32) << endl;
-    }
-
-    // memory problem here
-    sysdpfs->fixedInfo.addItem(*itm);
 
     // TODO:: test commit function
-    sysdpfs->fixedInfo.commit();
+    testCollect->commit();
 
 
 
@@ -210,6 +236,8 @@ int main() {
     cout << "pge destroied" << endl;
     delete engine;
     cout << "engine destroied" << endl;
+
+    cout << "Test passed." << endl;
 
 	return 0;
 

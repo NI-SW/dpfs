@@ -29,7 +29,7 @@ class CUser {
 public:
     CUser() {};
     ~CUser() {
-        
+        std::cout << "CUser destructor called for user: " << username << std::endl;
     };
 
     CUser(const CUser& other) = default;
@@ -49,7 +49,7 @@ public:
     bool logOff = false; // whether the user has logged off, if true, the user session should be closed and removed from cache
 
     // use cidxiter to read from collection, struct = <idxiterIdentifier, CIdxIter>
-    std::unordered_map<uint32_t, CCollection::CIdxIter> idxIterMap;
+    std::unordered_map<uint32_t, std::pair<CCollection, CCollection::CIdxIter>> idxIterMap;
     int idxHandleCount = 0;
 
     // if use index to search

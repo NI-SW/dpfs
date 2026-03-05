@@ -2117,9 +2117,14 @@ int CBPlusTree::iterator::loadData(void* outKey, uint32_t outKeyLen, uint32_t& k
         rc = node.rowVec->reference_at(m_currentPos, rowData, &actualLen);
         if (rc != 0) {
             return rc;
+        }        
+        
+        if (outRowLen < actualLen) {
+            // the buffer is too small to hold the row data, return error
+            return -ENOBUFS;
         }
-        copyLen = actualLen < outRowLen ? actualLen : outRowLen;
-        std::memcpy(outRow, rowData, copyLen);
+        // copyLen = actualLen < outRowLen ? actualLen : outRowLen;
+        std::memcpy(outRow, rowData, actualLen);
         rowLen = actualLen;
     }
 

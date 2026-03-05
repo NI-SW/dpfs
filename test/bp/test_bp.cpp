@@ -75,7 +75,8 @@ int main() {
     
     // this class must be destruct before engine destruct
     CPage* page = new CPage(engines, 128, log);
-    CDiskMan dman(page);
+    CDiskMan* pdman = new CDiskMan(page);
+    CDiskMan& dman = *pdman;
     CCollection* coll = new CCollection(dman, *page);
 
 
@@ -568,6 +569,9 @@ int main() {
     if (coll) {
         delete coll;
     }
+    if (pdman) {
+        delete pdman;
+    }
     if (page) {
         delete page;
     }
@@ -582,6 +586,9 @@ int main() {
 errReturn:    
     if (coll) {
         delete coll;
+    }
+    if (pdman) {
+        delete pdman;
     }
     if (page) {
         delete page;

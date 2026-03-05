@@ -111,15 +111,19 @@ int CGrpcCli::getTableHandle(const std::string& schema, const std::string& table
         return reply.rc();
     }
 
+    #ifdef __DEBUG_GRPCCLIENT__
     std::cout << "Received table handle: ";
-    for (size_t i = 0; i < sizeof(htab); ++i) {
-        printf("%02x", htab[i]);
-    }
+    printMemory(reply.table_handle().data(), reply.table_handle().size());
     std::cout << std::endl;
+    #endif
 
     msg = "Get table handle success: " + reply.msg();
     memcpy(htab, reply.table_handle().data(), sizeof(htab));
+
     tabStructInfo = reply.table_infos();
+
+    // std::cout << "Received table structure info: " << tabStructInfo << std::endl;   
+    std::cout << "Table structure info size: " << tabStructInfo.size() << std::endl;
 
     return 0;
 }
@@ -184,9 +188,15 @@ int CGrpcCli::getIdxIter(const std::vector<std::string>& idxCol, const std::vect
 
     
     idxHandles.emplace(idxHandleCount, tableResultCache(reply.hidx(), tabStructInfo));
+
+    auto it = idxHandles.find(idxHandleCount);
+    cout << "vec Size = " << it->second.item.cols.size() << " addr = " << &it->second.item << endl;
+
     *hidx = idxHandleCount;
     ++idxHandleCount;
     msg = "Get index iterator success: " + reply.msg();
+
+
     return 0;
 }
 
@@ -235,44 +245,108 @@ int CGrpcCli::getRowByIdxIter(const IDXHANDLE& hidx, int colPos, std::string& va
 
     auto& rs = it->second;
 
-    // TODO
-    // if (rs.currentRowPos < 0 || rs.currentRowPos >= rs.item.size()) {
-    //     // Need to fetch next batch of rows from server
-    //     dpfsgrpc::FetchIdxIterReq request;
-    //     request.set_husr(husr);
-    //     request.set_hidx(rs.serverIdxHandle);
-    //     request.set_batch_size(DEFAULT_FETCH_ROW_NUMBER);
+    if (rs.currentRowPos >= rs.item.size()) {
+        msg = "No more rows available in the current batch.";
+        return -ENOENT; // No more rows
+    }
 
-    //     dpfsgrpc::FetchIdxIterReply reply;
-    //     grpc::ClientContext context;
+    CValue val = rs.item.getValue(colPos);
+    if (val.data == nullptr || val.len == 0) {
+        msg = "Value is null or empty.";
+        return -ENOENT; // No value
+    }
 
-    //     grpc::Status status = _stub->FetchIdxIter(&context, request, &reply);
-    //     if (!status.ok()) {
-    //         msg = "RPC failed: " + status.error_message();
-    //         return status.error_code();
-    //     }
-
-    //     if (reply.rc() != 0) {
-    //         msg = "Fetch index iterator failed: " + reply.msg();
-    //         return reply.rc();
-    //     }
-
-    //     // Clear current items and load new batch
-    //     rs.item.clear();
-    //     for (const auto& row : reply.rows()) {
-    //         rs.item.addRow(row.data());
-    //     }
-    //     rs.currentRowPos = 0; // Reset position to the first row of the new batch
-    // }
-
-    // if (colPos < 0 || colPos >= rs.item.getColNum()) {
-    //     msg = "Invalid column position.";
-    //     return -EINVAL;
-    // }
-
-    // value = rs.item.getColValue(rs.currentRowPos, colPos);
-    // rs.currentRowPos++; // Move to the next row for the next call
+    value.assign(val.data, val.len);
 
     return 0;
 }
 
+int CGrpcCli::fetchNextRow(const IDXHANDLE& hidx) {
+
+    int rc = 0;
+    if (husr == -1) {
+        msg = "User not logged in.";
+        return -EINVAL; // Not logged in
+    }
+
+    if (hidx == -1) {
+        msg = "Index handle cannot be null.";
+        return -EINVAL; // Invalid input
+    }
+
+    auto it = idxHandles.find(hidx);
+    if (it == idxHandles.end()) {
+        msg = "Invalid index handle.";
+        return -EINVAL; // Invalid index handle
+    }
+
+    cout << "vecsize = " << idxHandles.begin()->second.item.size() << endl;
+
+    auto& rs = it->second;
+    rs.currentRowPos++;
+    if (rs.currentRowPos >= rs.item.size()) {
+        // If we've reached the end of the current batch, fetch the next batch
+        rc = fetchNextRowSets(hidx);
+        if (rc != 0) {
+            // msg = "Failed to fetch next row sets: " + std::to_string(rc);
+            return rc;
+        }
+        rs.item.resetScan();
+        rs.currentRowPos = 0; // Reset the current row position for the new batch
+    } else {
+        // msg = "Fetched next row from current batch successfully.";
+        rs.item.nextRow();
+    }
+
+    return 0;
+}
+
+int CGrpcCli::fetchNextRowSets(const IDXHANDLE& hidx) {
+    if (husr == -1) {
+        msg = "User not logged in.";
+        return -EINVAL; // Not logged in
+    }
+    int rc = 0;
+
+    auto it = idxHandles.find(hidx);
+    if (it == idxHandles.end()) {
+        msg = "Invalid index handle.";
+        return -EINVAL; // Invalid index handle
+    }
+
+    auto& rs = it->second;
+
+    dpfsgrpc::FetchNextRowSetsReq request;
+    request.set_husr(husr);
+    request.set_hidx(rs.serverIdxHandle);
+    request.set_acquire_row_number(this->fetch_row_number);
+
+    dpfsgrpc::FetchNextRowSetsReply reply;
+    grpc::ClientContext context;
+
+    grpc::Status status = _stub->FetchNextRowSets(&context, request, &reply);
+    if (!status.ok()) {
+        msg = "RPC failed: " + status.error_message();
+        return status.error_code();
+    }
+
+    if (reply.rc() != 0) {
+        msg = "Fetch next row sets failed: " + reply.msg();
+        return reply.rc();
+    }
+
+
+
+    rs.item.resetScan();
+    // Update the cache with the new data
+    for(auto& data : reply.data()) {
+        rs.item.assignOneRow(data.data(), data.size());
+        rs.item.nextRow();
+    }
+
+
+    rs.currentRowPos = 0; // Reset the current row position for the new batch
+
+    // msg = "Fetch next row sets success: " + reply.msg();
+    return 0;
+}

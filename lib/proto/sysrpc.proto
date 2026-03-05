@@ -26,6 +26,13 @@ service SysCtl {
   rpc GetIdxIter      (GetIdxIterReq) returns (GetIdxIterReply) {}
   // 传入迭代器标识，释放服务器端的迭代器资源
   rpc ReleaseIdxIter   (ReleaseIdxIterReq) returns (OperateReply) {}
+  // 传入迭代器标识，获取下一批结果集
+  rpc FetchNextRowSets   (FetchNextRowSetsReq) returns (FetchNextRowSetsReply) {}
+
+
+
+  // 查询溯源信息，需要特定表包含特定列，返回溯源结果
+  rpc TraceBack(TraceBackReq) returns (TraceBackReply) {}
 
   // 继续向后获取结果集
   // rpc nextRowSets () returns () {}
@@ -36,6 +43,95 @@ service SysCtl {
   // rpc deleteItem      (htable) returns (operateReply) {}
   // 输入表名，删除表
   // rpc dropTable       (htable) returns (operateReply) {}
+}
+
+// 溯源信息包括：
+/*
+1. 追溯码：trace_code，int32类型，表示需要追溯的信息类型，例如：行级锁等待、死锁等。
+2. 追溯键值：key_val，bytes类型，表示需要追溯的信息的具体标识，例如：行级锁等待的行主键值等。
+3. 追溯结果：trace_back_result，bytes类型，表示追溯信息的结果，例如：等待的锁信息、死锁涉及的事务信息等。
+
+溯源码包含：表idx, 行主键值.
+示例
+
+// table that operate by system
+
+// 原料控制表
+create table apple.ingredient (
+bidx binary(16) NOT NULL PRIMARY KEY,
+name char(32) NOT NULL,
+);
+// contain base info of a production
+
+商品信息控制表
+create table apple.prodinfo(key char(32), value char(128));
+insert into apple.prodinfo values
+('商品名称', '苹果'), 
+('品牌', '洛川苹果'), 
+('保质期', '30'),
+('质检报告', 'https://mytest.com/jsbg.png'),
+('SPKZB', BIDX), // BIDX使用二进制形式保存, 商品控制表
+('JYKZB', BIDX), // 交易控制表
+('PLKZB', BIDX) // 配料控制表,
+
+商品控制表
+CREATE TABLE SPKZB (
+    uniID int not null primary key,          // 标识唯一商品。
+    time int NOT NULL,                       // 上一次查验时间(unix时间戳)，单位秒
+    taddr binary(24) NOT NULL,               // 记录最后一笔交易的表bidx和主键值，对应主键值必须为BIGINT类型
+    valid binary(1) NOT NULL,                // 标记商品对象是否失效
+    checkCount int NOT NULL,                 // 查验次数，至多127次
+);
+
+交易控制表表结构：
+交易id: 0
+交易商品起始uid: 0
+交易商品数量: 4
+买方名称: A
+买方地址: XX市XX区XX街道1号楼1单元
+买方联系方式: +86-13881811831
+卖方: B
+卖方地址: XX市XX区XX街道4号楼6单元
+卖方联系方式: +86-18810112423
+上一笔交易的主键值
+物流信息: ...
+其他信息: ...
+
+CREATE TABLE JYKZB (
+    tid bigint not null primary key,      // 交易id
+    buniID int NOT NULL,                  // 交易商品起始uid
+    num int NOT NULL,                     // 交易商品数量
+    buyer_name char(255) NOT NULL,        // 买方名称
+    buyer_addr char(255) NOT NULL,        // 买方地址  
+    buyer_contact char(32) NOT NULL,      // 买方联系方式
+    seller_name char(255) NOT NULL,       // 卖方名称
+    seller_addr char(255) NOT NULL,       // 卖方地址
+    seller_contact char(32) NOT NULL,     // 卖方联系方式
+    prev_tid bigint NOT NULL,             // 上一笔交易的主键值
+    logistics_info char(255) NOT NULL,    // 物流信息
+    other_info char(255) NOT NULL         // 其他信息
+);
+
+// 追溯信息查询示例：
+{
+  product_info
+  trade_block_list
+  
+}
+
+*/
+
+
+message TraceBackReq {
+  int32 husr = 1;
+  int32 trace_code = 2;
+  bytes key_val = 3;
+}
+
+message TraceBackReply {
+  int32 rc = 1;
+  string msg = 2;
+  bytes trace_back_result = 3;
 }
 
 message LoginReq {
@@ -120,12 +216,22 @@ message GetIdxIterReply {
   string msg = 2;
   // idxIterIdentifier, used to identify the iterator on the server side, and used for subsequent data I/O operations on this table, such as query, etc.
   int32 hidx = 3;
+  // 当前批次结果
+  bytes data = 4;
 }
 
-message GetNextRowSetsReqs {
+message FetchNextRowSetsReq {
   int32 rc = 1;
   int32 husr = 2;
   int32 hidx = 3;
+  int32 acquire_row_number = 4;
+
+}
+
+message FetchNextRowSetsReply {
+  int32 rc = 1;
+  string msg = 2;
+  repeated bytes data = 3;
 }
 
 message ReleaseIdxIterReq {

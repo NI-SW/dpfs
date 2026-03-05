@@ -65,7 +65,7 @@ private:
     // 1B
     CSpin csLock;
     // 2B
-    std::atomic<uint16_t> readRefs = 0;
+    std::atomic<int16_t> readRefs = 0;
     
     // 3.875B block number, number of blocks, not len of bytes, one block equal to <dpfs_lba_size> bytes usually 4KB
     uint32_t len : 31;
@@ -73,13 +73,21 @@ private:
     uint32_t dirty : 1;
 
     // 2B
-    std::atomic<uint16_t> status = VALID;
+    std::atomic<int16_t> status = VALID;
     // 2B
-    std::atomic<uint16_t> refs = 0;
+    std::atomic<int16_t> refs = 0;
     // 8B
     CPage* page = nullptr;
 
 public:
+
+    cacheStruct* getReference() noexcept {
+        if (refs == 0) {
+            return nullptr;
+        }
+        ++refs;
+        return this;
+    }
 
     /*
         @note return pointer to the data block
@@ -95,7 +103,7 @@ public:
         return len;
     }
 
-    enum statusEnum : uint16_t {
+    enum statusEnum : int16_t {
         VALID = 1000,              // valid data in zptr
         WRITING = 1001,            // writing to disk, zptr not change
         READING = 1002,            // reading from disk, zptr may change
@@ -105,11 +113,11 @@ public:
 
     static const std::vector<std::string> statusEnumStr;
 
-    inline const std::atomic<uint16_t>& getStatus() const noexcept {
+    inline const std::atomic<int16_t>& getStatus() const noexcept {
         return status;
     }
 
-    inline void setStatus(uint16_t st) noexcept {
+    inline void setStatus(int16_t st) noexcept {
         status = st;
     }
     

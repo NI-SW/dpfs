@@ -2,6 +2,7 @@
 #include <dpfssys/dpfsdata.hpp>
 #include <parser/dpfsparser.hpp>
 
+
 int sysCtlServiceImpl::getUserInfo(int32_t husr, CUser*& user) noexcept {
     system->m_usrCacheLock.lock();
     auto iter = system->m_userCache.find(husr);
@@ -236,7 +237,12 @@ Status sysCtlServiceImpl::GetTableHandle(ServerContext* context, const dpfsgrpc:
 
 
     CCollection c(system->dataService->m_diskMan, system->dataService->m_page);
-    c.loadFrom(tableBidx, false);
+    rc = c.loadFrom(tableBidx, false);
+    if (rc != 0) {
+        response->set_msg("Failed to load table collection for table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
     
     rc = c.m_cltInfoCache->read_lock();
     if (rc != 0) {
@@ -313,7 +319,7 @@ Status sysCtlServiceImpl::GetIdxIter(ServerContext* context, const dpfsgrpc::Get
         return Status::OK;
     }
 
-    usr.idxIterMap.emplace(usr.idxHandleCount, std::move(iter));
+    usr.idxIterMap.emplace(usr.idxHandleCount, make_pair(std::move(c), std::move(iter)));
 
     response->set_hidx(usr.idxHandleCount);
     ++usr.idxHandleCount;
@@ -355,4 +361,91 @@ Status sysCtlServiceImpl::ReleaseIdxIter(ServerContext* context, const dpfsgrpc:
     return Status::OK;
 }
 
+Status sysCtlServiceImpl::FetchNextRowSets(ServerContext* context, const dpfsgrpc::FetchNextRowSetsReq* request, dpfsgrpc::FetchNextRowSetsReply* response) {
 
+    int husr = request->husr();
+    int hidx = request->hidx();
+    int acquireRowNumber = request->acquire_row_number();
+
+
+
+    CUser* puser = nullptr;
+    int rc = getUserInfo(husr, puser);
+    if (rc != 0) {
+        response->set_msg("Failed to get user info for handle: " + std::to_string(husr));
+        response->set_rc(rc);
+        return Status::OK;
+    }
+    CUser& usr = *puser;
+
+    system->log.log_debug("FetchNextRowSets called for user: %s, index iterator handle: %d, acquire row number: %d\n", usr.username.c_str(), hidx, acquireRowNumber);   
+
+    auto iter = usr.idxIterMap.find(hidx);
+    if (iter == usr.idxIterMap.end()) {
+        system->log.log_error("Index iterator handle not found: %d for user: %s\n", hidx, usr.username.c_str());
+        response->set_msg("Index iterator handle not found: " + std::to_string(hidx));
+        response->set_rc(-ENOENT);
+        return Status::OK;
+    }
+
+    CCollection& collection = iter->second.first;
+    CCollection::CIdxIter& idxIter = iter->second.second;
+
+    cacheLocker cl(collection.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on collection info cache for index iterator handle: %d, rc=%d\n", hidx, guard.returnCode());
+        response->set_msg("Failed to acquire read lock on collection info cache for index iterator handle: " + std::to_string(hidx));
+        response->set_rc(-EAGAIN);
+        return Status::OK;
+    }
+
+    CCollection::collectionStruct cs(collection.m_cltInfoCache->getPtr(), collection.m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    
+    CItem rowData(cs.m_cols, 1);
+    
+    system->log.log_debug("Start fetching rows for index iterator handle: %d for user: %s\n", hidx, usr.username.c_str());
+
+    for(int i = 0; i < acquireRowNumber; ++i) {
+        system->log.log_debug("acq row number = %d for index iterator handle: %d for user: %s\n", i, hidx, usr.username.c_str());
+        rc = collection.getByIndexIter(idxIter, rowData);
+        if (rc != 0) {
+            if (rc == -EAGAIN) {
+                system->log.log_notic("No more rows to fetch for index iterator handle: %d for user: %s\n", hidx, usr.username.c_str());
+                response->set_msg("No more rows to fetch for index iterator handle: " + std::to_string(hidx));
+                response->set_rc(0);
+                return Status::OK;
+            }
+            system->log.log_notic("No more rows to fetch for index iterator handle: %d for user: %s\n", hidx, usr.username.c_str());
+            response->set_rc(rc);
+            response->set_msg("Failed to fetch next row sets for index iterator handle: " + std::to_string(hidx) + ", rc=" + std::to_string(rc));
+            return Status::OK;
+        }
+
+
+
+        system->log.log_debug("rc = %d for fetching row number = %d for index iterator handle: %d for user: %s\n", rc, i, hidx, usr.username.c_str());
+
+        printMemory(rowData.getPtr(), rowData.getRowLen());
+        
+        response->add_data(rowData.getPtr(), rowData.getRowLen());
+
+        rc = ++idxIter;
+        if (rc == -ENOENT) {
+            system->log.log_debug("No more rows to fetch for index iterator handle: %d for user: %s\n", hidx, usr.username.c_str());
+            response->set_msg("No more rows to fetch for index iterator handle: " + std::to_string(hidx));
+            response->set_rc(0);
+            return Status::OK;
+        } else if (rc != 0) {
+            system->log.log_error("Failed to move index iterator to next position for handle: %d for user: %s, rc=%d\n", hidx, usr.username.c_str(), rc);
+            response->set_msg("Failed to move index iterator to next position for handle: " + std::to_string(hidx) + ", rc=" + std::to_string(rc));
+            response->set_rc(rc);
+            return Status::OK;
+        }
+    }
+    
+    response->set_rc(rc);
+    response->set_msg("Fetched " + std::to_string(response->data_size()) + " rows for index iterator handle: " + std::to_string(hidx));
+    return Status::OK;
+}

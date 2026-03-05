@@ -8,6 +8,15 @@ public:
     CFixLenVec(VALUE_T* begin, SIZETYPE& sz) : vecSize(sz), values(begin) {
         // extra one reserve for split action
     }
+
+    CFixLenVec(const CFixLenVec& other) = delete;
+    CFixLenVec& operator=(const CFixLenVec& other) = delete;
+
+    CFixLenVec(CFixLenVec&& other) : vecSize(other.vecSize), values(other.values) {
+        other.vecSize = 0;
+        other.values = nullptr;
+    }
+
     ~CFixLenVec() = default;
 
     /*

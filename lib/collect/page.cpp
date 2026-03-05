@@ -1,7 +1,7 @@
 #include <collect/page.hpp>
 #include <memory.h>
 
-// #define __PGDEBUG__
+#define __PGDEBUG__
 
 #ifdef __PGDEBUG__
 #include <iostream>
@@ -26,6 +26,11 @@ cacheStruct::cacheStruct(CPage* cp) : page(cp) {
 
 void cacheStruct::release() {
     if(--refs <= 0) {
+        if (refs < 0) {
+            #ifdef __PGDEBUG__
+            abort();
+            #endif
+        }
         status = INVALID;
         page->freezptr(zptr, len);
         page->freecs(this);
@@ -1124,13 +1129,12 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
         p->release();
     }
 
-done:
+// done:
     
     return;
 
-errReturn:
-
-    return;
+// errReturn:
+    // return;
 }
 
 /*

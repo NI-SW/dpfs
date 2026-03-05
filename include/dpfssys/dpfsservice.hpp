@@ -42,6 +42,8 @@ class sysCtlServiceImpl final : public dpfsgrpc::SysCtl::Service {
     Status GetIdxIter(ServerContext* context, const dpfsgrpc::GetIdxIterReq* request, dpfsgrpc::GetIdxIterReply* response) override;
     Status ReleaseIdxIter(ServerContext* context, const dpfsgrpc::ReleaseIdxIterReq* request, dpfsgrpc::OperateReply* response) override;
 
+    Status FetchNextRowSets(ServerContext* context, const dpfsgrpc::FetchNextRowSetsReq* request, dpfsgrpc::FetchNextRowSetsReply* response) override;
+
 public:
     sysCtlServiceImpl(void* arg) : Service() {
         system = static_cast<dpfsSystem*>(arg);

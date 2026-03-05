@@ -2,6 +2,7 @@
 #include <iostream>
 #include <csignal>
 #include <thread>
+#include <dpfsdebug.hpp>
 using namespace std;
 
 volatile bool g_exit = false;
@@ -58,7 +59,7 @@ int main(int argc, char* argv[]) {
     */
     cout << "Input SQL:" << endl;
     string sql;
-    while (getline(cin, sql)) {
+    while (0 && getline(cin, sql)) {
         if (sql == "exit") {
             break;
         }
@@ -101,6 +102,9 @@ int main(int argc, char* argv[]) {
     int val = 1;
     idxVals[0].resize(sizeof(val));
     memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
+
+    
+    
     
     IDXHANDLE hidx;
 
@@ -114,8 +118,55 @@ int main(int argc, char* argv[]) {
         cout << "Index handle: " << hidx << endl;
     }
 
-    client;
+    rc = client.fetchNextRow(hidx);
+    if (rc != 0) {
+        cout << "Fetch next row failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+    } else {
+        cout << "Fetch next row successfully" << endl;
+        // cout << "Message: " << client.msg << endl;
+    }
 
+    std::string gval;
+
+    for (int i = 0; i < 3; ++i) {
+        rc = client.getRowByIdxIter(hidx, 0, gval);
+        if (rc != 0) {
+            cout << "Get row by index iterator failed, error code: " << rc << endl;
+            cout << "Error message: " << client.msg << endl;
+        } else {
+            cout << "Get row by index iterator success, pos 0, value: " << gval << endl;
+            printMemory(gval.data(), gval.size()); cout << endl;
+        }
+
+        rc = client.getRowByIdxIter(hidx, 1, gval);
+        if (rc != 0) {
+            cout << "Get row by index iterator failed, error code: " << rc << endl;
+            cout << "Error message: " << client.msg << endl;
+        } else {
+            cout << "Get row by index iterator success, pos 1, value: " << gval << endl;
+            printMemory(gval.data(), gval.size()); cout << endl;
+        }
+
+        rc = client.getRowByIdxIter(hidx, 2, gval);
+        if (rc != 0) {
+            cout << "Get row by index iterator failed, error code: " << rc << endl;
+            cout << "Error message: " << client.msg << endl;
+        } else {
+            cout << "Get row by index iterator success, pos 2, value: " << gval << endl;
+            printMemory(gval.data(), gval.size()); cout << endl;
+        }
+
+        rc = client.fetchNextRow(hidx);
+        if (rc != 0) {
+            cout << "Fetch next row failed, error code: " << rc << endl;
+            cout << "Error message: " << client.msg << endl;
+        } else {
+            cout << "Fetch next row successfully" << endl;
+            // cout << "Message: " << client.msg << endl;
+        }
+
+    }
 
     rc = client.logoff();
     if (rc == 0) {

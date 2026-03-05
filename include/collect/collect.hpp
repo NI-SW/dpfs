@@ -25,6 +25,8 @@ class CCollection;
 class KEY_T;
 // class CProduct;
 
+constexpr int DEFAULT_FETCH_ROW_NUMBER = 50;
+
 constexpr size_t MAX_PKCOLS = 16;
 constexpr size_t MAX_COL_NAME_LEN = 64;
 constexpr size_t MAX_NAME_LEN = 128;
@@ -369,6 +371,29 @@ public:
     */
     int updateValueByKey(const CColumn& col, const CValue& value) noexcept;
     
+    /*
+        @param data a pointer to assign, whil copy the data from the pointer to the inner pointer
+        @param len one row data length
+        @param rowCount number of rows in the data
+        @return 0 on success, else on failure
+    */
+    int assign(const uint8_t* data, size_t rowCount) noexcept;
+
+    /*
+        @param data a pointer to assign, whil copy the data from the pointer to the inner pointer
+        @param len one row data length, if dataPtrLen is 0, will use rowLen as data length, if larger than rowLen, return -E2BIG, and do not update data
+        @return 0 on success, else on failure
+        @note this function will not increase the row number, you need to all nextRow() to switch to next row before assign next row data
+    */
+    int assignOneRow(const void* data, size_t dataPtrLen = 0) noexcept;
+
+    size_t getRowLen() const noexcept {
+        return this->rowLen;
+    }
+
+    size_t size() const noexcept {
+        return this->endIter - this->beginIter;
+    }
 
     /*
         @param writeBack write to storage immediate if true
@@ -401,6 +426,10 @@ public:
     */
     int nextRow() noexcept;
 
+    /*
+        @note switch to the first row
+        @return 0 on success, else on failure
+    */
     int resetScan() noexcept;
     
     class rowIter {
@@ -547,7 +576,8 @@ public:
     CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber);
     CItem(const CItem& other) = delete;
     CItem(CItem&& other) noexcept;
-
+    size_t maxSize() const noexcept { return maxRowNumber; }
+    int clear() noexcept;
     ~CItem();
 private:
     int dataCopy(size_t pos, const CValue& value) noexcept;
@@ -564,12 +594,19 @@ private:
 
     // when lock a row, lock page first, then lock the row
 
+    // max number of rows this item can hold.
     size_t maxRowNumber = 1;
+    // current holded row number
     size_t rowNumber = 0;
+    // determined by collectionStruct, do not change
     size_t rowLen = 0;
+    // valid len of row ptr
     size_t validLen = 0;
+    // current data pointer, use to return row data.
     char* rowPtr = nullptr;
+    // do not change
     std::vector<size_t> rowOffsets;
+    // same as rowPtr, but for free and realloc use, do not change
     char* data = nullptr;
 
     // CValue* values = nullptr;
@@ -722,9 +759,9 @@ public:
         public:
         CIdxIter();
         
-        CIdxIter(const CIdxIter& other);
+        CIdxIter(const CIdxIter& other) = delete;
         CIdxIter(CIdxIter&& other) noexcept;
-        CIdxIter& operator=(const CIdxIter& other);
+        CIdxIter& operator=(const CIdxIter& other) = delete;
         ~CIdxIter();
 
         /*
@@ -801,6 +838,22 @@ public:
         @note this function will add the item to the collection, and update the index, while not commit, storage the change to temporary disk block
     */
     int addItem(const CItem& item);
+
+    /*
+        @param item: item to remove, use pk or index to locate the item, if the item is not found, return -ENOENT
+        @return 0 on success, else on failure
+        @note this function will remove the item from the collection, and update the index, while not commit, storage the change to temporary disk block
+        TODO:
+    */
+    int delItem(const CItem& item);
+
+    /*
+        @param item: CItem pointer to update, use pk or index to locate the item, if the item is not found, return -ENOENT
+        @return 0 on success, else on failure
+        @note this function will update the item in the collection, and update the index, while not commit, storage the change to temporary disk block
+        TODO:
+    */
+    int updateItem(const CItem& item);
 
     /*
         @param item: CItem pointer to add
@@ -945,6 +998,7 @@ public:
     /*
         init b plus tree index for the collection, must be called after initialize and columns are set
         @return 0 on success, else on failure
+        @warning must be called after initialize and columns are set.
     */
     int initBPlusTreeIndex();
 
