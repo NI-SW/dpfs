@@ -28,6 +28,7 @@ OBJS := $(patsubst %.cpp,%.o,$(CXXSOURCE))
 include $(DPFS_ROOT_DIR)/mk/dpfs.lib.mk
 
 $(CXXSOURCE) &: $(GRPCSRCS)
+	mkdir -p $(HEADERDIR)
 	protoc -I . --grpc_out=. --plugin=protoc-gen-grpc=`which grpc_cpp_plugin` $<
 	protoc -I . --cpp_out=. $<
 	mv sysrpc.pb.cc $(CPPDIR)/sysrpc.pb.cpp
