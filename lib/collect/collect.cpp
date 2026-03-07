@@ -620,9 +620,9 @@ endIter(this) {
     endIter.m_pos = 1;
     endIter.m_ptr = data + rowLen;
 }
-    
+/*
 CItem::CItem(CItem&& other) noexcept : 
-cols(other.cols), 
+cols(std::move(other.cols)), 
 beginIter(this), 
 endIter(this) {
 
@@ -648,6 +648,7 @@ endIter(this) {
     other.rowPtr = nullptr;
     other.validLen = 0;
 }
+*/
 
 int CItem::clear() noexcept {
     rowNumber = 0;

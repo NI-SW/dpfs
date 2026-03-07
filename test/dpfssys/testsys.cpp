@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
         cout << "input sql : " << endl;
         string sql;
         getline(cin, sql);
-        if(sql == "exit" || sql == "quit") {
+        if(sql == "exit" || sql == "quit" || sql == "q") {
             break;
         }
 

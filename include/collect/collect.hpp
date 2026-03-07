@@ -64,6 +64,7 @@ struct dds_field {
     };
     uint32_t len = 0; // for string or binary type
     uint8_t scale = 0;
+    // len for decimal, use to convert from binary to my_decimal
     uint8_t genLen = 0;
     dpfs_datatype_t type = dpfs_datatype_t::TYPE_NULL;
     union {
@@ -391,8 +392,8 @@ public:
         return this->rowLen;
     }
 
-    size_t size() const noexcept {
-        return this->endIter - this->beginIter;
+    size_t curPos() const noexcept {
+        return (this->rowPtr - this->data) / this->rowLen;
     }
 
     /*
@@ -575,7 +576,11 @@ public:
     CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs);
     CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber);
     CItem(const CItem& other) = delete;
-    CItem(CItem&& other) noexcept;
+    
+    /*
+        @note the inner member cols can not be moved by it's own move constructor.
+    */
+    CItem(CItem&& other) noexcept = delete;
     size_t maxSize() const noexcept { return maxRowNumber; }
     int clear() noexcept;
     ~CItem();

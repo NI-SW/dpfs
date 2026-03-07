@@ -343,7 +343,11 @@ private:
     CSpin m_csmLock;
     CSpin m_cbmLock;
     bool m_exit;
+    CSpin m_cacheLock;
 
+    atomic<size_t> m_currentSizeInByte = 0;
+    size_t m_maxSizeInByte = 0;
+    
     // 8B (reference)
     logrecord& m_log;
 
@@ -361,16 +365,11 @@ private:
     std::queue<dpfs_engine_cb_struct*> m_cbMemList;
     // std::list<dpfs_engine_cb_struct*> m_cbMemList;
 
-
     // 104B
     // search data by disk group id and disk block id, deconstruct first, or may cause crash(PageClrFn use some func of CPage)
     // make sure m_cache is destructed first when destruct CPage
     CDpfsCache<bidx, cacheStruct*, PageClrFn> m_cache;
 
-    atomic<size_t> m_currentSizeInByte = 0;
-    size_t m_maxSizeInByte = 0;
-
-    CSpin m_cacheLock;
 };
 
 class cacheLocker {

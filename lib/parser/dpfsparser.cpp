@@ -117,7 +117,6 @@ int CParser::buildPlan(const std::string& osql, CPlanHandle& out) {
 
 
     // field name : CreateTable, SelectStmtOpts
-    ast->stmt_count;
 
     for (int32_t i = 0; i < ast->stmt_count; ++i) {
         const TidbAstNode* stmt = ast->statements[i];

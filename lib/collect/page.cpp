@@ -24,13 +24,40 @@ cacheStruct::cacheStruct(CPage* cp) : page(cp) {
     dirty = 0;
 }
 
+#ifdef __PGDEBUG__
+#include <execinfo.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+void printStackTrace() {
+    void* callstack[128];
+    int i, frames = backtrace(callstack, 128);
+    char** strs = backtrace_symbols(callstack, frames);
+    for (i = 0; i < frames; ++i) {
+        printf("%s\n", strs[i]);
+    }
+    free(strs);
+}
+#endif
+
 void cacheStruct::release() {
     if(--refs <= 0) {
+        
+        #ifdef __PGDEBUG__
+        cout << "release cacheStruct, refs = " << refs << ", status: " <<
+            cacheStruct::statusEnumStr[status - 1000] << ", idx: { gid=" << idx.gid << " bid=" << idx.bid << " }, len = " << len << endl;
+        cout << endl << endl;
+        // printStackTrace();
+        #endif
+
         if (refs < 0) {
             #ifdef __PGDEBUG__
+            printStackTrace();
             abort();
             #endif
         }
+
         status = INVALID;
         page->freezptr(zptr, len);
         page->freecs(this);
@@ -850,7 +877,7 @@ PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
         std::queue<pageClrSt> localQueue;
 
         while(!m_exit) {
-            m_convar.wait_for(lk, std::chrono::seconds(1));
+            m_convar.wait_for(lk, std::chrono::milliseconds(1000));
             if (m_flushQueue.empty()) {
                 continue;
             }
@@ -860,9 +887,9 @@ PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
             m_queueMutex.unlock();
 
             while(!localQueue.empty()) {
-                auto cacheItem = localQueue.front();
-                localQueue.pop();
+                auto& cacheItem = localQueue.front();
                 clearCache(cacheItem.pCache, cacheItem.finish_indicator);
+                localQueue.pop();
             }
         }
 
@@ -893,6 +920,10 @@ void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
         return;
     }
     
+    #ifdef __PGDEBUG__
+    cout << __FILE__ << ":" << __LINE__ << " PageClrFn called for cache idx: { gid=" << p->idx.gid << " bid=" << p->idx.bid << " }, finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
+    #endif
+
     // send cache to flush queue
     m_queueMutex.lock();
     m_flushQueue.emplace(p, finish_indicator);
@@ -1005,7 +1036,9 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
     cbs->m_arg = this;
     // call back function for disk write
     cbs->m_cb = [&p, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
-
+        #ifdef __PGDEBUG__
+        cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
+        #endif
         if(p->getStatus() == cacheStruct::INVALID || p->getStatus() == cacheStruct::ERROR) {
             // already invalid, just return
             if(finish_indicator) {
@@ -1018,9 +1051,7 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
 
         PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
 
-        #ifdef __PGDEBUG__
-        cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
-        #endif
+
         
         if(dcp->return_code) {
             pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
@@ -1073,10 +1104,12 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
 
         cbs->m_arg = this;
         // call back function for disk write
-        cbs->m_cb = [cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
+        cbs->m_cb = [cbs, finish_indicator, p](void* arg, const dpfs_compeletion* dcp) {
 
             PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
-            
+            #ifdef __PGDEBUG__
+            cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
+            #endif
             if(dcp->return_code) {
                 pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
                 // write error
@@ -1085,6 +1118,7 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
                     *finish_indicator = -1;
                 }
 
+                p->release();
                 pcf->cp->freecbs(cbs);
                 return;
             }
@@ -1093,6 +1127,7 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
                 *finish_indicator = 1;
             }
 
+            p->release();
             pcf->cp->freecbs(cbs);
         };
         
@@ -1105,6 +1140,8 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
         }
         return;
     }
+    
+    
     this->cp->m_currentSizeInByte -= p->len * dpfs_lba_size;
 
     // some problem, need to considerate call back method
@@ -1121,6 +1158,9 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
             // write error
             // !-!QUESTION!-!
             // TODO
+            
+            // cout << "log write error, but still release the cache, maybe cause data loss, need reconsider" << endl;
+
             p->release();
             return;
         }

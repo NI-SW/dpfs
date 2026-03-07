@@ -409,6 +409,7 @@ Status sysCtlServiceImpl::FetchNextRowSets(ServerContext* context, const dpfsgrp
 
     for(int i = 0; i < acquireRowNumber; ++i) {
         system->log.log_debug("acq row number = %d for index iterator handle: %d for user: %s\n", i, hidx, usr.username.c_str());
+        // get one row from disk
         rc = collection.getByIndexIter(idxIter, rowData);
         if (rc != 0) {
             if (rc == -EAGAIN) {
@@ -431,11 +432,12 @@ Status sysCtlServiceImpl::FetchNextRowSets(ServerContext* context, const dpfsgrp
         
         response->add_data(rowData.getPtr(), rowData.getRowLen());
 
+        // switch to next row
         rc = ++idxIter;
         if (rc == -ENOENT) {
             system->log.log_debug("No more rows to fetch for index iterator handle: %d for user: %s\n", hidx, usr.username.c_str());
             response->set_msg("No more rows to fetch for index iterator handle: " + std::to_string(hidx));
-            response->set_rc(0);
+            response->set_rc(ENODATA);
             return Status::OK;
         } else if (rc != 0) {
             system->log.log_error("Failed to move index iterator to next position for handle: %d for user: %s, rc=%d\n", hidx, usr.username.c_str(), rc);
@@ -449,3 +451,13 @@ Status sysCtlServiceImpl::FetchNextRowSets(ServerContext* context, const dpfsgrp
     response->set_msg("Fetched " + std::to_string(response->data_size()) + " rows for index iterator handle: " + std::to_string(hidx));
     return Status::OK;
 }
+
+Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::TraceBackReq* request, dpfsgrpc::TraceBackReply* response) {
+
+    return Status::OK;
+}
+
+
+
+
+

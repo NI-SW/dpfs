@@ -13,8 +13,7 @@ public:
     CFixLenVec& operator=(const CFixLenVec& other) = delete;
 
     CFixLenVec(CFixLenVec&& other) : vecSize(other.vecSize), values(other.values) {
-        other.vecSize = 0;
-        other.values = nullptr;
+
     }
 
     ~CFixLenVec() = default;

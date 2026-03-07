@@ -2,6 +2,7 @@
 #include <grpcpp/grpcpp.h>
 #include <proto/sysrpc.grpc.pb.h>
 #include <collect/collect.hpp>
+#include <mysql_decimal/my_decimal.h>
 
 #define __DEBUG_GRPCCLIENT__
 
@@ -55,7 +56,13 @@ public:
         @return 0 if get iterator success, otherwise return the error code, and set msg to the error message
         @note get index iterator service, the iterator can be used for subsequent data I/O operations on this table, such as query, etc.
     */
-    int getIdxIter(const std::vector<std::string>& idxCol, const std::vector<std::string>& idxVals, IDXHANDLE* hidx);
+    int getIdxIter(const std::vector<std::string>& idxCol, const std::vector<std::string>& idxVals, IDXHANDLE& hidx);
+    
+    /*
+        @param hidx the index iterator handle returned by getIdxIter
+        @return 0 if release success, otherwise return the error code, and set msg to the error message
+        @note you must release idxhandle after using it.
+    */
     int releaseIdxIter(const IDXHANDLE& hidx);
 
     /*
@@ -64,9 +71,11 @@ public:
         @param value the value of the column at current row, will return binary data in string format.
         @return 0 if get value success, otherwise return the error code, and set msg to the error message
     */
-    int getRowByIdxIter(const IDXHANDLE& hidx, int colPos, std::string& value);
+    int getDataByIdxIter(const IDXHANDLE& hidx, int colPos, std::string& value, dpfs_ctype_t type = dpfs_ctype_t::TYPE_BINARY);
     // fetch next row, maybe trigger the server to fetch next batch of rows if the current batch is all fetched.
     int fetchNextRow(const IDXHANDLE& hidx);
+
+    const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& getColInfo(const IDXHANDLE& hidx);
     
     std::string msg;
     
@@ -94,6 +103,7 @@ private:
         cs(const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(m_tabStructInfo.data())), m_tabStructInfo.size()),
         item(cs.m_cols, maxRowNumber) {
             currentRowPos = 0;
+            currentBatchRowCount = 0;
         }
 
         tableResultCache(const tableResultCache& other) = delete;
@@ -104,7 +114,11 @@ private:
         cs(const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(m_tabStructInfo.data())), m_tabStructInfo.size()),
         item(cs.m_cols, other.item.maxSize()) {
             currentRowPos = other.currentRowPos;
+            currentBatchRowCount = other.currentBatchRowCount;
         }
+        // item(cs.m_cols, other.item.maxSize()) {
+        //     currentRowPos = other.currentRowPos;
+        // }
 
         ~tableResultCache() = default;
 
@@ -112,7 +126,10 @@ private:
         std::string m_tabStructInfo;
         const CCollection::collectionStruct cs;
         CItem item;
+        // no more data to fetch from server
+        bool fetch2End = false;
         int currentRowPos = -1;
+        int currentBatchRowCount = 0;
     };
 
     // key: index handle on local, value: handle on server

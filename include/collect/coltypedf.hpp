@@ -21,6 +21,17 @@ enum class dpfs_datatype_t : uint8_t {
     TYPE_DATE,
     MAX_TYPE
 };
+
+// data type in c style.
+enum class dpfs_ctype_t : uint8_t {
+    TYPE_INT,
+    TYPE_BIGINT,
+    TYPE_DOUBLE,
+    TYPE_STRING,
+    TYPE_BINARY,
+    MAX_TYPE
+};
+
 // decimal use mysql's decimal
 // // decimal can not be primary key of collection or index.(for performance consideration)
 // class CDecimal {
@@ -30,9 +41,6 @@ enum class dpfs_datatype_t : uint8_t {
 //     uint8_t m_scale = 0;
 //     uint8_t m_len = 0;
 //     void* m_ptr = nullptr;
-
-
-
 //     // TODO :: finish the decimal implementation
 //     int fromPtr(uint8_t len, uint8_t scale, void* ptr) {
 //         m_len = len;
@@ -40,15 +48,11 @@ enum class dpfs_datatype_t : uint8_t {
 //         m_ptr = ptr;
 //         return 0;
 //     }
-
 //     //TODO
 //     double toDouble() const {
-        
 //         return 0.0;
 //     }
-
 //     int toInt() const {
 //         return 0;
 //     }
-
 // };

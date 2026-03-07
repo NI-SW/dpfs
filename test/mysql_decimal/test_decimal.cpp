@@ -9,8 +9,6 @@ using namespace std;
 int main() {
     cout << "Hello, World!" << endl;
     my_decimal dec;
-
-    
     // 110B84CF560979DB
     int rc = 0;
     const char* str = "315222.15898099997";

@@ -32,6 +32,8 @@ struct dpfs_engine_cb_struct {
     // dpfs_engine_cb_struct(std::function<void(void*, const struct dpfs_compeletion*)> cb, void* arg) : m_cb(cb), m_arg(arg) {}
     
     // dpfs_engine_async_cb m_acb = nullptr;
+    
+    // TODO:: convert to normal function pointer.
     std::function<void(void*, const struct dpfs_compeletion*)> m_cb;
     void* m_arg = nullptr;
 

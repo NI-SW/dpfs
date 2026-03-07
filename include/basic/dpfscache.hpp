@@ -77,6 +77,7 @@ public:
 
         if(sz > 0) {
             int finish_indicator = 0;
+            m_lock.lock();
             for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
 
                 #ifdef __DPCACHE_DEBUG__
@@ -91,6 +92,7 @@ public:
                 }
                 --sz;
             }
+            m_lock.unlock();
             
             while(finish_indicator == 0) {
                 if(finish_indicator < 0) {

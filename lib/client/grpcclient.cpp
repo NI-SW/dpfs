@@ -2,6 +2,48 @@
 
 #include <dpfsclient/grpcclient.hpp>
 
+// TODO
+int toInt(dpfs_datatype_t src_type, const char* src, size_t len, std::string& dest) {
+    return -ENOTSUP;
+}
+
+int toDouble(dpfs_datatype_t src_type, const char* src, size_t len) {
+   
+    return -ENOTSUP;
+}
+
+int toString(dpfs_datatype_t src_type, const char* src, size_t len, std::string& dest) {
+    return -ENOTSUP;
+}
+
+int toBinary(dpfs_datatype_t src_type, const char* src, size_t len, std::string& dest) {
+    return -ENOTSUP;
+}
+
+static int dataConvert(const char* src, size_t len, dpfs_datatype_t src_type, std::string& dest, dpfs_ctype_t tgt_type) {
+
+    return -ENOTSUP;
+    // TODO type convertor
+    switch (tgt_type)
+    {
+    case dpfs_ctype_t::TYPE_INT:
+    case dpfs_ctype_t::TYPE_BIGINT:
+        toInt(src_type, src, len, dest);
+        break;
+    case dpfs_ctype_t::TYPE_DOUBLE:
+        break;
+    case dpfs_ctype_t::TYPE_STRING: 
+        dest.assign(src, len);
+        break;
+    case dpfs_ctype_t::TYPE_BINARY:
+        dest.assign(src, len);
+        break;
+    default:
+        break;
+    }
+    
+    return 0;
+}
 
 CGrpcCli::~CGrpcCli() {
     if (husr != 0) {
@@ -135,8 +177,7 @@ int CGrpcCli::releaseTableHandle() {
     return 0;
 }
 
-
-int CGrpcCli::getIdxIter(const std::vector<std::string>& idxCol, const std::vector<std::string>& idxVals, IDXHANDLE* hidx) {
+int CGrpcCli::getIdxIter(const std::vector<std::string>& idxCol, const std::vector<std::string>& idxVals, IDXHANDLE& hidx) {
     
     if (husr == -1) {
         msg = "User not logged in.";
@@ -148,11 +189,6 @@ int CGrpcCli::getIdxIter(const std::vector<std::string>& idxCol, const std::vect
     if (memcmp(htab, emptyHandle, sizeof(emptyHandle)) == 0) {
         msg = "Table handle is not set.";
         return -EINVAL; // Table handle not set
-    }
-
-    if (hidx == nullptr) {
-        msg = "Output index handle pointer cannot be null.";
-        return -EINVAL; // Invalid output parameter
     }
 
     if (idxCol.size() != idxVals.size()) {
@@ -187,12 +223,12 @@ int CGrpcCli::getIdxIter(const std::vector<std::string>& idxCol, const std::vect
     }
 
     
-    idxHandles.emplace(idxHandleCount, tableResultCache(reply.hidx(), tabStructInfo));
+    idxHandles.emplace(idxHandleCount, std::move(tableResultCache(reply.hidx(), tabStructInfo)));
 
     auto it = idxHandles.find(idxHandleCount);
-    cout << "vec Size = " << it->second.item.cols.size() << " addr = " << &it->second.item << endl;
+    cout << "column Size = " << it->second.item.cols.size() << " addr = " << &it->second.item << endl;
 
-    *hidx = idxHandleCount;
+    hidx = idxHandleCount;
     ++idxHandleCount;
     msg = "Get index iterator success: " + reply.msg();
 
@@ -231,7 +267,7 @@ int CGrpcCli::releaseIdxIter(const IDXHANDLE& hidx) {
     return 0;
 }
 
-int CGrpcCli::getRowByIdxIter(const IDXHANDLE& hidx, int colPos, std::string& value) {
+int CGrpcCli::getDataByIdxIter(const IDXHANDLE& hidx, int colPos, std::string& value, dpfs_ctype_t type) {
     if (husr == -1) {
         msg = "User not logged in.";
         return -EINVAL; // Not logged in
@@ -245,9 +281,9 @@ int CGrpcCli::getRowByIdxIter(const IDXHANDLE& hidx, int colPos, std::string& va
 
     auto& rs = it->second;
 
-    if (rs.currentRowPos >= rs.item.size()) {
+    if (rs.currentRowPos >= rs.currentBatchRowCount) {
         msg = "No more rows available in the current batch.";
-        return -ENOENT; // No more rows
+        return -ENODATA; // No more rows
     }
 
     CValue val = rs.item.getValue(colPos);
@@ -280,11 +316,17 @@ int CGrpcCli::fetchNextRow(const IDXHANDLE& hidx) {
         return -EINVAL; // Invalid index handle
     }
 
-    cout << "vecsize = " << idxHandles.begin()->second.item.size() << endl;
+    cout << "curser pos = " << idxHandles.begin()->second.item.curPos() << endl;
 
     auto& rs = it->second;
-    rs.currentRowPos++;
-    if (rs.currentRowPos >= rs.item.size()) {
+    ++rs.currentRowPos;
+
+    if (rs.currentRowPos >= rs.currentBatchRowCount) {
+        if (rs.fetch2End) {
+            msg = "No more rows to fetch from server.";
+            return -ENODATA;
+        }
+
         // If we've reached the end of the current batch, fetch the next batch
         rc = fetchNextRowSets(hidx);
         if (rc != 0) {
@@ -295,10 +337,22 @@ int CGrpcCli::fetchNextRow(const IDXHANDLE& hidx) {
         rs.currentRowPos = 0; // Reset the current row position for the new batch
     } else {
         // msg = "Fetched next row from current batch successfully.";
-        rs.item.nextRow();
+        rc = rs.item.nextRow();
+        if (rc != 0) {
+            msg = "Failed to move to next row in current batch: " + std::to_string(rc);
+            return rc;
+        }
     }
 
     return 0;
+}
+
+const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& CGrpcCli::getColInfo(const IDXHANDLE& hidx) {
+    auto it = idxHandles.find(hidx);
+    if (it == idxHandles.end()) {
+        throw std::invalid_argument("Invalid index handle.");
+    }
+    return it->second.cs.m_cols;
 }
 
 int CGrpcCli::fetchNextRowSets(const IDXHANDLE& hidx) {
@@ -330,7 +384,9 @@ int CGrpcCli::fetchNextRowSets(const IDXHANDLE& hidx) {
         return status.error_code();
     }
 
-    if (reply.rc() != 0) {
+    if (reply.rc() == ENODATA) {
+        rs.fetch2End = true;
+    } else if (reply.rc() != 0) {
         msg = "Fetch next row sets failed: " + reply.msg();
         return reply.rc();
     }
@@ -344,7 +400,7 @@ int CGrpcCli::fetchNextRowSets(const IDXHANDLE& hidx) {
         rs.item.nextRow();
     }
 
-
+    rs.currentBatchRowCount = reply.data_size();
     rs.currentRowPos = 0; // Reset the current row position for the new batch
 
     // msg = "Fetch next row sets success: " + reply.msg();
