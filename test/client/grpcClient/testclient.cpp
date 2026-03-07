@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) {
     // signal(SIGINT, sigfun);
     // signal(SIGKILL, sigfun);
 
-    auto channel = grpc::CreateChannel("192.168.34.12:20500", grpc::InsecureChannelCredentials());
+    auto channel = grpc::CreateChannel("127.0.0.1:20500", grpc::InsecureChannelCredentials());
     if (channel == nullptr) {
         cerr << "Failed to create gRPC channel" << endl;
         return -1;

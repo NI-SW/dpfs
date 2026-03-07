@@ -15,10 +15,12 @@
 
 class CGrpcCli {
 public:
-    CGrpcCli(std::shared_ptr<grpc::ChannelInterface> channel) : _stub(dpfsgrpc::SysCtl::NewStub(channel)) {
+    CGrpcCli(std::shared_ptr<grpc::ChannelInterface> channel) {
         if (!channel) {
             throw std::invalid_argument("Channel cannot be null");
         }
+
+        _stub = dpfsgrpc::SysCtl::NewStub(channel);
         if (!_stub) {
             throw std::runtime_error("Failed to create gRPC stub");
         }
