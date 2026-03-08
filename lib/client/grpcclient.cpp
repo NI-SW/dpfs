@@ -406,3 +406,70 @@ int CGrpcCli::fetchNextRowSets(const IDXHANDLE& hidx) {
     // msg = "Fetch next row sets success: " + reply.msg();
     return 0;
 }
+
+int CGrpcCli::createTracablePro(const std::string& schema_name, const std::string& structure_name, 
+    const std::map<std::string, std::string>& base_info, const std::vector<std::string>& ingredient_names, int32_t total_production_num) {
+    
+    if (husr == -1) {
+        msg = "User not logged in.";
+        return -EINVAL; // Not logged in
+    }
+
+    dpfsgrpc::CreateTracableProReq request;
+    request.set_husr(husr);
+    request.set_schema_name(schema_name);
+    request.set_structure_name(structure_name);
+    for (const auto& pair : base_info) {
+        (*request.mutable_base_info())[pair.first] = pair.second;
+    }
+    for (const auto& ingredient : ingredient_names) {
+        request.add_ingredient_names(ingredient);
+    }
+    request.set_total_production_num(total_production_num);
+
+    dpfsgrpc::OperateReply reply;
+    grpc::ClientContext context;
+    grpc::Status status = _stub->CreateTracablePro(&context, request, &reply);
+    if (!status.ok()) {
+        msg = "RPC failed: " + status.error_message();
+        return status.error_code();
+    }
+    if (reply.rc() != 0) {
+        msg = "Create traceable production failed: " + reply.msg();
+        return reply.rc();
+    }
+    msg = "Create traceable production success: " + reply.msg();
+    return 0;
+
+}
+
+int CGrpcCli::traceBack(const std::string& trace_code, std::string& trace_result) {
+    if (husr == -1) {
+        msg = "User not logged in.";
+        return -EINVAL; // Not logged in
+    }
+
+    dpfsgrpc::TraceBackReq request;
+    request.set_husr(husr);
+    request.set_trace_code(trace_code);
+
+    dpfsgrpc::TraceBackReply reply;
+    grpc::ClientContext context;
+    grpc::Status status = _stub->TraceBack(&context, request, &reply);
+    if (!status.ok()) {
+        msg = "RPC failed: " + status.error_message();
+        return status.error_code();
+    }
+    if (reply.rc() != 0) {
+        msg = "Trace back failed: " + reply.msg();
+        return reply.rc();
+    }
+    msg = "Trace back success: " + reply.msg();
+    
+    trace_result.assign(reply.trace_back_result().data(), reply.trace_back_result().size());
+    return 0;
+}
+
+
+
+

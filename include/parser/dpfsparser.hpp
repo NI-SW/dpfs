@@ -1,6 +1,7 @@
 #pragma once
 
-#define PARSER_DEBUG
+// #define PARSER_DEBUG
+
 #ifdef PARSER_DEBUG
 #include <stdio.h>
 #include <unistd.h>

@@ -1,7 +1,7 @@
 #include <collect/page.hpp>
 #include <memory.h>
 
-#define __PGDEBUG__
+// #define __PGDEBUG__
 
 #ifdef __PGDEBUG__
 #include <iostream>
@@ -530,7 +530,11 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
     rc = cache->lock();
     if(rc) {
         // TODO process error
-        m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
+        if (rc == -1003){
+            m_log.log_notic("cache status has been write back, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
+        } else {
+            m_log.log_error("cache status invalid before write back, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
+        }
         // to indicate error
         if(!finish_indicator) {
             // TODO : maybe need process error
@@ -550,6 +554,8 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
         }
         return 0;
     }
+
+    m_log.log_debug("write back cache idx: { gid=%llu bid=%llu }, len = %llu\n", cache->idx.gid, cache->idx.bid, cache->getLen());
 
     cache->status = cacheStruct::WRITING;
     cache->unlock();
@@ -581,15 +587,18 @@ int CPage::fresh(cacheStruct*& cache) {
 
 
     int rc = 0;
+    
+    CSpinGuard guard(m_cacheLock);
 
     CTemplateGuard cg(*cache);
     if (cg.returnCode() != 0) {
         rc = cg.returnCode();
         m_log.log_error("lock cache err before fresh, gid=%llu bid=%llu len=%llu rc = %d, status: %s\n", cache->idx.gid, cache->idx.bid, cache->len, rc, cacheStruct::statusEnumStr[cache->status - 1000].c_str());
-        return rc;
+        // return rc;
+        // lock fail, need to reget the cache from disk.
     }
 
-    CSpinGuard guard(m_cacheLock);
+    
 
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* ptr = m_cache.getCache(cache->idx);
     if(ptr) {
@@ -965,7 +974,7 @@ void PageClrFn::flush(const std::list<void*>& cacheList) {
         cbs->m_arg = this;
 
         // call back function for disk write
-        cbs->m_cb = [&p, cbs](void* arg, const dpfs_compeletion* dcp) {
+        cbs->m_cb = [p, cbs](void* arg, const dpfs_compeletion* dcp) {
 
             PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
             
@@ -1035,7 +1044,7 @@ void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
 
     cbs->m_arg = this;
     // call back function for disk write
-    cbs->m_cb = [&p, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
+    cbs->m_cb = [p, cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp) {
         #ifdef __PGDEBUG__
         cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
         #endif
@@ -1206,7 +1215,7 @@ void PageClrFn::flush(cacheStruct*& p) {
         cbs->m_arg = this;
 
         // call back function for disk write
-        cbs->m_cb = [&p, cbs](void* arg, const dpfs_compeletion* dcp) {
+        cbs->m_cb = [p, cbs](void* arg, const dpfs_compeletion* dcp) {
 
             PageClrFn* pcf = reinterpret_cast<PageClrFn*>(arg);
             

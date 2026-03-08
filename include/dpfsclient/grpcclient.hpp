@@ -77,6 +77,22 @@ public:
     // fetch next row, maybe trigger the server to fetch next batch of rows if the current batch is all fetched.
     int fetchNextRow(const IDXHANDLE& hidx);
 
+    /*
+        @param schema_name schema name of the traceable production set.
+        @param structure_name name of the traceable production.
+        @param map<string, string> base_info = 4; // 需要包含特定列名和对应的值，例如：SPKZB表中的bidx列和具体的bidx值
+        @param repeated string ingredient_names = 5; // 需要追溯的原料控制表名
+    */
+    int createTracablePro(const std::string& schema_name, const std::string& structure_name, 
+        const std::map<std::string, std::string>& base_info, const std::vector<std::string>& ingredient_names, int32_t total_production_num);
+
+    /*
+        @param trace_code the code to identify the table of production's base info and production unique id.
+        @param trace_result the trace result, which contains the production base info, trace info and ingredient info.
+        @return 0 if trace back success, otherwise return the error code, and set msg
+    */
+    int traceBack(const std::string& trace_code, std::string& trace_result);
+
     const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& getColInfo(const IDXHANDLE& hidx);
     
     std::string msg;

@@ -6,11 +6,21 @@
 
 using namespace std;
 
+// #define __TEST_SQL__
+// #define __TEST_IDXITER__
+// #define __TEST_CREATETRACABLEPRO__
+// #define __TEST_TRACEABLE_PROSTRUCTURE__
+#define __TEST_TRACEBACK__
+
+
+
 volatile bool g_exit = false;
 void sigfun(int sig) {
     cout << "Signal " << sig << " received, exiting..." << endl;
     g_exit = true;
 }
+
+int printTable(CGrpcCli& client, const std::string& schema, const std::string& table, const std::vector<std::string>& idxCol, const std::vector<std::string>& idxVals);
 
 int main(int argc, char* argv[]) {
     // signal(SIGINT, sigfun);
@@ -36,6 +46,11 @@ int main(int argc, char* argv[]) {
 
     // test sql execution
     /*
+    create table OOO.APPLE_SPXXB(key char(32) NOT NULL PRIMARY KEY, value char(128) NOT NULL)
+    CREATE TABLE OOO.APPLE_SPXXB (NAME CHAR(32) NOT NULL PRIMARY KEY, VALUE CHAR(128) NOT NULL)
+
+    CREATE TABLE OOO.APPLE_SPXXB1 (NAME CHAR(32) NOT NULL PRIMARY KEY, VALUE CHAR(128) NOT NULL)
+
     CREATE TABLE OOO.PPP (A INT NOT NULL PRIMARY KEY, B DOUBLE, C CHAR(20), D DECIMAL(10, 2))
     insert into OOO.PPP values (1, 1.1, 'hello', 1.11), (2, 2.2, 'world', 2.22)
     insert into OOO.PPP values (3, 123.4, 'wuhudasima', 3.33)
@@ -46,7 +61,7 @@ int main(int argc, char* argv[]) {
     insert into OOO.PPP1 values (3, 123.4, 'wuhudasima', 3.33)
     insert into OOO.PPP1 values (4, 2.29, 'world1', 4.44), (5, 1.15, 'hello2', 5.55), (6, 2.32, 'nihao', 6.66)
     */
-
+#ifdef __TEST_SQL__
     cout << "Input SQL:" << endl;
     string sql;
     while (getline(cin, sql)) {
@@ -63,7 +78,9 @@ int main(int argc, char* argv[]) {
         }
         cout << "Input SQL:" << endl;
     }
+#endif
 
+#ifdef __TEST_IDXITER__
     /* 
         test get table handle
     */
@@ -178,13 +195,219 @@ int main(int argc, char* argv[]) {
         }
     }
 
+#endif
+
+#ifdef __TEST_CREATETRACABLEPRO__
+
+    std::map<std::string, std::string> base_info;
+
+    base_info["type"] = "apple";
+    base_info["validDate"] = "2024-01-01";
+    base_info["brand"] = "洛川苹果";
+
+    rc = client.createTracablePro("OOO", "APPLE", base_info, {"INGRE1", "INGRE2"}, 10000);
+    if (rc != 0) {
+        cout << "Create traceable production failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        return rc;
+    } else {
+        cout << "Create traceable production successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+    }
+
+
+
+#endif
+
+#ifdef __TEST_TRACEABLE_PROSTRUCTURE__
+    cout << "---------------------------------------------------------------------test traceable production sets---------------------------------------------------------------------" << endl;
+
+    
+
+
+
+    cout << "base table: " << endl;
+    rc = printTable(client, "OOO", "APPLE_SPXXB", {"name"}, {""});
+    if (rc != 0) {
+        cout << "Print table SPXXB failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        // return rc;
+    }
+
+    cout << "ingredient table: " << endl;
+    rc = printTable(client, "OOO", "APPLE_PLKZB", {"name"}, {"INGRE1"});
+    if (rc != 0) {
+        cout << "Print table PLKZB failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        // return rc;
+    }
+
+    std::vector<std::string> idxVals;
+    idxVals.resize(1);
+    int val = 9980;
+    idxVals[0].resize(sizeof(val));
+    memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
+
+    cout << "production control table: " << endl;
+    rc = printTable(client, "OOO", "APPLE_SPKZB", {"uid"}, idxVals);
+    if (rc != 0) {
+        cout << "Print table SPKZB failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        // return rc;
+    }
+
+#endif
+
+#ifdef __TEST_TRACEBACK__
+    cout << "---------------------------------------------------------------------test traceback---------------------------------------------------------------------" << endl;
+
+    std::vector<std::string> idxVals;
+    idxVals.resize(1);
+    int val = 9980;
+    idxVals[0].resize(sizeof(val));
+    memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
+
+    bidx spxxbBidx = {0, 1031}; 
+    int32_t productionId = 9980;
+
+    std::string traceCode;
+    std::string traceResult;
+    traceCode.resize(sizeof(spxxbBidx) + sizeof(productionId));
+    memcpy(const_cast<char*>(traceCode.data()), &spxxbBidx, sizeof(spxxbBidx));
+    memcpy(const_cast<char*>(traceCode.data()) + sizeof(spxxbBidx), &productionId, sizeof(productionId));
+
+    rc = client.traceBack(traceCode, traceResult);
+    if (rc != 0) {
+        cout << "Trace back failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        // return rc;
+    } else {
+        cout << "Trace back successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+        cout << "Trace back result: \n\n" << traceResult << endl;
+    }
+
+#endif
+
     rc = client.logoff();
     if (rc == 0) {
         cout << "Logoff successful for user: " << username << endl;
     } else {
         cout << "Logoff failed for user: " << username << ", error code: " << rc << endl;
+        cout << "Error message: \n" << client.msg << endl;
+        return rc;
+    }
+
+    cout << " test pass " << endl;
+    return 0;
+}
+
+
+
+
+
+int printTable(CGrpcCli& client, const std::string& schema, const std::string& table, const std::vector<std::string>& idxCol, const std::vector<std::string>& idxVals) {
+    /* 
+        test get table handle
+    */
+    int rc = 0;
+    rc = client.getTableHandle(schema, table);
+    if (rc != 0) {
+        cout << "Get table handle failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+    } else {
+        cout << "Get table handle successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+    }
+
+
+    IDXHANDLE hidx;
+
+    rc = client.getIdxIter(idxCol, idxVals, hidx);
+    if (rc != 0) {
+        cout << "Get index iterator failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
         return rc;
+    } else {
+        cout << "Get index iterator successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+        cout << "Index handle: " << hidx << endl;
+    }
+
+
+    const auto& colInfo = client.getColInfo(hidx);
+
+    rc = client.fetchNextRow(hidx);
+    if (rc != 0) {
+        cout << "Fetch next row failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        return rc;
+    } else {
+        cout << "Fetch next row successfully" << endl;
+        // cout << "Message: " << client.msg << endl;
+    }
+
+    std::string gval;
+
+    for (int i = 0; i < 20000; ++i) {
+        for (int j = 0; j < colInfo.size(); ++j) {
+            rc = client.getDataByIdxIter(hidx, j, gval);
+            if (rc != 0) {
+                cout << "Get row by index iterator failed, error code: " << rc << endl;
+                cout << "Error message: " << client.msg << endl;
+                return rc;
+            } else {
+                cout << "Get row by index iterator success, pos " << j << endl;
+                if (colInfo[j].getType() == dpfs_datatype_t::TYPE_CHAR || 
+                    colInfo[j].getType() == dpfs_datatype_t::TYPE_VARCHAR ||
+                    colInfo[j].getType() == dpfs_datatype_t::TYPE_TIMESTAMP) {
+                    cout << "Get row by index iterator success, value: " << gval << endl;
+                } else if (colInfo[j].getType() == dpfs_datatype_t::TYPE_DECIMAL) {
+                    my_decimal dec;
+                    rc = binary2my_decimal(0, (const uchar*)gval.data(), &dec, colInfo[j].getDds().genLen, colInfo[j].getScale());
+                    if (rc != 0) {
+                        cout << "Convert binary to decimal failed, error code: " << rc << endl;
+                        return rc;
+                    }
+                    // std::string decStr;
+                    String decStr;
+                    rc = my_decimal2string(0, &dec, &decStr);
+                    if (rc != 0) {
+                        cout << "Convert decimal to string failed, error code: " << rc << endl;
+                        return rc;
+                    }
+                    cout << "Get row by index iterator success, binary value: " << endl;
+                    printMemory(gval.data(), gval.size()); cout << endl;
+
+                    cout << "get decimal value = " << decStr.ptr() << endl;
+                } else if (colInfo[j].getType() == dpfs_datatype_t::TYPE_DOUBLE) {
+                    double dval;
+                    memcpy(&dval, gval.data(), sizeof(dval));
+                    cout << "Get row by index iterator success, double value: " << dval << endl;
+                } else if (colInfo[j].getType() == dpfs_datatype_t::TYPE_INT) {
+                    int ival;
+                    memcpy(&ival, gval.data(), sizeof(ival));
+                    cout << "Get row by index iterator success, int value: " << ival << endl;
+                } else {   
+                    cout << "Get row by index iterator success, type is not string, binary value: ";
+                    printMemory(gval.data(), gval.size()); cout << endl;
+                }
+            }
+        }
+
+        rc = client.fetchNextRow(hidx);
+        if (rc != 0) {
+            if (rc == -ENODATA) {
+                cout << "No more rows to fetch from server." << endl;
+                break;
+            }
+            cout << "Fetch next row failed, error code: " << rc << endl;
+            cout << "Error message: " << client.msg << endl;
+            return rc;
+        } else {
+            cout << "Fetch next row successfully" << endl;
+            // cout << "Message: " << client.msg << endl;
+        }
     }
 
     return 0;

@@ -897,14 +897,14 @@ public:
         @param keyVals: key values to search
         @param out: CItem reference to store the result
         @note get one row by scanning the collection
-        @return number of items found on success, else on failure
+        @return 0 on success, else on failure
     */
     int getByScanIter(CIdxIter& scanIter, CItem& out) const;
 
     /*
         @param idxIter row iterator of index
         @param out: CItem reference to store the result
-        @return number of items found on success, else on failure
+        @return 0 on success, else on failure
         @note get one row by index iterator
     */
     int getByIndexIter(CIdxIter& idxIter, CItem& out) const;

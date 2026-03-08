@@ -29,9 +29,9 @@ service SysCtl {
   // 传入迭代器标识，获取下一批结果集
   rpc FetchNextRowSets   (FetchNextRowSetsReq) returns (FetchNextRowSetsReply) {}
 
-
-
-  // 查询溯源信息，需要特定表包含特定列，返回溯源结果
+  // 创建可溯源结构
+  rpc CreateTracablePro (CreateTracableProReq) returns (OperateReply) {}
+  // 查询溯源信息，返回溯源结果
   rpc TraceBack(TraceBackReq) returns (TraceBackReply) {}
 
   // 继续向后获取结果集
@@ -121,11 +121,68 @@ CREATE TABLE JYKZB (
 
 */
 
+/*
+
+example:
+
+// contain base info of a production
+// 商品信息表
+create table manager.apple_SPXXB(key char(32), value char(128));
+insert into manager.apple_SPXXB values
+('商品名称', '苹果'), 
+('品牌', '洛川苹果'), 
+('保质期', '30'),
+('质检报告', 'https://mytest.com/jsbg.png'),
+('SPYLB', {gid, bid}),
+('SPKZB', {gid, bid}),
+('SPJYB', {gid, bid})
+(其它自定义信息)
+
+create table manager.apple_PLKZB (
+// 物料_prodinfo bidx, 物料表硬盘地址
+bidx binary(16) NOT NULL PRIMARY KEY
+);
+
+create table manager.apple_SPKZB(
+uid int not null primary key,   // 唯一标识一件商品
+ctime bigint not null,          // 上一次查验时间
+cstate bool not null,           // 查验商品的状态，有效或失效
+ccount int not null             // 查验次数
+)                         
+
+
+// table that log the transaction
+// 商品交易表
+create table manager.apple_SPJYB (
+JYID BIGINT not null primary key,    // 交易id
+SPJYQSID INT NOT NULL,               // 交易起始产品id
+SPJYSL INT NOT NULL,                 // 交易数量
+MFMC  CHAR(64) NOT NULL,             // 买方名称
+MFDZ  CHAR(64) NOT NULL              // 买方地址
+MFLX  CHAR(32) NOT NULL,             // 买方联系方式
+FFMC  CHAR(64) NOT NULL,             // 卖方名称
+FFDZ  CHAR(64) NOT NULL              // 卖方地址
+FFLX  CHAR(32) NOT NULL,             // 卖方联系方式
+PREV_JYID BIGINT NOT NULL,           // 上一笔交易的id
+LOGISTICS_INFO CHAR(255) NOT NULL,   // 物流信息
+OTHER_INFO CHAR(255) NOT NULL        // 其他信息
+)
+*/
+
+
+message CreateTracableProReq {
+  int32 husr = 1;
+  string schema_name = 2;
+  string structure_name = 3;
+  map<string, string> base_info = 4; // 需要包含特定列名和对应的值，例如：SPKZB表中的bidx列和具体的bidx值
+  repeated string ingredient_names = 5; // 需要追溯的原料控制表名
+  int32 total_production_num = 6; // 总商品量
+}
 
 message TraceBackReq {
   int32 husr = 1;
-  int32 trace_code = 2;
-  bytes key_val = 3;
+  // |SPXXB BIDX(16B)|PRODUCTION ID(4B)|
+  bytes trace_code = 2;
 }
 
 message TraceBackReply {

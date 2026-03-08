@@ -195,7 +195,19 @@ private:
     CSpin& m_lock;
 };
 
-
+// hold the pointer, and delete the pointer when destructed.
+template<typename T>
+class CPointerGuard {
+public:
+    CPointerGuard(T*& ptr) : m_ptr(ptr) {}
+    ~CPointerGuard() {
+        if (m_ptr) {
+            delete m_ptr;
+        }
+    }
+private:
+    T*& m_ptr;
+};
 
 
 // now useless

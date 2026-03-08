@@ -170,7 +170,12 @@ int CDatasvc::createTable(const CUser& usr, const std::string& schema, CCollecti
         m_log.log_error("Failed to save new collection to storage, rc=%d\n", rc);
         return rc;
     }
-
+    if (out.plan.planObjects.size() > 0) {
+        out.plan.planObjects[0].collectionBidx = coll.m_collectionBid;
+    } else {
+        out.plan.planObjects.emplace_back();
+        out.plan.planObjects[0].collectionBidx = coll.m_collectionBid;
+    }
     return 0;
 }
 

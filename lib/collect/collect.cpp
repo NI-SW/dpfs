@@ -2002,7 +2002,7 @@ int CCollection::getScanIter(CIdxIter& outIter) const {
 /*
     @param scanIter row iterator of scan
     @param out: CItem reference to store the result
-    @return number of items found on success, else on failure
+    @return 0 on success, else on failure
 */
 int CCollection::getByScanIter(CIdxIter& scanIter, CItem& out) const {
 
@@ -2028,7 +2028,7 @@ int CCollection::getByScanIter(CIdxIter& scanIter, CItem& out) const {
 /*
     @param idxIter row iterator of idnex
     @param out: CItem reference to store the result
-    @return number of items found on success, else on failure
+    @return 0 on success, else on failure
 */
 int CCollection::getByIndexIter(CIdxIter& idxIter, CItem& out) const  {
 

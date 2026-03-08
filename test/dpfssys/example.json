@@ -16,6 +16,6 @@
     },
     
     "logpath" : "./dpfsdiag.log",
-    "asynclog" : false
+    "asynclog" : true
 
 }
