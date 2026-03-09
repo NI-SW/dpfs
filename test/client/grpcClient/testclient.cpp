@@ -3,16 +3,18 @@
 #include <csignal>
 #include <thread>
 #include <dpfsdebug.hpp>
-
+#include <fstream>
 using namespace std;
 
 // #define __TEST_SQL__
 // #define __TEST_IDXITER__
 // #define __TEST_CREATETRACABLEPRO__
 // #define __TEST_TRACEABLE_PROSTRUCTURE__
-#define __TEST_TRACEBACK__
-
-
+// #define __TEST_TRACEBACK__
+// #define __TEST_TRACEBACK_SECOND__
+// #define __TEST_MAKETRADEE__
+// #define __TEST_MAKETRADEE_SECOND__
+#define __TEST_VARTRACE__
 
 volatile bool g_exit = false;
 void sigfun(int sig) {
@@ -25,6 +27,14 @@ int printTable(CGrpcCli& client, const std::string& schema, const std::string& t
 int main(int argc, char* argv[]) {
     // signal(SIGINT, sigfun);
     // signal(SIGKILL, sigfun);
+    std::string traceCodePrefix;
+    std::vector<std::string> idxVals;
+    std::string traceCode;
+    std::string traceResult;
+    int32_t productionId = 0;
+    std::string tradeId;
+    bidx spxxbBidx = {0, 0}; 
+    int val = 9980;
 
     auto channel = grpc::CreateChannel("127.0.0.1:20500", grpc::InsecureChannelCredentials());
     if (channel == nullptr) {
@@ -46,10 +56,7 @@ int main(int argc, char* argv[]) {
 
     // test sql execution
     /*
-    create table OOO.APPLE_SPXXB(key char(32) NOT NULL PRIMARY KEY, value char(128) NOT NULL)
-    CREATE TABLE OOO.APPLE_SPXXB (NAME CHAR(32) NOT NULL PRIMARY KEY, VALUE CHAR(128) NOT NULL)
 
-    CREATE TABLE OOO.APPLE_SPXXB1 (NAME CHAR(32) NOT NULL PRIMARY KEY, VALUE CHAR(128) NOT NULL)
 
     CREATE TABLE OOO.PPP (A INT NOT NULL PRIMARY KEY, B DOUBLE, C CHAR(20), D DECIMAL(10, 2))
     insert into OOO.PPP values (1, 1.1, 'hello', 1.11), (2, 2.2, 'world', 2.22)
@@ -99,10 +106,10 @@ int main(int argc, char* argv[]) {
     vector<string> idxCol = {"A"};
 
     // if key is not string, use the string like an int pointer
-    vector<string> idxVals;
 
+    idxVals.clear();
     idxVals.resize(1);
-    int val = 1;
+    val = 1;
     idxVals[0].resize(sizeof(val));
     memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
 
@@ -205,7 +212,9 @@ int main(int argc, char* argv[]) {
     base_info["validDate"] = "2024-01-01";
     base_info["brand"] = "洛川苹果";
 
-    rc = client.createTracablePro("OOO", "APPLE", base_info, {"INGRE1", "INGRE2"}, 10000);
+    
+
+    rc = client.createTracablePro("OOO", "APPLE", base_info, {"INGRE1", "INGRE2"}, 100, traceCodePrefix);
     if (rc != 0) {
         cout << "Create traceable production failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -213,21 +222,37 @@ int main(int argc, char* argv[]) {
     } else {
         cout << "Create traceable production successfully" << endl;
         cout << "Message: " << client.msg << endl;
+        cout << "Trace code prefix: " << endl;
+        printMemory(traceCodePrefix.data(), traceCodePrefix.size());
+        cout << endl;
     }
+    fstream outTraceCode;
+    outTraceCode.open("trace_code_prefix.bin", ios::out | ios::binary);
+    if (!outTraceCode) {
+        cout << "Failed to open file for writing trace code prefix" << endl;
+        return -1;
+    }
+    outTraceCode.write(traceCodePrefix.data(), traceCodePrefix.size());
+    outTraceCode.close();
 
+#else
 
+    fstream inTraceCode("trace_code_prefix.bin", ios::in | ios::binary);
+    if (!inTraceCode) {
+        cout << "Failed to open file for reading trace code prefix" << endl;
+        return -1;
+    }
+    traceCodePrefix.resize(sizeof(bidx));
+    inTraceCode.read(const_cast<char*>(traceCodePrefix.data()), traceCodePrefix.size());
+    inTraceCode.close();
 
 #endif
 
 #ifdef __TEST_TRACEABLE_PROSTRUCTURE__
     cout << "---------------------------------------------------------------------test traceable production sets---------------------------------------------------------------------" << endl;
 
-    
-
-
-
     cout << "base table: " << endl;
-    rc = printTable(client, "OOO", "APPLE_SPXXB", {"name"}, {""});
+    rc = printTable(client, "OOO", "APPLE_SPXXB", {"name"}, {"0"});
     if (rc != 0) {
         cout << "Print table SPXXB failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -242,11 +267,19 @@ int main(int argc, char* argv[]) {
         // return rc;
     }
 
-    std::vector<std::string> idxVals;
+    idxVals.clear();
     idxVals.resize(1);
-    int val = 9980;
+    val = 0;
     idxVals[0].resize(sizeof(val));
     memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
+
+    cout << "trade control table: " << endl;
+    rc = printTable(client, "OOO", "APPLE_SPJYB", {"JYID"}, idxVals);
+    if (rc != 0) {
+        cout << "Print table SPJYB failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        // return rc;
+    }
 
     cout << "production control table: " << endl;
     rc = printTable(client, "OOO", "APPLE_SPKZB", {"uid"}, idxVals);
@@ -258,25 +291,27 @@ int main(int argc, char* argv[]) {
 
 #endif
 
+
 #ifdef __TEST_TRACEBACK__
     cout << "---------------------------------------------------------------------test traceback---------------------------------------------------------------------" << endl;
 
-    std::vector<std::string> idxVals;
+    idxVals.clear();
     idxVals.resize(1);
-    int val = 9980;
+    val = 55;
     idxVals[0].resize(sizeof(val));
     memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
 
-    bidx spxxbBidx = {0, 1031}; 
-    int32_t productionId = 9980;
+    spxxbBidx = {0, 0}; 
+    memcpy(&spxxbBidx, traceCodePrefix.data(), sizeof(bidx));
+    productionId = val;
 
-    std::string traceCode;
-    std::string traceResult;
+    traceCode.clear();
+    traceResult.clear();
     traceCode.resize(sizeof(spxxbBidx) + sizeof(productionId));
     memcpy(const_cast<char*>(traceCode.data()), &spxxbBidx, sizeof(spxxbBidx));
     memcpy(const_cast<char*>(traceCode.data()) + sizeof(spxxbBidx), &productionId, sizeof(productionId));
 
-    rc = client.traceBack(traceCode, traceResult);
+    rc = client.traceBack(traceCode, traceResult, true);
     if (rc != 0) {
         cout << "Trace back failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -285,6 +320,116 @@ int main(int argc, char* argv[]) {
         cout << "Trace back successfully" << endl;
         cout << "Message: " << client.msg << endl;
         cout << "Trace back result: \n\n" << traceResult << endl;
+    }
+
+#endif
+
+#ifdef __TEST_MAKETRADEE__
+
+    cout << "---------------------------------------------------------------------test make trade---------------------------------------------------------------------" << endl;
+
+    
+    tradeId.clear();
+    rc = client.makeTrade("OOO", "APPLE", 0, 10, 50, "芜湖大司马", "芜湖市", "13801369097", "史珍湘", "上海市", "13901369097", "芜湖市至上海市", "");
+    if (rc != 0) {
+        cout << "Make trade failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        // return rc;
+    } else {
+        cout << "Make trade successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+        cout << "Trade ID: " << tradeId << endl;
+    }
+
+#endif
+
+#ifdef __TEST_MAKETRADEE_SECOND__
+
+    cout << "---------------------------------------------------------------------second test make trade---------------------------------------------------------------------" << endl;
+
+    tradeId.clear();
+    rc = client.makeTrade("OOO", "APPLE", 1, 10, 20, "史珍湘", "上海市", "13901369097", "味贞族", "北京市", "13888888888", "上海虹桥冷链运输车牌1234567至北京市大兴区", "");
+    if (rc != 0) {
+        cout << "Make trade failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        // return rc;
+    } else {
+        cout << "Make trade successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+        cout << "Trade ID: " << tradeId << endl;
+    }
+
+#endif
+
+#ifdef __TEST_TRACEBACK_SECOND__
+    cout << "---------------------------------------------------------------------second test traceback---------------------------------------------------------------------" << endl;
+
+    idxVals.clear();
+    idxVals.resize(1);
+    val = 25;
+    idxVals[0].resize(sizeof(val));
+    memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
+
+    spxxbBidx = {0, 0}; 
+    memcpy(&spxxbBidx, traceCodePrefix.data(), sizeof(bidx));
+    productionId = val;
+
+
+    traceCode.clear();
+    traceResult.clear();
+    traceCode.resize(sizeof(spxxbBidx) + sizeof(productionId));
+    memcpy(const_cast<char*>(traceCode.data()), &spxxbBidx, sizeof(spxxbBidx));
+    memcpy(const_cast<char*>(traceCode.data()) + sizeof(spxxbBidx), &productionId, sizeof(productionId));
+
+    rc = client.traceBack(traceCode, traceResult, true);
+    if (rc != 0) {
+        cout << "Trace back failed, error code: " << rc << endl;
+        cout << "Error message: " << client.msg << endl;
+        // return rc;
+    } else {
+        cout << "Trace back successfully" << endl;
+        cout << "Message: " << client.msg << endl;
+        cout << "Trace back result: \n\n" << traceResult << endl;
+    }
+
+#endif
+
+
+#ifdef __TEST_VARTRACE__
+
+    cout << "---------------------------------------------------------------------test var traceback---------------------------------------------------------------------" << endl;
+    while(1) {
+        idxVals.clear();
+        idxVals.resize(1);
+        cout << "input production id: ";
+        cin >> val;
+        if (val == -1) {
+            break;
+        }
+        // val = 55;
+        idxVals[0].resize(sizeof(val));
+        memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
+
+        spxxbBidx = {0, 0}; 
+        memcpy(&spxxbBidx, traceCodePrefix.data(), sizeof(bidx));
+        productionId = val;
+
+        traceCode.clear();
+        traceResult.clear();
+        traceCode.resize(sizeof(spxxbBidx) + sizeof(productionId));
+        memcpy(const_cast<char*>(traceCode.data()), &spxxbBidx, sizeof(spxxbBidx));
+        memcpy(const_cast<char*>(traceCode.data()) + sizeof(spxxbBidx), &productionId, sizeof(productionId));
+
+        rc = client.traceBack(traceCode, traceResult, true);
+        if (rc != 0) {
+            cout << "Trace back failed, error code: " << rc << endl;
+            cout << "Error message: " << client.msg << endl;
+            // return rc;
+        } else {
+            cout << "Trace back successfully" << endl;
+            cout << "Message: " << client.msg << endl;
+            cout << "Trace back result: \n\n" << traceResult << endl;
+        }
     }
 
 #endif

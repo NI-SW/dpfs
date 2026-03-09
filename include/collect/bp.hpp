@@ -13,7 +13,7 @@
 #include <dpendian.hpp>
 #include <unordered_map>
 
-// #define __BPDEBUG__
+#define __BPDEBUG__
 
 #ifdef __BPDEBUG__
 #include <iostream>
@@ -537,6 +537,13 @@ public:
         */
         int loadData(void* outKey, uint32_t outKeyLen, uint32_t& keyLen, void* outRow, uint32_t outRowLen, uint32_t& rowLen);
         
+        /*
+            @param inputRow row data to write
+            @param len length to write
+            @param offSet write to offSet position of the row
+            @note update data at current iterator position. the key can not be updated.
+        */
+        int updateData(void* inputRow, uint32_t offSet, uint32_t len);
         
         /*
             @note load data at current iterator position, before use the iterator, need to call loadNode() first

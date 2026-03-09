@@ -226,7 +226,7 @@ int CGrpcCli::getIdxIter(const std::vector<std::string>& idxCol, const std::vect
     idxHandles.emplace(idxHandleCount, std::move(tableResultCache(reply.hidx(), tabStructInfo)));
 
     auto it = idxHandles.find(idxHandleCount);
-    cout << "column Size = " << it->second.item.cols.size() << " addr = " << &it->second.item << endl;
+    cout << "column Size = " << it->second.item.m_dataLen.size() << " addr = " << &it->second.item << endl;
 
     hidx = idxHandleCount;
     ++idxHandleCount;
@@ -408,7 +408,7 @@ int CGrpcCli::fetchNextRowSets(const IDXHANDLE& hidx) {
 }
 
 int CGrpcCli::createTracablePro(const std::string& schema_name, const std::string& structure_name, 
-    const std::map<std::string, std::string>& base_info, const std::vector<std::string>& ingredient_names, int32_t total_production_num) {
+    const std::map<std::string, std::string>& base_info, const std::vector<std::string>& ingredient_names, int32_t total_production_num, std::string& traceCodePrefix) {
     
     if (husr == -1) {
         msg = "User not logged in.";
@@ -427,7 +427,7 @@ int CGrpcCli::createTracablePro(const std::string& schema_name, const std::strin
     }
     request.set_total_production_num(total_production_num);
 
-    dpfsgrpc::OperateReply reply;
+    dpfsgrpc::CreateTracableProReply reply;
     grpc::ClientContext context;
     grpc::Status status = _stub->CreateTracablePro(&context, request, &reply);
     if (!status.ok()) {
@@ -439,11 +439,12 @@ int CGrpcCli::createTracablePro(const std::string& schema_name, const std::strin
         return reply.rc();
     }
     msg = "Create traceable production success: " + reply.msg();
+    traceCodePrefix.assign(reply.trace_code_prefix().data(), reply.trace_code_prefix().size());
     return 0;
 
 }
 
-int CGrpcCli::traceBack(const std::string& trace_code, std::string& trace_result) {
+int CGrpcCli::traceBack(const std::string& trace_code, std::string& trace_result, bool show_detail) {
     if (husr == -1) {
         msg = "User not logged in.";
         return -EINVAL; // Not logged in
@@ -452,7 +453,7 @@ int CGrpcCli::traceBack(const std::string& trace_code, std::string& trace_result
     dpfsgrpc::TraceBackReq request;
     request.set_husr(husr);
     request.set_trace_code(trace_code);
-
+    request.set_show_detail(show_detail);
     dpfsgrpc::TraceBackReply reply;
     grpc::ClientContext context;
     grpc::Status status = _stub->TraceBack(&context, request, &reply);
@@ -465,8 +466,59 @@ int CGrpcCli::traceBack(const std::string& trace_code, std::string& trace_result
         return reply.rc();
     }
     msg = "Trace back success: " + reply.msg();
-    
+
     trace_result.assign(reply.trace_back_result().data(), reply.trace_back_result().size());
+    return 0;
+}
+
+int CGrpcCli::makeTrade(
+    const std::string& schema_name, 
+    const std::string& structure_name, 
+    int64_t jyid, 
+    int32_t start_uid, 
+    int32_t num,
+    const std::string& mfmc, 
+    const std::string& mfdz, 
+    const std::string& mflx, 
+    const std::string& ffmc, 
+    const std::string& ffdz, 
+    const std::string& fflx, 
+    const std::string& wlxx, 
+    const std::string& other_info) {
+
+    if (husr == -1) {
+        msg = "User not logged in.";
+        return -EINVAL; // Not logged in
+    }
+
+    dpfsgrpc::MakeTradeReq request;
+    request.set_husr(husr);
+    request.set_schema_name(schema_name);
+    request.set_structure_name(structure_name);
+    request.set_jyid(jyid);
+    request.set_start_uid(start_uid);
+    request.set_num(num);
+    request.set_mfmc(mfmc);
+    request.set_mfdz(mfdz);
+    request.set_mflx(mflx);
+    request.set_ffmc(ffmc);
+    request.set_ffdz(ffdz);
+    request.set_fflx(fflx);
+    request.set_wlxx(wlxx);
+    // request.set_other_info(other_info); 
+
+    dpfsgrpc::OperateReply reply;
+    grpc::ClientContext context;
+    grpc::Status status = _stub->MakeTrade(&context, request, &reply);
+    if (!status.ok()) {
+        msg = "RPC failed: " + status.error_message();
+        return status.error_code();
+    }
+    if (reply.rc() != 0) {
+        msg = "Make trade failed: " + reply.msg();
+        return reply.rc();
+    }
+    msg = "Make trade success: " + reply.msg();
     return 0;
 }
 

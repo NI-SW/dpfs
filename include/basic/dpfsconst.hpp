@@ -144,6 +144,14 @@ int ull2str(long long int l, char* buf, size_t len) noexcept;
 std::string getCurrentTimestamp();
 
 
+
+/*
+    @param data binary data to be converted to hex string
+    @param len length of binary data
+    @return hex string converted from binary data
+*/
+std::string toHexString(const uint8_t* data, size_t len);
+
 // using msgCallback = dpfs_rsp* (*)(const dpfs_cmd* cmd);
 // class CDpfsIPC {
 // public:

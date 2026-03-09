@@ -25,6 +25,7 @@
 #define __TEST_INDEX_ITERATOR__
 #define __TEST_PK_INDEX_ITERATOR__
 #define __TEST_SCAN_ITERATOR__
+#define __TEST_UPDATE_BY_INDEX_ITERATOR__
 
 
 
@@ -554,6 +555,82 @@ int main() {
 }
 #endif
 
+#ifdef __TEST_UPDATE_BY_INDEX_ITERATOR__
+{
+    cout << "-------------------------------------------------------------------------------------------UPDATE BY iterator-------------------------------------------------------------------------" << endl;
+    
+    CCollection::CIdxIter upIter;
+    CItem upItm(cs.m_cols);
+    rc = coll->getScanIter(upIter);
+    if (rc != 0) {
+        cout << " get scan iterator fail, rc=" << rc << endl;
+        goto errReturn;
+    }
+
+    // use scan iter to get main tree data
+    rc = 0;
+    int ij = 0;
+    while (rc == 0) {
+        rc = coll->getByScanIter(upIter, upItm);
+        if (rc != 0) {
+            cout << " get by up iterator fail, rc=" << rc << endl;
+            goto errReturn;
+        }
+
+        cout << " get data :: " << endl;
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
+            CValue val = upItm.getValue(i);
+            cout << " col " << i << " name: " << cs.m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
+            for (uint32_t j = 0; j < val.len; ++j) {
+                printf("%02X", ((unsigned char*)val.data)[j]);
+            }
+            cout << endl;
+        }
+        // upItm.updateValue(2, 128, 3);
+        uint32_t newVal = 128 + ij;
+        upItm.updateValue(1, &newVal, 4);
+        rc = coll->updateByIter(upIter, upItm, 1);
+        if (rc != 0) {
+            cout << " update by iterator fail, rc=" << rc << endl;
+            goto errReturn;
+        }
+
+        rc = ++upIter;
+        ++ij;
+    }
+
+    cout << "-------------------------------------------------------------------------------------------AFTER UPDATE BY iterator-------------------------------------------------------------------------" << endl;
+    CCollection::CIdxIter scanIter;
+    CItem tmpItm(cs.m_cols);
+    rc = coll->getScanIter(scanIter);
+    if (rc != 0) {
+        cout << " get scan iterator fail, rc=" << rc << endl;
+        goto errReturn;
+    }
+
+    // use scan iter to get main tree data
+    rc = 0;
+    while (rc == 0) {
+        rc = coll->getByScanIter(scanIter, tmpItm);
+        if (rc != 0) {
+            cout << " get by scan iterator fail, rc=" << rc << endl;
+            goto errReturn;
+        }
+
+        cout << " get data :: " << endl;
+        for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
+            CValue val = tmpItm.getValue(i);
+            cout << " col " << i << " name: " << cs.m_cols[i].getName() << ", len: " << (int)val.len << ", data: ";
+            for (uint32_t j = 0; j < val.len; ++j) {
+                printf("%02X", ((unsigned char*)val.data)[j]);
+            }
+            cout << endl;
+        }
+
+        rc = ++scanIter;
+    }
+}
+#endif
 
     //TODO TEST SAVE AND LOAD TREE FROM DISK
     rc = coll->save();

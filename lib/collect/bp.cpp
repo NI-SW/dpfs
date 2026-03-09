@@ -2158,6 +2158,73 @@ int CBPlusTree::iterator::loadData(void* outKey, uint32_t outKeyLen, uint32_t& k
     return 0;
 }
 
+int CBPlusTree::iterator::updateData(void* inputRow, uint32_t offSet, uint32_t len) {
+    int rc = loadNode();
+    if (rc != 0) {
+        return rc;
+    }
+
+    // KEY_T key(this->m_tree.cmpTyps);
+    uint8_t* rowData = nullptr;
+    uint32_t actualLen = 0;
+
+    // uint32_t copyLen = 0;
+
+    // must be leaf node, otherwise iterator is invalid
+    nodeLocker nl(node.pCache, m_tree.m_page, node, true, m_tree.cmpTyps);
+    CTemplateGuard g(nl);
+    if (g.returnCode() != 0) {
+        return -EIO;
+    }
+
+
+    if (inputRow != nullptr) {
+        rc = node.rowVec->reference_at(m_currentPos, rowData, &actualLen);
+        if (rc != 0) {
+            return rc;
+        }        
+        
+        std::memcpy(rowData + offSet, inputRow + offSet, len);
+    }
+
+
+#ifdef __BPDEBUG__
+
+    KEY_T key(this->m_tree.cmpTyps);
+    rc = node.keyVec->at(m_currentPos, key);
+    if (rc != 0) {
+        return rc;
+    }
+
+    // return key and row data
+    std::string keyStr;
+    for(uint32_t i = 0; i < key.len; ++i) {
+
+        keyStr.push_back(hex_chars[((key).data[i] >> 4) & 0x0F]);
+        keyStr.push_back(hex_chars[(key).data[i] & 0x0F]);
+        keyStr.push_back(' ');
+    }
+
+    std::cout << "after update: " << std::endl;
+    std::cout << "Iterator Key: " << keyStr;
+    
+
+    char rowDataPreview[128] = {0};
+
+    if (rc == 0) {
+        size_t previewLen = actualLen < 32 ? actualLen : 32;
+        for (size_t j = 0; j < previewLen; ++j) {
+            rowDataPreview[j * 2] = hex_chars[(rowData[j] >> 4) & 0x0F];
+            rowDataPreview[j * 2 + 1] = hex_chars[rowData[j] & 0x0F];
+        }
+        rowDataPreview[previewLen * 2] = '\0';
+        std::cout << " | Row Data (len " << actualLen << "): " << rowDataPreview << std::endl;
+    }
+
+#endif
+    return 0;
+}
+
 int CBPlusTree::iterator::loadNode() {
     if (loaded) {
         return 0;

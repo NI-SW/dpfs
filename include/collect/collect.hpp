@@ -347,8 +347,9 @@ public:
         @param col: column of the item, maybe column name
         @return CValue pointer on success, else nullptr
         @note this function will search the item list for the column, and possible low performance
+        @warning deprecated
     */
-    CValue getValueByKey(const CColumn& col) const noexcept;
+    // CValue getValueByKey(const CColumn& col) const noexcept;
    
     /*
         @param pos: position of the item in the item list
@@ -369,8 +370,9 @@ public:
         @param col: col of the item, maybe column name
         @param value: CValue pointer to update
         @return CValue pointer on success, else nullptr
+        @warning deprecated
     */
-    int updateValueByKey(const CColumn& col, const CValue& value) noexcept;
+    // int updateValueByKey(const CColumn& col, const CValue& value) noexcept;
     
     /*
         @param data a pointer to assign, whil copy the data from the pointer to the inner pointer
@@ -510,25 +512,9 @@ public:
         CValue operator[](size_t index) const noexcept {
             CValue val;
             size_t offSet = m_item->getDataOffset(index);
-            // for(size_t i = 0; i < index; ++i) {
-            //     // if(isVariableType(m_item->cols[i].dds.colAttrs.type)) {
-            //     //     offSet += sizeof(uint32_t) + (*(uint32_t*)((char*)m_ptr + offSet));
-            //     // } else {
-            //     //     offSet += m_item->cols[i].dds.colAttrs.len;
-            //     // }
-            //     offSet += m_item->cols[i].dds.colAttrs.len;
-            // }
 
-            // if(m_item->cols[index].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
-            //     // first 4 bytes is actual length
-            //     val.len = *(uint32_t*)((char*)m_ptr + offSet);
-            //     val.data = (char*)m_ptr + offSet + sizeof(uint32_t);
-            // } else {
-            //     val.len = m_item->cols[index].dds.colAttrs.len;
-            //     val.data = (char*)m_ptr + offSet;
-            // }
-
-            val.len = m_item->cols[index].dds.colAttrs.len;
+            // val.len = m_item->cols[index].dds.colAttrs.len;
+            val.len = m_item->m_dataLen[index];
             val.data = (char*)m_ptr + offSet;
             return val;
         }
@@ -560,7 +546,8 @@ public:
     void* getPtr() const noexcept {
         return (void*)data;
     }
-    const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cols;
+    // const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cols;
+    std::vector<uint32_t> m_dataLen; 
     rowIter beginIter;
     rowIter endIter;
     
@@ -780,6 +767,7 @@ public:
         */
         int operator--();
         int loadData(void* outKey, uint32_t outKeyLen, uint32_t& keyLen, void* outRow, uint32_t outRowLen, uint32_t& rowLen);
+        int updateData(const CItem& itm, uint32_t colPos);
 
         // disable heap allocation
         void* operator new(size_t sz) = delete;
@@ -861,6 +849,14 @@ public:
     int updateItem(const CItem& item);
 
     /*
+        @param idxIter: index iterator to locate the item, if the item is not found, return -ENOENT
+        @param item: CItem pointer to update
+        @return 0 on success, else on failure
+        @note this function will update the item in the collection, and update the index, while not commit, storage the change to temporary disk block
+    */
+    int updateByIter(CIdxIter& idxIter, const CItem& item, uint32_t colPos);
+
+    /*
         @param item: CItem pointer to add
         @return 0 on success, else on failure
         @note this function will add the item to the collection, and update the index
@@ -876,6 +872,14 @@ public:
         @note this key must be the primary key of the collection
     */
     int getRow(KEY_T key, CItem* out) const;
+
+    /*
+        @param key key to update
+        @param item will replace the old item
+        @return 0 on success, else on failure
+        m_btreeIndex->update(key, data, len);
+    */
+    int updateRow(KEY_T key, const CItem* item);
 
     /*
         @param colNames: column names to search
@@ -1142,7 +1146,7 @@ public:
             // name of the collection
             char m_name[MAX_NAME_LEN];
         }* ds = nullptr;
-        
+
         uint8_t* data = nullptr;
         size_t size = 0;
         

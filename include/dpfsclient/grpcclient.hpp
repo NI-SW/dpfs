@@ -84,14 +84,41 @@ public:
         @param repeated string ingredient_names = 5; // 需要追溯的原料控制表名
     */
     int createTracablePro(const std::string& schema_name, const std::string& structure_name, 
-        const std::map<std::string, std::string>& base_info, const std::vector<std::string>& ingredient_names, int32_t total_production_num);
+        const std::map<std::string, std::string>& base_info, const std::vector<std::string>& ingredient_names, int32_t total_production_num, std::string& traceCodePrefix);
 
     /*
         @param trace_code the code to identify the table of production's base info and production unique id.
         @param trace_result the trace result, which contains the production base info, trace info and ingredient info.
         @return 0 if trace back success, otherwise return the error code, and set msg
     */
-    int traceBack(const std::string& trace_code, std::string& trace_result);
+    int traceBack(const std::string& trace_code, std::string& trace_result, bool show_detail = false);
+
+    /*
+  string schema_name = 2;
+  string structure_name = 3;
+  int64 jyid = 4;
+  int32 start_uid = 5; // 交易商品起始uid
+  int32 num = 6; // 交易商品数量
+  // 买方名称
+  string mfmc = 7;
+  // 买方地址
+  string mfdz = 8;
+  // 买方联系方式
+  string mflx = 9;
+  // 卖方名称
+  string ffmc = 10;
+  // 卖方地址
+  string ffdz = 11;
+  // 卖方联系方式
+  string fflx = 12;
+  // 物流信息
+  string wlxx = 13;
+
+  // 其他信息,暂不处理
+  // repeated string others = 13;
+    */
+    int makeTrade(const std::string& schema_name, const std::string& structure_name, int64_t jyid, int32_t start_uid, int32_t num,
+        const std::string& mfmc, const std::string& mfdz, const std::string& mflx, const std::string& ffmc, const std::string& ffdz, const std::string& fflx, const std::string& wlxx, const std::string& other_info);
 
     const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& getColInfo(const IDXHANDLE& hidx);
     

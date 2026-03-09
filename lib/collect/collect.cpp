@@ -100,13 +100,13 @@ dds_field CColumn::getDds() const noexcept{
 */
 CValue CItem::getValue(size_t pos) const noexcept {
     CValue val;
-    if (pos >= cols.size()) {
+    if (pos >= m_dataLen.size()) {
         return val;
     }
 
     size_t offSet = getDataOffset(pos);
 
-    val.len = cols[pos].dds.colAttrs.len;
+    val.len = m_dataLen[pos];
     val.data = (char*)rowPtr + offSet;
     
     // if (cols[pos].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
@@ -168,8 +168,8 @@ int CItem::dataCopy(size_t pos, const CValue& value) noexcept {
     // }
 
     memcpy(((char*)rowPtr + offSet), value.data, value.len);
-    if (value.len < cols[pos].dds.colAttrs.len) {
-        memset(((char*)rowPtr + offSet + value.len), 0, cols[pos].dds.colAttrs.len - value.len);
+    if (value.len < m_dataLen[pos]) {
+        memset(((char*)rowPtr + offSet + value.len), 0, m_dataLen[pos] - value.len);
     }
     return value.len;
 }
@@ -195,8 +195,8 @@ int CItem::dataCopy(size_t pos, const void* ptr, size_t len) noexcept {
     //     }
     // }
     memcpy(((char*)rowPtr + offSet), ptr, len);
-    if (len < cols[pos].dds.colAttrs.len) {
-        memset(((char*)rowPtr + offSet + len), 0, cols[pos].dds.colAttrs.len - len);
+    if (len < m_dataLen[pos]) {
+        memset(((char*)rowPtr + offSet + len), 0, m_dataLen[pos] - len);
     }
     return len;
 }
@@ -207,26 +207,26 @@ int CItem::dataCopy(size_t pos, const void* ptr, size_t len) noexcept {
     @return CValue pointer on success, else nullptr
     @note this function will search the item list for the column, and possible low performance
 */
-CValue CItem::getValueByKey(const CColumn& col) const noexcept {
-    CValue val;
+// CValue CItem::getValueByKey(const CColumn& col) const noexcept {
+//     CValue val;
 
-    for(size_t i = 0; i < cols.size(); ++i) {
-        if (cols[i] == col) {
-            size_t offSet = getDataOffset(i);
-            if (cols[i].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
-                // first 4 bytes is actual length
-                val.len = *(uint32_t*)((char*)rowPtr + offSet);
-                val.data = (char*)rowPtr + offSet + 4;
-            } else {
-                val.len = cols[i].dds.colAttrs.len;
-                val.data = (char*)rowPtr + offSet;
-            }
-            break;
-            // return (CValue*)((char*)data + offSet + (sizeof(CValue) * i));
-        }
-    }
-    return val;
-}
+//     for(size_t i = 0; i < m_dataLen.size(); ++i) {
+//         if (cols[i] == col) {
+//             size_t offSet = getDataOffset(i);
+//             if (cols[i].dds.colAttrs.type == dpfs_datatype_t::TYPE_VARCHAR) {
+//                 // first 4 bytes is actual length
+//                 val.len = *(uint32_t*)((char*)rowPtr + offSet);
+//                 val.data = (char*)rowPtr + offSet + 4;
+//             } else {
+//                 val.len = cols[i].dds.colAttrs.len;
+//                 val.data = (char*)rowPtr + offSet;
+//             }
+//             break;
+//             // return (CValue*)((char*)data + offSet + (sizeof(CValue) * i));
+//         }
+//     }
+//     return val;
+// }
 
 /*
     @param pos: position of the item in the item list
@@ -234,10 +234,10 @@ CValue CItem::getValueByKey(const CColumn& col) const noexcept {
     @return bytes updated on success, else on failure
 */
 int CItem::updateValue(size_t pos, const CValue& value) noexcept {
-    if (pos >= cols.size()) {
+    if (pos >= m_dataLen.size()) {
         return -EINVAL;
     }
-    if (cols[pos].getLen() < value.len) {
+    if (m_dataLen[pos] < value.len) {
         return -E2BIG;
     }
     return dataCopy(pos, value);
@@ -249,10 +249,10 @@ int CItem::updateValue(size_t pos, const CValue& value) noexcept {
     @return bytes updated on success, else on failure
 */
 int CItem::updateValue(size_t pos, const void* ptr, size_t len) noexcept {
-    if (pos >= cols.size()) {
+    if (pos >= m_dataLen.size()) {
         return -EINVAL;
     }
-    if (cols[pos].getLen() < len) {
+    if (m_dataLen[pos] < len) {
         return -E2BIG;
     }
     return dataCopy(pos, ptr, len);
@@ -263,15 +263,15 @@ int CItem::updateValue(size_t pos, const void* ptr, size_t len) noexcept {
     @param value: CValue pointer to update
     @return CValue pointer on success, else nullptr
 */
-int CItem::updateValueByKey(const CColumn& col, const CValue& value) noexcept {
-    for(size_t i = 0; i < cols.size(); ++i) {
-        if (cols[i] == col) {
-            return dataCopy(i, value);
-        }
-    }
-    // values not found
-    return -ENXIO;
-}
+// int CItem::updateValueByKey(const CColumn& col, const CValue& value) noexcept {
+//     for(size_t i = 0; i < m_dataLen.size(); ++i) {
+//         if (cols[i] == col) {
+//             return dataCopy(i, value);
+//         }
+//     }
+//     // values not found
+//     return -ENXIO;
+// }
 
 
 int CItem::assign(const uint8_t* data, size_t rowCount) noexcept {
@@ -553,7 +553,6 @@ void CItem::delItem(CItem*& item) noexcept {
     @param value of row data
 */
 CItem::CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs) : 
-cols(cs), 
 beginIter(this), 
 endIter(this) {
 
@@ -564,6 +563,7 @@ endIter(this) {
     for(size_t i = 0; i < cs.size(); ++i) {
         len += cs[i].getLen();
         rowOffsets.emplace_back(len);
+        m_dataLen.emplace_back(cs[i].getLen());
         // isVariableType(cs[i].dds.colAttrs.type) ? len += 4 : 0;
     }
 
@@ -588,7 +588,6 @@ endIter(this) {
 }
 
 CItem::CItem(const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& cs, size_t maxRowNumber) : 
-cols(cs), 
 beginIter(this), 
 endIter(this) {
     size_t len = 0;
@@ -598,6 +597,7 @@ endIter(this) {
     for(size_t i = 0; i < cs.size(); ++i) {
         len += cs[i].getLen();
         rowOffsets.emplace_back(len);
+        m_dataLen.emplace_back(cs[i].getLen());
         // isVariableType(cs[i].dds.colAttrs.type) ? len += 4 : 0;
     }
 
@@ -1036,7 +1036,7 @@ int CCollection::addItem(const CItem& item) {
                 // kl += item.cols[pkCols[i]].getLen();
                 CValue keyVal = it[pkCols[i]];
                 memcpy(key.data + key.len, keyVal.data, keyVal.len);
-                key.len += item.cols[pkCols[i]].getLen();
+                key.len += item.m_dataLen[pkCols[i]];
             }
 
             #ifdef __COLLECT_DEBUG__
@@ -1080,7 +1080,7 @@ int CCollection::addItem(const CItem& item) {
                 for (uint32_t i = 0; i < indexInfo.cmpKeyColNum; ++i) {
                     CValue indexKeyVal = it[indexInfo.keySequence[i]];
                     memcpy(indexKey.data + indexKey.len, indexKeyVal.data, indexKeyVal.len);
-                    indexKey.len += item.cols[indexInfo.keySequence[i]].getLen();
+                    indexKey.len += item.m_dataLen[indexInfo.keySequence[i]];
                 }
 
                 // copy pk in main bpt to index data column
@@ -1114,7 +1114,7 @@ int CCollection::addItem(const CItem& item) {
     // size_t validLen = 0; // item.validLen;
     // char* rowPtr = item.rowPtr;
     for(size_t i = 0; i < item.rowNumber; ++i){
-        for(auto& pos : item.cols) {
+        for(auto& len : item.m_dataLen) {
             // if (isVariableType(pos.dds.colAttrs.type)) {
             //     // first 4 bytes is actual length
             //     //last row ptr
@@ -1125,8 +1125,8 @@ int CCollection::addItem(const CItem& item) {
             //     rowPtr += pos.getLen();
             //     validLen += pos.getLen();
             // }
-            rowPtr += pos.getLen();
-            validLen += pos.getLen();
+            rowPtr += len;
+            validLen += len;
         }
     }
 
@@ -1146,6 +1146,84 @@ int CCollection::addItem(const CItem& item) {
 errReturn:
 
     return rc;
+}
+
+int CCollection::updateByIter(CIdxIter& idxIter, const CItem& item, uint32_t colPos) {
+
+
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+
+    CTemplateReadGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        message = "read lock collection info cache failed.";
+        return rc;
+    }
+    
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    CItem out(cs.m_cols);
+    guard.release();
+
+    if (idxIter.isPkIter) {
+        // CItem pkItem(cs.m_cols);
+        uint32_t unuse = 0;
+        uint32_t rowLenIndicator = 0;
+        // get primary key from index iterator
+        
+        // int rc = idxIter.loadData(nullptr, 0, unuse, out.data, out.rowLen, rowLenIndicator);
+        int rc = idxIter.updateData(item, colPos);
+        if (rc != 0) {
+            message = "load index iterator data fail.";
+            return rc;
+        }
+        return 0;
+
+    }
+
+    // only support update by primary key right now.
+    return -ENOTSUP;
+
+    if (idxIter.indexInfoPos < 0 || idxIter.indexInfoPos >= cs.m_indexInfos.size()) {
+        message = "invalid index iterator.";
+        return -EINVAL;
+    }
+
+    auto& idxInfo = cs.m_indexInfos[idxIter.indexInfoPos];
+    const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM> indexCols(idxInfo.indexCol, idxInfo.idxColNum);
+
+    CItem idxItem(indexCols);
+
+
+    uint32_t unuse = 0;
+    uint32_t rowLenIndicator = 0;
+    // get primary key from index iterator
+    int rc = idxIter.loadData(nullptr, 0, unuse, idxItem.data, idxItem.rowLen, rowLenIndicator);
+    if (rc != 0) {
+        message = "load index iterator data fail.";
+        return rc;
+    }
+
+    // from index get pk
+    char tempData[MAXKEYLEN];
+    KEY_T pkData(tempData, 0, m_cmpTyps);
+    
+    // get data from second column
+    CValue pkVal = idxItem.getValue(1);
+    memcpy(pkData.data, pkVal.data, pkVal.len);
+    pkData.len = pkVal.len;
+    
+    guard.release();
+
+    // get from primary tree
+    rc = getRow(pkData, &out);
+    if (rc != 0) {
+        message = " get row by primary key fail";
+        return rc;
+    }
+
+    return 0;
 }
 
 /*
@@ -1526,6 +1604,43 @@ int CCollection::getRow(KEY_T key, CItem* out) const {
 
     out->endIter.m_pos = 1;
     out->endIter.m_ptr = out->data + out->rowLen;
+
+    return 0;
+}
+
+int CCollection::updateRow(KEY_T key, const CItem* item) {
+
+    int rc = 0;
+
+    rc = m_page.fresh(m_cltInfoCache);
+    if (rc < 0) {
+        message = "fresh collection info cache failed.";
+        return rc;
+    }
+
+    CTemplateGuard guard(*m_cltInfoCache);
+    if (guard.returnCode() != 0) {
+        rc = guard.returnCode();
+        message = "lock collection info cache failed.";
+        return rc;
+    }
+
+    // if cache pointer is changed, it means the collection info is updated by other thread, need to reinit some pointer of the b+ tree index with new collection info
+    if (rc == EEXIST) {
+        collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+        m_btreeIndex->reinitBase(
+            &cs.ds->m_btreeHigh, 
+            &cs.ds->m_dataRoot, 
+            &cs.ds->m_dataBegin, 
+            &cs.ds->m_dataEnd
+        );
+    }
+
+    rc = m_btreeIndex->update(key, item->data, item->rowLen);
+    if (rc != 0) {
+        message = "update b+ tree fail.";
+        return rc;
+    }
 
     return 0;
 }
@@ -1993,7 +2108,8 @@ int CCollection::getScanIter(CIdxIter& outIter) const {
 
     CBPlusTree::iterator iter = m_btreeIndex->begin();
     // begin with first block, so no need to input iterator
-    outIter.assign((void*)&iter, -1, m_cltInfoCache);
+
+    outIter.assign((void*)&iter, -1, m_cltInfoCache, true);
 
     return 0;
 }
@@ -2458,6 +2574,21 @@ int CCollection::CIdxIter::loadData(void* outKey, uint32_t outKeyLen, uint32_t& 
     collectionStruct cs(cache->getPtr(), cache->getLen() * dpfs_lba_size);
     bptIt->m_tree.reinitBase(&cs.ds->m_btreeHigh, &cs.ds->m_dataRoot, &cs.ds->m_dataBegin, &cs.ds->m_dataEnd);
     return bptIt->loadData(outKey, outKeyLen, keyLen, outRow, outRowLen, rowLen);
+}
+
+int CCollection::CIdxIter::updateData(const CItem& itm, uint32_t colPos) {
+    cacheLocker cl(cache, bptIt->m_tree.m_page);
+
+    CTemplateGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        // message = "index info read lock failed.";
+        return rc;
+    }
+    collectionStruct cs(cache->getPtr(), cache->getLen() * dpfs_lba_size);
+    bptIt->m_tree.reinitBase(&cs.ds->m_btreeHigh, &cs.ds->m_dataRoot, &cs.ds->m_dataBegin, &cs.ds->m_dataEnd);
+
+    return bptIt->updateData(itm.data, itm.getDataOffset(colPos), itm.m_dataLen[colPos]);
 }
 
 #undef bptIt

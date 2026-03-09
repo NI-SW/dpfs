@@ -43,12 +43,18 @@ class sysCtlServiceImpl final : public dpfsgrpc::SysCtl::Service {
     Status ReleaseIdxIter(ServerContext* context, const dpfsgrpc::ReleaseIdxIterReq* request, dpfsgrpc::OperateReply* response) override;
     Status FetchNextRowSets(ServerContext* context, const dpfsgrpc::FetchNextRowSetsReq* request, dpfsgrpc::FetchNextRowSetsReply* response) override;
 
-    Status CreateTracablePro(ServerContext* context, const dpfsgrpc::CreateTracableProReq* request, dpfsgrpc::OperateReply* response) override;
+    Status CreateTracablePro(ServerContext* context, const dpfsgrpc::CreateTracableProReq* request, dpfsgrpc::CreateTracableProReply* response) override;
 
     Status TraceBack(ServerContext* context, const dpfsgrpc::TraceBackReq* request, dpfsgrpc::TraceBackReply* response) override;
+
+    Status MakeTrade(ServerContext* context, const dpfsgrpc::MakeTradeReq* request, dpfsgrpc::OperateReply* response) override;
 
 public:
     sysCtlServiceImpl(void* arg) : Service() {
         system = static_cast<dpfsSystem*>(arg);
     }
+private:
+
+    int GetTraceTradeDetail(const bidx &bidx, int64_t traceId, std::string& result) noexcept;
+    int GetIngredientInfo(const bidx &bidx, int64_t traceId, std::string& result) noexcept;
 };

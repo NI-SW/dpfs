@@ -452,9 +452,8 @@ Status sysCtlServiceImpl::FetchNextRowSets(ServerContext* context, const dpfsgrp
     return Status::OK;
 }
 
-Status sysCtlServiceImpl::CreateTracablePro(ServerContext* context, const dpfsgrpc::CreateTracableProReq* request, dpfsgrpc::OperateReply* response) {
+Status sysCtlServiceImpl::CreateTracablePro(ServerContext* context, const dpfsgrpc::CreateTracableProReq* request, dpfsgrpc::CreateTracableProReply* response) {
 /*
-
 example:
 create table manager.apple_PLKZB (
 // 物料_prodinfo bidx, 物料表硬盘地址
@@ -601,7 +600,9 @@ create table manager.apple_SPXXB
             uid int not null primary key, \
             ctime bigint not null, \
             cstate bool not null, \
-            ccount int not null)";
+            ccount int not null, \
+            ltrade bigint not null \
+            )";
         }
             
         rc = parser(sql);
@@ -626,7 +627,9 @@ create table manager.apple_SPXXB
                 response->set_msg("Failed to load collection for table: " + schema + "." + spxxbTableName);
                 response->set_rc(rc);
                 return Status::OK;
-            }   
+            }
+            
+            response->set_trace_code_prefix((char*)&out.plan.planObjects[0].collectionBidx, sizeof(bidx));
 
             cacheLocker cl(spxxb.m_cltInfoCache, system->dataService->m_page);
             CTemplateReadGuard guard(cl);
@@ -739,7 +742,8 @@ create table manager.apple_SPXXB
 
         // search in system table. find the bidx of the ingredient table, and insert the ingredient names into the table
         // test data
-        val.resetData("TEST", 4);
+        bidx testidx = {0, 7890};
+        val.resetData(&testidx, sizeof(testidx));
         itmIngre.updateValue(1, val);
 
     }
@@ -877,7 +881,7 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
         // std::string valueStr(value.data, value.len);
         
         // TODO:: 
-        if (memcmp(nameStr.c_str(), "SPKZB", 6) == 0) {
+        if (memcmp(name.data, "SPKZB", 6) == 0) {
             // get spkzb bidx
             memcpy(&spkzbBidx, value.data, sizeof(bidx));
             system->log.log_debug("Found SPKZB in SPXXB table for trace back, spkzb bidx: (%d, %d)\n", spkzbBidx.gid, spkzbBidx.bid);
@@ -885,18 +889,18 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
             // 查询商品信息，返回查验状态
 
             // break;
-        } else if (memcmp(nameStr.c_str(), "SPJYB", 6) == 0) {
+        } else if (memcmp(name.data, "SPJYB", 6) == 0) {
             // get spjyb bidx
             memcpy(&spjybBidx, value.data, sizeof(bidx));
             system->log.log_debug("Found SPJYB in SPXXB table for trace back, spjyb bidx: (%d, %d)\n", spjybBidx.gid, spjybBidx.bid);
             // 查询交易信息，返回交易记录， 在此处不执行。查找交易记录的执行必须在查找SPKZB后。
 
-        } else if (memcmp(nameStr.c_str(), "PLKZB", 6) == 0) {
+        } else if (memcmp(name.data, "PLKZB", 6) == 0) {
             // get plkzb bidx
             memcpy(&plkzbBidx, value.data, sizeof(bidx));
             system->log.log_debug("Found PLKZB in SPXXB table for trace back, plkzb bidx: (%d, %d)\n", plkzbBidx.gid, plkzbBidx.bid);
         } else {
-            std::string valueStr(value.data, value.len);
+            std::string valueStr(value.data);
             system->log.log_debug("Found base info in SPXXB table for trace back, key: %s, value: %s\n", nameStr.c_str(), valueStr.c_str());
             result += nameStr + ": " + valueStr + "\n";
         }
@@ -913,17 +917,106 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
         }
     }
 
+    if (spkzbBidx.bid == 0 || plkzbBidx.bid == 0 || spjybBidx.bid == 0) {
+        system->log.log_error("Failed to find necessary table bidx in SPXXB for trace back, SPKZB bidx: (%d, %d), PLKZB bidx: (%d, %d), SPJYB bidx: (%d, %d)\n", spkzbBidx.gid, spkzbBidx.bid, plkzbBidx.gid, plkzbBidx.bid, spjybBidx.gid, spjybBidx.bid);
+        response->set_msg("Failed to find necessary table bidx in SPXXB for trace back, SPKZB bidx: (" + std::to_string(spkzbBidx.gid) + ", " + std::to_string(spkzbBidx.bid) + "), PLKZB bidx: (" + std::to_string(plkzbBidx.gid) + ", " + std::to_string(plkzbBidx.bid) + "), SPJYB bidx: (" + std::to_string(spjybBidx.gid) + ", " + std::to_string(spjybBidx.bid) + ")");
+        response->set_rc(-ENOENT);
+        return Status::OK;
+    }
+
     system->log.log_debug("get bidx for tables \nSPKZB: (%d, %d), SPJYB: (%d, %d), PLKZB: (%d, %d)\n", spkzbBidx.gid, spkzbBidx.bid, spjybBidx.gid, spjybBidx.bid, plkzbBidx.gid, plkzbBidx.bid);
 
     // TODO::
 
     // 查找商品控制表中的记录
+    CCollection spkzb(system->dataService->m_diskMan, system->dataService->m_page);
+    rc = spkzb.loadFrom(spkzbBidx, true);
+    if (rc != 0) {
+        system->log.log_error("Failed to load collection for product control table in trace back, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, rc);
+        response->set_msg("Failed to load collection for product control table in trace back, bidx: (" + std::to_string(spkzbBidx.gid) + ", " + std::to_string(spkzbBidx.bid) + ")");
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    cacheLocker clspkzb(spkzb.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard gspkzb(clspkzb);
+    if (gspkzb.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on collection info cache for trace back, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, gspkzb.returnCode());
+        response->set_msg("Failed to acquire read lock on collection info cache for trace back, bidx: (" + std::to_string(spkzbBidx.gid) + ", " + std::to_string(spkzbBidx.bid) + ")");
+        response->set_rc(-EAGAIN);
+        return Status::OK;
+    }
+    CCollection::collectionStruct cskzb(spkzb.m_cltInfoCache->getPtr(), spkzb.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem itmkzb(cskzb.m_cols);
+    gspkzb.release();
+
+
+    KEY_T kspkzb(&productionId, sizeof(productionId), spkzb.m_cmpTyps);
+
+    rc = spkzb.getRow(kspkzb, &itmkzb);
+    if (rc != 0) {
+        system->log.log_error("Failed to get row by primary key for product control table in trace back, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, rc);
+        response->set_msg("Failed to get row by primary key for product control table in trace back, bidx: (" + std::to_string(spkzbBidx.gid) + ", " + std::to_string(spkzbBidx.bid) + ")");
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+
+
+    /*
+        uid int not null primary key, \
+        ctime bigint not null, \
+        cstate bool not null, \
+        ccount int not null, \
+        ltrade bigint not null, \
+        )";
+    */
+    result += "uid/产品编号:         " + std::to_string(productionId) + "\n";
+    result += "ctime/上一次校验时间  " + std::to_string(*(int64_t*)itmkzb.getValue(1).data) + "\n";
+    result += "cstate/校验状态:      " + std::to_string(*(bool*)itmkzb.getValue(2).data) + "\n";
+    result += "ccount/校验次数:      " + std::to_string(*(int32_t*)itmkzb.getValue(3).data) + "\n";
+    int64_t lastTradeId = *(int64_t*)itmkzb.getValue(4).data;
+
+    time_t lt = time(nullptr);
+
+    int32_t ccount = *(int32_t*)itmkzb.getValue(3).data;
+    ccount += 1;
+    itmkzb.updateValue(1, &lt, sizeof(int64_t));
+    itmkzb.updateValue(3, &ccount, sizeof(int32_t));
+    // update checkout status
+    rc = spkzb.updateRow(kspkzb, &itmkzb);
+    if (rc != 0) {
+        system->log.log_error("Failed to update row for product control table in trace back, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, rc);
+        response->set_msg("Failed to update row for product control table in trace back, bidx: (" + std::to_string(spkzbBidx.gid) + ", " + std::to_string(spkzbBidx.bid) + ")");
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    if (lastTradeId == -1) {
+        result += "lastTradeId: trade info not found\n";
+    } else {
+        result += "lastTradeId: " + std::to_string(lastTradeId) + "\n";
+
+        if (request->show_detail()) {
+            // 根据商品控制表中交易id的记录，查找交易链
+            rc = GetTraceTradeDetail(spjybBidx, lastTradeId, result);
+            if (rc != 0) {
+                system->log.log_error("Failed to get trace trade detail for trace back, bidx: (%d, %d), tradeId: %d, rc=%d\n", spjybBidx.gid, spjybBidx.bid, lastTradeId, rc);
+                response->set_msg("Failed to get trace trade detail for trace back, bidx: (" + std::to_string(spjybBidx.gid) + ", " + std::to_string(spjybBidx.bid) + "), tradeId: " + std::to_string(lastTradeId));
+                response->set_rc(rc);
+                return Status::OK;
+            }
+        }
+    }
 
     // 查找配料表中的记录
-
-    // 根据商品控制表中交易id的记录，查找交易链
-
-
+    rc = GetIngredientInfo(plkzbBidx, productionId, result);
+    if (rc != 0) {
+        system->log.log_error("Failed to get ingredient info for trace back, bidx: (%d, %d), productionId: %d, rc=%d\n", plkzbBidx.gid, plkzbBidx.bid, productionId, rc);
+        response->set_msg("Failed to get ingredient info for trace back, bidx: (" + std::to_string(plkzbBidx.gid) + ", " + std::to_string(plkzbBidx.bid) + "), productionId: " + std::to_string(productionId));
+        response->set_rc(rc);
+        return Status::OK;
+    }
 
     response->set_trace_back_result(result);
     response->set_msg("Trace back completed successfully.");
@@ -932,7 +1025,454 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
     return Status::OK;
 }
 
+int sysCtlServiceImpl::GetTraceTradeDetail(const bidx &bidx, int64_t tradeId, std::string& result) noexcept {
+    int rc = 0;
+    CCollection spjyb(system->dataService->m_diskMan, system->dataService->m_page);
+    rc = spjyb.loadFrom(bidx, true);
+    if (rc != 0) {
+        system->log.log_error("Failed to load collection for trade record table in trace back, bidx: (%d, %d), rc=%d\n", bidx.gid, bidx.bid, rc);
+        return -1;
+    }
 
 
+    cacheLocker clspjyb(spjyb.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard gspjyb(clspjyb);
+    if (gspjyb.returnCode() != 0) {
+        return gspjyb.returnCode();
+    }
+
+    CCollection::collectionStruct csjyb(spjyb.m_cltInfoCache->getPtr(), spjyb.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem itmjyb(csjyb.m_cols);
+    gspjyb.release();
+
+    char kData[sizeof(tradeId)];
+    KEY_T kjyb(kData, sizeof(tradeId), spjyb.m_cmpTyps);
+    memcpy(kData, &tradeId, sizeof(tradeId));
+
+    int32_t traceDeep = 0;
+
+    while ((*(int64_t*)kjyb.data) >= 0) {
+        rc = spjyb.getRow(kjyb, &itmjyb);
+        if (rc != 0) {
+            if (rc == -ENOENT) {
+                system->log.log_debug("No more trade records found for trace back, lastTradeId: %lld\n", (*(int64_t*)kjyb.data));
+                break;
+            }
+            return rc;
+        }
+        /*
+            JYID BIGINT not null primary key, 
+            SPJYQSID INT NOT NULL, 
+            SPJYSL INT NOT NULL, 
+            MFMC CHAR(64) NOT NULL, 
+            MFDZ CHAR(64) NOT NULL, 
+            MFLX CHAR(32) NOT NULL, 
+            FFMC CHAR(64) NOT NULL, 
+            FFDZ CHAR(64) NOT NULL, 
+            FFLX CHAR(32) NOT NULL, 
+            PREV_JYID BIGINT NOT NULL, 
+            LOGISTICS_INFO CHAR(255) NOT NULL, 
+            OTHER_INFO CHAR(255) NOT NULL
+        */
+        CValue JYID = itmjyb.getValue(0);
+        CValue SPJYQSID = itmjyb.getValue(1);
+        CValue SPJYSL = itmjyb.getValue(2);
+        CValue MFMC = itmjyb.getValue(3);
+        CValue MFDZ = itmjyb.getValue(4);
+        CValue MFLX = itmjyb.getValue(5);
+        CValue FFMC = itmjyb.getValue(6);
+        CValue FFDZ = itmjyb.getValue(7);
+        CValue FFLX = itmjyb.getValue(8);
+        CValue PREV_JYID = itmjyb.getValue(9);
+        CValue LOGISTICS_INFO = itmjyb.getValue(10);
+        CValue OTHER_INFO = itmjyb.getValue(11);
+
+        result += "trade deep : " + std::to_string(traceDeep) + "\n";
+        result += "JYID: " + std::to_string(*(int64_t*)JYID.data) + "\n";
+        result += "SPJYQSID: " + std::to_string(*(int32_t*)SPJYQSID.data) + "\n";
+        result += "SPJYSL: " + std::to_string(*(int32_t*)SPJYSL.data) + "\n";
+        result += "MFMC: " + std::string(MFMC.data, MFMC.len) + "\n";
+        result += "MFDZ: " + std::string(MFDZ.data, MFDZ.len) + "\n";
+        result += "MFLX: " + std::string(MFLX.data, MFLX.len) + "\n";
+        result += "FFMC: " + std::string(FFMC.data, FFMC.len) + "\n";
+        result += "FFDZ: " + std::string(FFDZ.data, FFDZ.len) + "\n";
+        result += "FFLX: " + std::string(FFLX.data, FFLX.len) + "\n";
+        result += "LOGISTICS_INFO: " + std::string(LOGISTICS_INFO.data, LOGISTICS_INFO.len) + "\n";
+        result += "OTHER_INFO: " + std::string(OTHER_INFO.data, OTHER_INFO.len) + "\n";
+
+        system->log.log_debug("Trace trade detail for trace back, tradeId: %lld, JYID: %lld, SPJYQSID: %d, SPJYSL: %d\n", tradeId, *(int64_t*)JYID.data, *(int32_t*)SPJYQSID.data, *(int32_t*)SPJYSL.data);
+        system->log.log_debug("PREV_JYID for trace back: %d\n", *(int64_t*)PREV_JYID.data);
+        memcpy(kjyb.data, PREV_JYID.data, sizeof(tradeId));
+        traceDeep++;
+    }
+
+    return 0;
+}
+
+int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std::string& result) noexcept {
+    int rc = 0;
+    CCollection plkzb(system->dataService->m_diskMan, system->dataService->m_page);
+    rc = plkzb.loadFrom(bidx, true);
+    if (rc != 0) {
+        system->log.log_error("Failed to load collection for trade record table in trace back, bidx: (%d, %d), rc=%d\n", bidx.gid, bidx.bid, rc);
+        return -1;
+    }
+
+
+    cacheLocker clplkzb(plkzb.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard gplkzb(clplkzb);
+    if (gplkzb.returnCode() != 0) {
+        return gplkzb.returnCode();
+    }
+
+    CCollection::collectionStruct csplkzb(plkzb.m_cltInfoCache->getPtr(), plkzb.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem itmplkzb(csplkzb.m_cols);
+    gplkzb.release();
+
+    // scan the table
+    CCollection::CIdxIter scanIter;
+    rc = plkzb.getScanIter(scanIter);
+    if (rc != 0) {
+        system->log.log_error("Failed to get scan iterator for ingredient table in trace back, bidx: (%d, %d), rc=%d\n", bidx.gid, bidx.bid, rc);
+        return rc;
+    }
+
+    
+    while (1) {
+        rc = plkzb.getByScanIter(scanIter, itmplkzb);
+        if (rc != 0) {
+            if (rc == -ENOENT) {
+                system->log.log_debug("No more ingredient records found for trace back, bidx: (%d, %d)\n", bidx.gid, bidx.bid);
+                break;
+            }
+            return rc;
+        }
+
+        CValue name = itmplkzb.getValue(0);
+        CValue idx = itmplkzb.getValue(1);
+/*
+        name char(32) not null primary key,   // 物料名称
+        bidx binary(16) NOT NULL
+*/
+        result += "Ingredient Name: " + std::string(name.data) + "\n";
+
+
+        // |SPXXB BIDX(16B)|PRODUCTION ID(4B)|
+        // constrict ingredient trace code for ingredient production 0.
+        // if you need to trace the ingredient, you need to convert the hex string to binary and use it as the trace code to call TraceBack API.
+        std::string hexTraceCode = toHexString(reinterpret_cast<uint8_t*>(idx.data), idx.len) + "0000000000000000"; // append production id 0
+
+        result += "Ingredient Trace Code: " + hexTraceCode + "\n";
+
+        rc = ++scanIter;
+        if (rc == -ENOENT) {
+            break;
+        } else if (rc != 0) {
+            return rc;
+        }
+    }
+
+    return 0;
+}
+
+Status sysCtlServiceImpl::MakeTrade(ServerContext* context, const dpfsgrpc::MakeTradeReq* request, dpfsgrpc::OperateReply* response) {
+
+    int32_t husr = request->husr();
+    
+    CUser* puser = nullptr;
+    int rc = getUserInfo(husr, puser);
+    if (rc != 0) {
+        response->set_msg("Failed to get user info for handle: " + std::to_string(husr));
+        response->set_rc(rc);
+        return Status::OK;
+    }
+    CUser& usr = *puser;
+    
+
+    const std::string& schemaName = request->schema_name();
+    std::string tableName = request->structure_name() + "_SPXXB";
+
+
+    rc = system->dataService->checkExist(schemaName, tableName);
+    if (rc != -EEXIST) {
+        response->set_msg("Table does not exist: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    rc = system->dataService->checkPrivilege(usr, schemaName, tableName, tbPrivilege::TBPRIVILEGE_SELECT);
+    if (rc != 0) {
+        response->set_msg("User does not have access privilege on table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    // from systables get table info
+    bidx spxxbBidx;
+    rc = system->dataService->getTableBidx(schemaName, tableName, spxxbBidx);
+    if (rc != 0) {
+        response->set_msg("Failed to get table bidx for table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    bidx spjybBidx = {0, 0};
+    bidx spkzbBidx = {0, 0};
+
+    // get splzn and spjyb from spxxb
+    CCollection spxxb(system->dataService->m_diskMan, system->dataService->m_page);
+    rc = spxxb.loadFrom(spxxbBidx, true);
+    if (rc != 0) {
+        response->set_msg("Failed to load collection for table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    // create table manager.apple_SPXXB(key char(32), value char(128));
+    // insert into manager.apple_SPXXB values
+    // ('PLKZB', {gid, bid}),
+    // ('SPKZB', {gid, bid}),
+    // ('SPJYB', {gid, bid})
+    // ('商品名称', '苹果'), 
+    // ('品牌', '洛川苹果'), 
+    // ('保质期', '30'),
+    // ('质检报告', 'https://mytest.com/jsbg.png'),
+    // (其它自定义信息)
+    cacheLocker spxxbcl(spxxb.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard spxxbGuard(spxxbcl);
+    if (spxxbGuard.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on collection info cache for table: %s.%s, rc=%d\n", schemaName.c_str(), tableName.c_str(), spxxbGuard.returnCode());
+        response->set_msg("Failed to acquire read lock on collection info cache for table: " + schemaName + "." + tableName);
+        response->set_rc(-EAGAIN);
+        return Status::OK;
+    }
+    CCollection::collectionStruct spxxbCs(spxxb.m_cltInfoCache->getPtr(), spxxb.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem spxxbItm(spxxbCs.m_cols);
+    spxxbGuard.release();
+
+    char jybName[] = "SPJYB";
+    KEY_T kjyb(jybName, sizeof(jybName), spxxb.m_cmpTyps);
+
+    rc = spxxb.getRow(kjyb, &spxxbItm);
+    if (rc != 0) {
+        response->set_msg("Failed to get SPJYB row from SPXXB table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+    spjybBidx = *(bidx*)spxxbItm.getValue(1).data;
+    
+    char kzbName[] = "SPKZB";
+    KEY_T kkzb(kzbName, sizeof(kzbName), spxxb.m_cmpTyps);
+    rc = spxxb.getRow(kkzb, &spxxbItm);
+    if (rc != 0) {
+        response->set_msg("Failed to get SPKZB row from SPXXB table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+    spkzbBidx = *(bidx*)spxxbItm.getValue(1).data;
+
+    /*
+        bidx spjybBidx = {0, 0};
+        bidx spkzbBidx = {0, 0};
+    */
+
+    if (spjybBidx.bid == 0 || spkzbBidx.bid == 0) {
+        response->set_msg("Failed to get necessary table bidx from SPXXB table: " + schemaName + "." + tableName);
+        response->set_rc(-ENOENT);
+        return Status::OK;
+    }
+
+    #ifdef __DEBUG_GRPCSERVICE__
+    system->log.log_debug("Got necessary table bidx from SPXXB table for MakeTrade, SPJYB bidx: (%d, %d), SPKZB bidx: (%d, %d)\n", spjybBidx.gid, spjybBidx.bid, spkzbBidx.gid, spkzbBidx.bid);
+    #endif
+
+    int32_t startUid = request->start_uid();
+    int32_t num = request->num();
+
+    // 根据商品控制表，找到对应商品的最后一笔交易ID，在交易表中插入一笔新的交易记录，更新商品控制表中的最后一笔交易ID.
+    // 对于一批序号连续的商品来说，他们的最后一笔交易应属于同一笔交易
+
+    /*
+example:
+PID         0 1 2 3 4 5 6 7 8 9 
+lastID      1 1 1 1 2 2 2 3 3 4
+nextTrade   5 5 5 6 7 7 7 8 8 9
+
+    对于3号商品，由于被交易ID为1的交易买走，他可以参与交易序号为5的ID或任意其它交易，但是他不应该和商品4，5，6出现在同一笔交易中，所以他不应该参与交易ID为7的交易
+    */
+
+    CCollection spkzb(system->dataService->m_diskMan, system->dataService->m_page);
+    rc = spkzb.loadFrom(spkzbBidx, true);
+    if (rc != 0) {
+        response->set_msg("Failed to load collection for product control table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    cacheLocker spkzbcl(spkzb.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard spkzbGuard(spkzbcl);
+    if (spkzbGuard.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on collection info cache for product control table, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, spkzbGuard.returnCode());
+        response->set_msg("Failed to acquire read lock on collection info cache for product control table: " + schemaName + "." + tableName);
+        response->set_rc(-EAGAIN);
+        return Status::OK;
+    }
+    CCollection::collectionStruct spkzbCs(spkzb.m_cltInfoCache->getPtr(), spkzb.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem itmspkzb(spkzbCs.m_cols);
+    spkzbGuard.release();
+    
+
+
+    // create table manager.apple_SPKZB(
+    // uid int not null primary key,   // 唯一标识一件商品
+    // ctime bigint not null,          // 上一次查验时间
+    // cstate bool not null,           // 查验商品的状态，有效或失效
+    // ccount int not null             // 查验次数
+    // ltrade bigint not null,         // 上一笔交易id
+    // )
+
+    int32_t startid = request->start_uid();
+    int32_t limit = request->num();
+
+    CCollection::CIdxIter spkzbIter;
+    std::vector<std::string> cols;
+    std::vector<CValue> uidByte;
+    cols.emplace_back("uid");
+    uidByte.emplace_back();
+    uidByte[0].resetData(&startid, sizeof(startid));
+
+    rc = spkzb.getIdxIter(cols, uidByte, spkzbIter);
+    if (rc != 0) {
+        system->log.log_error("Failed to get index iterator for product control table in trace back, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, rc);
+        response->set_msg("Failed to get index iterator for product control table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    rc = spkzb.getByIndexIter(spkzbIter, itmspkzb);
+    if (rc != 0) {
+        system->log.log_error("Failed to get row by index iterator for product control table in trace back, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, rc);
+        response->set_msg("Failed to get row by index iterator for product control table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    int64_t ltrade = *(int64_t*)itmspkzb.getValue(4).data;
+
+    // use ltrade as prev_tradeId
+    CCollection spjyb(system->dataService->m_diskMan, system->dataService->m_page);
+    rc = spjyb.loadFrom(spjybBidx, true);
+    if (rc != 0) {
+        response->set_msg("Failed to load collection for trade record table: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    cacheLocker spjybcl(spjyb.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard spjybGuard(spjybcl);
+    if (spjybGuard.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on collection info cache for trade record table, bidx: (%d, %d), rc=%d\n", spjybBidx.gid, spjybBidx.bid, spjybGuard.returnCode());
+        response->set_msg("Failed to acquire read lock on collection info cache for trade record table: " + schemaName + "." + tableName);
+        response->set_rc(-EAGAIN);
+        return Status::OK;
+    }
+
+    CCollection::collectionStruct spjybCs(spjyb.m_cltInfoCache->getPtr(), spjyb.m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    CItem itmspjyb(spjybCs.m_cols);
+    spjybGuard.release();
+    
+    // create table manager.apple_SPJYB (
+    // JYID BIGINT not null primary key,    // 交易id
+    // SPJYQSID INT NOT NULL,               // 交易起始产品id
+    // SPJYSL INT NOT NULL,                 // 交易数量
+    // MFMC  CHAR(64) NOT NULL,             // 买方名称
+    // MFDZ  CHAR(64) NOT NULL              // 买方地址
+    // MFLX  CHAR(32) NOT NULL,             // 买方联系方式
+    // FFMC  CHAR(64) NOT NULL,             // 卖方名称
+    // FFDZ  CHAR(64) NOT NULL              // 卖方地址
+    // FFLX  CHAR(32) NOT NULL,             // 卖方联系方式
+    // PREV_JYID BIGINT NOT NULL,           // 上一笔交易的id
+    // LOGISTICS_INFO CHAR(255) NOT NULL,   // 物流信息
+    // OTHER_INFO CHAR(255) NOT NULL        // 其他信息
+    // )
+    // get the first item's lastTradeId, update the trade infos, then update the productions.
+
+    int64_t jyid = request->jyid();
+    int32_t begin = request->start_uid();
+    limit = request->num();
+
+    rc = itmspjyb.updateValue(0, &jyid, sizeof(jyid));                                  if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(1, &begin, sizeof(begin));                                if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(2, &limit, sizeof(limit));                                if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(3, request->mfmc().data(), request->mfmc().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(4, request->mfdz().data(), request->mfdz().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(5, request->mflx().data(), request->mflx().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(6, request->ffmc().data(), request->ffmc().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(7, request->ffdz().data(), request->ffdz().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(8, request->fflx().data(), request->fflx().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(9, &ltrade, sizeof(ltrade));                              if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(10, request->wlxx().data(), request->wlxx().size());      if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(11, "", 0);                                               if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+
+    #ifdef __DEBUG_GRPCSERVICE__
+    system->log.log_debug("prev trade id = {%lld, %lld}", 0, ltrade)
+    #endif
+
+    rc = spjyb.addItem(itmspjyb);
+    if (rc != 0) {
+        system->log.log_error("Failed to add item to trade record table for new trade, bidx: (%d, %d), rc=%d\n", spjybBidx.gid, spjybBidx.bid, rc);
+        response->set_msg("Failed to add item to trade record table for new trade: " + schemaName + "." + tableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+
+    spjyb.m_btreeIndex->printTree();
+
+
+    int64_t tradeId = jyid;
+    // update spkzb for the products in this trade, set their last trade id to the new trade id.
+
+    while(limit) {
+        rc = itmspkzb.updateValue(4, &tradeId, sizeof(tradeId)); 
+        if (rc < 0) { 
+            system->log.log_error("Failed to update item for product control table for new trade, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, rc); 
+            response->set_msg("Failed to update item for product control table for new trade: " + schemaName + "." + tableName); 
+            response->set_rc(rc); 
+            return Status::OK; 
+        }
+
+        rc = spkzb.updateByIter(spkzbIter, itmspkzb, 4);
+        if (rc != 0) {
+            system->log.log_error("Failed to update row by index iterator for product control table for new trade, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, rc);
+            response->set_msg("Failed to update row by index iterator for product control table for new trade: " + schemaName + "." + tableName);
+            response->set_rc(rc);
+            return Status::OK;
+        }
+        
+
+        --limit;
+        rc = ++spkzbIter;
+        if (rc != 0) {
+            if (rc == -ENOENT) {
+                system->log.log_debug("No more products found for updating trade info in trace back, bidx: (%d, %d)\n", spkzbBidx.gid, spkzbBidx.bid);
+                break;
+            }
+            system->log.log_error("Failed to move index iterator to next position for product control table in trace back, bidx: (%d, %d), rc=%d\n", spkzbBidx.gid, spkzbBidx.bid, rc);
+            response->set_msg("Failed to move index iterator to next position for product control table: " + schemaName + "." + tableName);
+            response->set_rc(rc);
+            return Status::OK;
+        }
+    }
+
+
+    response->set_rc(0);
+    response->set_msg("Trade created successfully with trade ID: " + std::to_string(tradeId));
+
+
+
+    return Status::OK;
+}
 
 

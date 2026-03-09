@@ -30,9 +30,12 @@ service SysCtl {
   rpc FetchNextRowSets   (FetchNextRowSetsReq) returns (FetchNextRowSetsReply) {}
 
   // 创建可溯源结构
-  rpc CreateTracablePro (CreateTracableProReq) returns (OperateReply) {}
+  rpc CreateTracablePro (CreateTracableProReq) returns (CreateTracableProReply) {}
   // 查询溯源信息，返回溯源结果
   rpc TraceBack(TraceBackReq) returns (TraceBackReply) {}
+
+  // 执行交易操作，输入交易相关信息，返回执行结果
+  rpc MakeTrade (MakeTradeReq) returns (OperateReply) {}
 
   // 继续向后获取结果集
   // rpc nextRowSets () returns () {}
@@ -169,6 +172,33 @@ OTHER_INFO CHAR(255) NOT NULL        // 其他信息
 )
 */
 
+// 初版部分参数固定，后续根据实际需求调整
+message MakeTradeReq {
+  int32 husr = 1;
+  string schema_name = 2;
+  string structure_name = 3;
+  int64 jyid = 4;
+  int32 start_uid = 5; // 交易商品起始uid
+  int32 num = 6; // 交易商品数量
+  // 买方名称
+  string mfmc = 7;
+  // 买方地址
+  string mfdz = 8;
+  // 买方联系方式
+  string mflx = 9;
+  // 卖方名称
+  string ffmc = 10;
+  // 卖方地址
+  string ffdz = 11;
+  // 卖方联系方式
+  string fflx = 12;
+  // 物流信息
+  string wlxx = 13;
+
+  // 其他信息,暂不处理
+  // repeated string others = 13;
+
+}
 
 message CreateTracableProReq {
   int32 husr = 1;
@@ -179,10 +209,18 @@ message CreateTracableProReq {
   int32 total_production_num = 6; // 总商品量
 }
 
+message CreateTracableProReply {
+  int32 rc = 1;
+  string msg = 2;
+  string trace_code_prefix = 3; // 生成的追溯码前缀，用于标识批次
+  // 使用前缀组合产品id可以溯源一件产品
+}
+
 message TraceBackReq {
   int32 husr = 1;
   // |SPXXB BIDX(16B)|PRODUCTION ID(4B)|
   bytes trace_code = 2;
+  bool show_detail = 3; // 是否展示详细信息
 }
 
 message TraceBackReply {

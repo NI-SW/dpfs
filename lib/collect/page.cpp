@@ -122,14 +122,14 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
 
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* ptr = m_cache.getCache(idx);
     if(ptr) {
-        m_log.log_debug("found cache in LRU, gid=%llu bid=%llu len=%llu\n", idx.gid, idx.bid, ptr->cache->len);
+        // m_log.log_debug("found cache in LRU, gid=%llu bid=%llu len=%llu\n", idx.gid, idx.bid, ptr->cache->len);
 
         // if len is not match, need update cache, reload from disk
         if(ptr->cache->len < len || ptr->cache->status == cacheStruct::ERROR || ptr->cache->status == cacheStruct::INVALID) {
             updateCache = true;
         }
     }
-    m_log.log_debug("cache %s for idx: { gid=%llu bid=%llu }, len = %llu\n", ptr ? (updateCache ? "need update" : "hit") : "miss", idx.gid, idx.bid, len);
+    // m_log.log_debug("cache %s for idx: { gid=%llu bid=%llu }, len = %llu\n", ptr ? (updateCache ? "need update" : "hit") : "miss", idx.gid, idx.bid, len);
 
     // reget the cache if not found or need update
     if(!ptr || updateCache) {
@@ -603,7 +603,7 @@ int CPage::fresh(cacheStruct*& cache) {
     CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter* ptr = m_cache.getCache(cache->idx);
     if(ptr) {
         // if the cache is found in lru, check the size
-        m_log.log_debug("found cache in LRU, gid=%llu bid=%llu len=%llu\n", cache->idx.gid, cache->idx.bid, ptr->cache->len);
+        // m_log.log_debug("found cache in LRU, gid=%llu bid=%llu len=%llu\n", cache->idx.gid, cache->idx.bid, ptr->cache->len);
 
         // if len is not match, return error
         if (ptr->cache->len != cache->len) {

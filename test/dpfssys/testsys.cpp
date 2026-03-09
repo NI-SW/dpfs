@@ -266,9 +266,9 @@ void printValue(const KEY_T& key, const CCollection& clt, CItem* itm) {
         cerr << "Failed to get system boot item." << endl;
     } else {
         for(auto it = itm->begin(); it != itm->end(); ++it) {
-            for(uint32_t i = 0; i < itm->cols.size(); ++i) {
+            for(uint32_t i = 0; i < itm->m_dataLen.size(); ++i) {
                 CValue val = it[i];
-                cout << "System Boot Item Value for column " << itm->cols[i].getName() << endl;
+                cout << "System Boot Item Value for column " << i << endl;
                 printMemory(val.data, val.len);
                 cout << endl;
             }

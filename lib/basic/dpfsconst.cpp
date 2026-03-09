@@ -139,3 +139,20 @@ std::string getCurrentTimestamp() {
     ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
     return ss.str();
 }
+
+uint8_t cvthex[16] = {0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+		0x38, 0x39, 'a', 'b', 'c', 'd', 'e', 'f'};
+
+std::string toHexString(const uint8_t* data, size_t len) {
+    if (len == 0) {
+        return "";
+    }
+    std::string hexStr;
+    hexStr.reserve(len * 2);
+    for (size_t i = 0; i < len; ++i) {
+        uint8_t byte = data[i];
+        hexStr.push_back(cvthex[byte >> 4]);
+        hexStr.push_back(cvthex[byte & 0x0F]);
+    }
+    return hexStr;
+}
