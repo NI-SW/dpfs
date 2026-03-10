@@ -91,6 +91,7 @@ public:
     CDpfssvr* repSvr = nullptr;
 
     // control services only one instance
+    // tcpservice is not support now
     CControlsvc controlService;
 
     CDatasvc* dataService = nullptr;

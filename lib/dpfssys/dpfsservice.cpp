@@ -3,6 +3,31 @@
 #include <parser/dpfsparser.hpp>
 #include <mysql_decimal/my_decimal.h>
 
+constexpr char SPXXBDEF[] = "(name char(32) NOT NULL PRIMARY KEY, value char(128) NOT NULL)";
+constexpr char PLKZBDEF[] = "(name char(64) NOT NULL PRIMARY KEY, bidx binary(16) NOT NULL)";
+constexpr char SPJYBDEF[] = "(\
+                JYID BIGINT not null primary key, \
+                SPJYQSID INT NOT NULL, \
+                SPJYSL INT NOT NULL, \
+                MFMC CHAR(64) NOT NULL, \
+                MFDZ CHAR(64) NOT NULL, \
+                MFLX CHAR(32) NOT NULL, \
+                FFMC CHAR(64) NOT NULL, \
+                FFDZ CHAR(64) NOT NULL, \
+                FFLX CHAR(32) NOT NULL, \
+                PREV_JYID BIGINT NOT NULL, \
+                LOGISTICS_INFO CHAR(255) NOT NULL, \
+                OTHER_INFO CHAR(255) NOT NULL, \
+                FSJE DECIMAL(16, 4))";
+
+constexpr char SPKZBDEF[] = "(\
+            uid int not null primary key, \
+            ctime bigint not null, \
+            cstate bool not null, \
+            ccount int not null, \
+            ltrade bigint not null \
+            )";
+
 int sysCtlServiceImpl::getUserInfo(int32_t husr, CUser*& user) noexcept {
     system->m_usrCacheLock.lock();
     auto iter = system->m_userCache.find(husr);
@@ -555,12 +580,12 @@ create table manager.apple_SPXXB
             // ('保质期', '30'),
             // ('质检报告', 'https://mytest.com/jsbg.png'),
             // (其它自定义信息)
-            sql = "create table " + schema + "." + spxxbTableName + "(name char(32) NOT NULL PRIMARY KEY, value char(128) NOT NULL)";
+            sql = "create table " + schema + "." + spxxbTableName + SPXXBDEF;
         } else if (i == 1) {
             // create table manager.apple_PLKZB (
             // bidx binary(16) NOT NULL PRIMARY KEY
             // );
-            sql = "create table " + schema + "." + plkzbTableName + "(name char(64) NOT NULL PRIMARY KEY, bidx binary(16) NOT NULL)";
+            sql = "create table " + schema + "." + plkzbTableName + PLKZBDEF;
         } else if (i == 2) {
             // create table manager.apple_SPJYB (
             // JYID BIGINT not null primary key,    // 交易id
@@ -577,20 +602,7 @@ create table manager.apple_SPXXB
             // OTHER_INFO CHAR(255) NOT NULL,       // 其他信息
             // FSJE  DECIMAL(16, 4)                 // 发生金额
             // )
-            sql = "create table " + schema + "." + spjybTableName + "(\
-                JYID BIGINT not null primary key, \
-                SPJYQSID INT NOT NULL, \
-                SPJYSL INT NOT NULL, \
-                MFMC CHAR(64) NOT NULL, \
-                MFDZ CHAR(64) NOT NULL, \
-                MFLX CHAR(32) NOT NULL, \
-                FFMC CHAR(64) NOT NULL, \
-                FFDZ CHAR(64) NOT NULL, \
-                FFLX CHAR(32) NOT NULL, \
-                PREV_JYID BIGINT NOT NULL, \
-                LOGISTICS_INFO CHAR(255) NOT NULL, \
-                OTHER_INFO CHAR(255) NOT NULL, \
-                FSJE DECIMAL(16, 4))";
+            sql = "create table " + schema + "." + spjybTableName + SPJYBDEF;
         } else if (i == 3) {
             // create table manager.apple_SPKZB(
             // uid int not null primary key,   // 唯一标识一件商品
@@ -599,13 +611,7 @@ create table manager.apple_SPXXB
             // ccount int not null             // 查验次数
             // ltrade bigint not null,         // 上一笔交易id
             // )         
-            sql = "create table " + schema + "." + spkzbTableName + "(\
-            uid int not null primary key, \
-            ctime bigint not null, \
-            cstate bool not null, \
-            ccount int not null, \
-            ltrade bigint not null \
-            )";
+            sql = "create table " + schema + "." + spkzbTableName + SPKZBDEF;
         }
             
         rc = parser(sql);
