@@ -22,7 +22,8 @@ public:
     sysindexes(m_diskman, m_page),
     sysusers(m_diskman, m_page),
     sysschemas(m_diskman, m_page),
-    sysauths(m_diskman, m_page) {
+    sysauths(m_diskman, m_page),
+    systraceables(m_diskman, m_page) {
         
     };
     
@@ -36,6 +37,7 @@ public:
         sysusers        .save();
         sysschemas      .save();
         sysauths        .save();
+        systraceables   .save();
     };
     
 
@@ -72,6 +74,7 @@ public:
     int initUserTab(const bidx& sysBidx);
     int initSchemaTab(const bidx& sysBidx);
     int initAuthTab(const bidx& sysBidx);
+    int initTraceableTab(const bidx& sysBidx);
 
     CDiskMan& m_diskman;
     CPage& m_page;
@@ -90,6 +93,8 @@ public:
     CCollection sysschemas;
     // authentication control
     CCollection sysauths;
+    // traceable structure collection
+    CCollection systraceables;
 
 };
 

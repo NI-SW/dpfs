@@ -194,9 +194,10 @@ message MakeTradeReq {
   string fflx = 12;
   // 物流信息
   string wlxx = 13;
-
   // 其他信息,暂不处理
-  // repeated string others = 13;
+  string others = 14;
+  // 发生金额
+  string fsje = 15;
 
 }
 

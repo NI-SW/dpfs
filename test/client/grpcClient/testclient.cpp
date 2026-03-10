@@ -4,6 +4,7 @@
 #include <thread>
 #include <dpfsdebug.hpp>
 #include <fstream>
+#include <basic/dpfsconst.hpp>
 using namespace std;
 
 // #define __TEST_SQL__
@@ -35,6 +36,8 @@ int main(int argc, char* argv[]) {
     std::string tradeId;
     bidx spxxbBidx = {0, 0}; 
     int val = 9980;
+
+    
 
     auto channel = grpc::CreateChannel("127.0.0.1:20500", grpc::InsecureChannelCredentials());
     if (channel == nullptr) {
@@ -330,7 +333,7 @@ int main(int argc, char* argv[]) {
 
     
     tradeId.clear();
-    rc = client.makeTrade("OOO", "APPLE", 0, 10, 50, "芜湖大司马", "芜湖市", "13801369097", "史珍湘", "上海市", "13901369097", "芜湖市至上海市", "");
+    rc = client.makeTrade("OOO", "APPLE", 0, 10, 50, "芜湖大司马", "芜湖市", "13801369097", "史珍湘", "上海市", "13901369097", "芜湖市至上海市", "交易日期:2026-02-10", "2.5");
     if (rc != 0) {
         cout << "Make trade failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -348,7 +351,7 @@ int main(int argc, char* argv[]) {
     cout << "---------------------------------------------------------------------second test make trade---------------------------------------------------------------------" << endl;
 
     tradeId.clear();
-    rc = client.makeTrade("OOO", "APPLE", 1, 10, 20, "史珍湘", "上海市", "13901369097", "味贞族", "北京市", "13888888888", "上海虹桥冷链运输车牌1234567至北京市大兴区", "");
+    rc = client.makeTrade("OOO", "APPLE", 1, 10, 20, "史珍湘", "上海市", "13901369097", "味贞族", "北京市", "13888888888", "上海虹桥冷链运输车牌1234567至北京市大兴区", "交易日期:2026-03-10", "50.2");
     if (rc != 0) {
         cout << "Make trade failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -397,28 +400,46 @@ int main(int argc, char* argv[]) {
 
 #ifdef __TEST_VARTRACE__
 
+
+
     cout << "---------------------------------------------------------------------test var traceback---------------------------------------------------------------------" << endl;
+
+    cout << "Input production id to trace back, input -1 to exit:" << endl;
+
     while(1) {
         idxVals.clear();
         idxVals.resize(1);
-        cout << "input production id: ";
-        cin >> val;
-        if (val == -1) {
+        // cout << "input production id: ";
+        // cin >> val;
+        string inputTraceCode;
+        cout << "input trace code: ";
+        cin >> inputTraceCode;
+        if (inputTraceCode == "q") {
             break;
         }
-        // val = 55;
-        idxVals[0].resize(sizeof(val));
-        memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
 
-        spxxbBidx = {0, 0}; 
-        memcpy(&spxxbBidx, traceCodePrefix.data(), sizeof(bidx));
-        productionId = val;
+        // |SPXXB BIDX(16B)|PRODUCTION ID(4B)|
+        if (inputTraceCode.size() != sizeof(bidx) * 2 + sizeof(int) * 2) {
+            cout << "Invalid trace code length, expected " << sizeof(bidx) * 2 + sizeof(int) * 2 << " bytes" << endl;
+            continue;
+        }
 
-        traceCode.clear();
-        traceResult.clear();
-        traceCode.resize(sizeof(spxxbBidx) + sizeof(productionId));
-        memcpy(const_cast<char*>(traceCode.data()), &spxxbBidx, sizeof(spxxbBidx));
-        memcpy(const_cast<char*>(traceCode.data()) + sizeof(spxxbBidx), &productionId, sizeof(productionId));
+        traceCode = std::move(hex2Binary(inputTraceCode));
+
+        // if (val == -1) {
+        //     break;
+        // }
+        // // val = 55;
+        // idxVals[0].resize(sizeof(val));
+        // memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
+        // spxxbBidx = {0, 0}; 
+        // memcpy(&spxxbBidx, traceCodePrefix.data(), sizeof(bidx));
+        // productionId = val;
+        // traceCode.clear();
+        // traceResult.clear();
+        // traceCode.resize(sizeof(spxxbBidx) + sizeof(productionId));
+        // memcpy(const_cast<char*>(traceCode.data()), &spxxbBidx, sizeof(spxxbBidx));
+        // memcpy(const_cast<char*>(traceCode.data()) + sizeof(spxxbBidx), &productionId, sizeof(productionId));
 
         rc = client.traceBack(traceCode, traceResult, true);
         if (rc != 0) {

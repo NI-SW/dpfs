@@ -64,7 +64,7 @@ struct dds_field {
     };
     uint32_t len = 0; // for string or binary type
     uint8_t scale = 0;
-    // len for decimal, use to convert from binary to my_decimal
+    // len for decimal, use to convert between binary and my_decimal 
     uint8_t genLen = 0;
     dpfs_datatype_t type = dpfs_datatype_t::TYPE_NULL;
     union {

@@ -484,7 +484,8 @@ int CGrpcCli::makeTrade(
     const std::string& ffdz, 
     const std::string& fflx, 
     const std::string& wlxx, 
-    const std::string& other_info) {
+    const std::string& other_info,
+    const std::string& fsje) {
 
     if (husr == -1) {
         msg = "User not logged in.";
@@ -505,7 +506,8 @@ int CGrpcCli::makeTrade(
     request.set_ffdz(ffdz);
     request.set_fflx(fflx);
     request.set_wlxx(wlxx);
-    // request.set_other_info(other_info); 
+    request.set_others(other_info); 
+    request.set_fsje(fsje);
 
     dpfsgrpc::OperateReply reply;
     grpc::ClientContext context;

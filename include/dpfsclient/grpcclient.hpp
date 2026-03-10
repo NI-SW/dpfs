@@ -118,7 +118,8 @@ public:
   // repeated string others = 13;
     */
     int makeTrade(const std::string& schema_name, const std::string& structure_name, int64_t jyid, int32_t start_uid, int32_t num,
-        const std::string& mfmc, const std::string& mfdz, const std::string& mflx, const std::string& ffmc, const std::string& ffdz, const std::string& fflx, const std::string& wlxx, const std::string& other_info);
+        const std::string& mfmc, const std::string& mfdz, const std::string& mflx, const std::string& ffmc, const std::string& ffdz, 
+        const std::string& fflx, const std::string& wlxx, const std::string& other_info, const std::string& fsje);
 
     const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& getColInfo(const IDXHANDLE& hidx);
     

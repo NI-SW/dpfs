@@ -156,3 +156,28 @@ std::string toHexString(const uint8_t* data, size_t len) {
     }
     return hexStr;
 }
+
+std::string hex2Binary(const std::string& hexStr) {
+    std::string ret;
+
+    char c = 0;
+
+    for (size_t i = 0; i < hexStr.size(); ++i) {
+        c <<= 4;
+        if (hexStr[i] >= '0' && hexStr[i] <= '9') {
+            c |= (hexStr[i] - '0');
+        } else if (hexStr[i] >= 'a' && hexStr[i] <= 'f') {
+            c |= (hexStr[i] - 'a' + 10);
+        } else if (hexStr[i] >= 'A' && hexStr[i] <= 'F') {
+            c |= (hexStr[i] - 'A' + 10);
+        } else {
+            return ""; // Invalid hex character
+        }
+        if (i % 2 == 1) {
+            ret.push_back(c);
+            c = 0;
+        }
+    }
+    
+    return ret;
+}

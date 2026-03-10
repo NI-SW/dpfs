@@ -152,6 +152,12 @@ std::string getCurrentTimestamp();
 */
 std::string toHexString(const uint8_t* data, size_t len);
 
+/*
+    @param hexStr hex string to be converted to binary data
+    @return binary data converted from hex string, empty string if convert failed
+*/
+std::string hex2Binary(const std::string& hexStr);
+
 // using msgCallback = dpfs_rsp* (*)(const dpfs_cmd* cmd);
 // class CDpfsIPC {
 // public:

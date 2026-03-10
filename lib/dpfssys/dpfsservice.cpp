@@ -1,7 +1,7 @@
 #include <dpfssys/dpfsservice.hpp>
 #include <dpfssys/dpfsdata.hpp>
 #include <parser/dpfsparser.hpp>
-
+#include <mysql_decimal/my_decimal.h>
 
 int sysCtlServiceImpl::getUserInfo(int32_t husr, CUser*& user) noexcept {
     system->m_usrCacheLock.lock();
@@ -483,7 +483,8 @@ FFDZ  CHAR(64) NOT NULL              // 卖方地址
 FFLX  CHAR(32) NOT NULL,             // 卖方联系方式
 PREV_JYID BIGINT NOT NULL,           // 上一笔交易的id
 LOGISTICS_INFO CHAR(255) NOT NULL,   // 物流信息
-OTHER_INFO CHAR(255) NOT NULL        // 其他信息
+OTHER_INFO CHAR(255) NOT NULL,       // 其他信息
+FSJE  DECIMAL(16, 4)                 // 发生金额 
 )
 
 // contain base info of a production
@@ -573,7 +574,8 @@ create table manager.apple_SPXXB
             // FFLX  CHAR(32) NOT NULL,             // 卖方联系方式
             // PREV_JYID BIGINT NOT NULL,           // 上一笔交易的id
             // LOGISTICS_INFO CHAR(255) NOT NULL,   // 物流信息
-            // OTHER_INFO CHAR(255) NOT NULL        // 其他信息
+            // OTHER_INFO CHAR(255) NOT NULL,       // 其他信息
+            // FSJE  DECIMAL(16, 4)                 // 发生金额
             // )
             sql = "create table " + schema + "." + spjybTableName + "(\
                 JYID BIGINT not null primary key, \
@@ -587,7 +589,8 @@ create table manager.apple_SPXXB
                 FFLX CHAR(32) NOT NULL, \
                 PREV_JYID BIGINT NOT NULL, \
                 LOGISTICS_INFO CHAR(255) NOT NULL, \
-                OTHER_INFO CHAR(255) NOT NULL)";
+                OTHER_INFO CHAR(255) NOT NULL, \
+                FSJE DECIMAL(16, 4))";
         } else if (i == 3) {
             // create table manager.apple_SPKZB(
             // uid int not null primary key,   // 唯一标识一件商品
@@ -615,6 +618,7 @@ create table manager.apple_SPXXB
 
         rc = parser.buildPlan(sql, out);
         if (rc != 0) {
+            // TODO :: undo previous created tables if any
             response->set_msg("Failed to build execution plan for SQL: " + sql);
             response->set_rc(rc);
             return Status::OK;
@@ -696,11 +700,13 @@ create table manager.apple_SPXXB
 
     rc = spxxb.addItem(*itm);
     if (rc != 0) {
+        // TODO :: UNDO previous inserted base info if any
         response->set_msg("Failed to insert base info into SPXXB table");
         response->set_rc(rc);
         return Status::OK;
     }
     
+    // init ingredient table
     CCollection ingredient(system->dataService->m_diskMan, system->dataService->m_page);
     rc = ingredient.loadFrom(ingredientBidx, true);
     if (rc != 0) {
@@ -708,7 +714,6 @@ create table manager.apple_SPXXB
         response->set_rc(rc);
         return Status::OK;
     }
-
     cacheLocker cl(ingredient.m_cltInfoCache, system->dataService->m_page);
     CTemplateReadGuard ingGuard(cl);
     if (ingGuard.returnCode() != 0) {
@@ -717,9 +722,7 @@ create table manager.apple_SPXXB
         response->set_rc(-EAGAIN);
         return Status::OK;
     }
-
     CCollection::collectionStruct cs(ingredient.m_cltInfoCache->getPtr(), ingredient.m_cltInfoCache->getLen() * dpfs_lba_size);
-
     CItem itmIngre(cs.m_cols, request->ingredient_names().size());
     ingGuard.release();
 
@@ -745,9 +748,8 @@ create table manager.apple_SPXXB
         bidx testidx = {0, 7890};
         val.resetData(&testidx, sizeof(testidx));
         itmIngre.updateValue(1, val);
-
     }
-    
+
     rc = ingredient.addItem(itmIngre);
     if (rc != 0) {
         response->set_msg("Failed to insert ingredient info into ingredient table");
@@ -755,7 +757,7 @@ create table manager.apple_SPXXB
         return Status::OK;
     }
 
-
+    // init product control table
     CCollection spzkb(system->dataService->m_diskMan, system->dataService->m_page);
     rc = spzkb.loadFrom(spkzbBidx, true);
     if (rc != 0) {
@@ -772,9 +774,7 @@ create table manager.apple_SPXXB
         response->set_rc(-EAGAIN);
         return Status::OK;
     }
-
     CCollection::collectionStruct spzkbCs(spzkb.m_cltInfoCache->getPtr(), spzkb.m_cltInfoCache->getLen() * dpfs_lba_size);
-
     CItem itmSpkzb(spzkbCs.m_cols);
     spkzbGuard.release();
 
@@ -805,8 +805,37 @@ create table manager.apple_SPXXB
         }
     }
     
+    // insert the traceable info into systracetable;
+    
+    cacheLocker clTraceable(system->dataService->m_sysSchema->systraceables.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard traceableGuard(clTraceable);
+    if (traceableGuard.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on collection info cache for systraceables table, rc=%d\n", traceableGuard.returnCode());
+        response->set_msg("Failed to acquire read lock on collection info cache for systraceables table");
+        response->set_rc(-EAGAIN);
+        return Status::OK;
+    }
+    CCollection::collectionStruct traceableCs(system->dataService->m_sysSchema->systraceables.m_cltInfoCache->getPtr(), system->dataService->m_sysSchema->systraceables.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem itmTraceable(traceableCs.m_cols);
+    traceableGuard.release();
+/*
+"ROOT",               dpfs_datatype_t::TYPE_BINARY,    16,  0, cf::NOT_NULL | cf::PRIMARY_KEY);
+"NAME",               dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL);                  
+"SCHEMA",             dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL);                  
+*/
+    rc = itmTraceable.updateValue(0, &spxxb.m_collectionBid, sizeof(spxxb.m_collectionBid)); if (rc < 0) { system->log.log_error("Fail to update systab\n"); response->set_rc(-EAGAIN); return Status::OK; }
+    rc = itmTraceable.updateValue(1, productionName.data(), productionName.size());          if (rc < 0) { system->log.log_error("Fail to update systab\n"); response->set_rc(-EAGAIN); return Status::OK; }
+    rc = itmTraceable.updateValue(2, schema.data(), schema.size());                          if (rc < 0) { system->log.log_error("Fail to update systab\n"); response->set_rc(-EAGAIN); return Status::OK; }
 
-    response->set_msg("SQL command completed successfully.");
+    rc = system->dataService->m_sysSchema->systraceables.addItem(itmTraceable);
+    if (rc != 0) {
+        system->log.log_error("Failed to insert traceable info into systracetable, rc=%d\n", rc);
+        response->set_msg("Failed to insert traceable info into systracetable");
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    response->set_msg("command completed successfully.");
     response->set_rc(0);
     return Status::OK;
 
@@ -826,10 +855,34 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
     bidx spxxbBidx = *(bidx*)request->trace_code().data();
     int32_t productionId = *(int32_t*)(request->trace_code().data() + sizeof(bidx));
     std::string result = "";
+    int rc = 0;
+
+    // check if the trace Table exists.
+    cacheLocker clTraceable(system->dataService->m_sysSchema->systraceables.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard traceableGuard(clTraceable);
+    if (traceableGuard.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on collection info cache for systraceables table, rc=%d\n", traceableGuard.returnCode());
+        response->set_msg("Failed to acquire read lock on collection info cache for systraceables table");
+        response->set_rc(-EAGAIN);
+        return Status::OK;
+    }
+    CCollection::collectionStruct traceableCs(system->dataService->m_sysSchema->systraceables.m_cltInfoCache->getPtr(), system->dataService->m_sysSchema->systraceables.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem itmTraceable(traceableCs.m_cols);
+    traceableGuard.release();
+
+    KEY_T tcb(&spxxbBidx, sizeof(bidx), system->dataService->m_sysSchema->systraceables.m_cmpTyps);
+    rc = system->dataService->m_sysSchema->systraceables.getRow(tcb, &itmTraceable);
+    if (rc != 0) {
+        system->log.log_error("Trace code not found in systraceables table, bidx: (%d, %d), rc=%d\n", spxxbBidx.gid, spxxbBidx.bid, rc);
+        response->set_msg("Trace code not found in systraceables table, bidx: (" + std::to_string(spxxbBidx.gid) + ", " + std::to_string(spxxbBidx.bid) + ")");
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
     
     system->log.log_debug("TraceBack called for user handle: %d, trace code: (bidx: (%d, %d), productionId: %d)\n", husr, spxxbBidx.gid, spxxbBidx.bid, productionId);
     CCollection spxxb(system->dataService->m_diskMan, system->dataService->m_page);
-    int rc = spxxb.loadFrom(spxxbBidx, true);
+    rc = spxxb.loadFrom(spxxbBidx, true);
     if (rc != 0) {
         system->log.log_error("Failed to load collection for trace back, bidx: (%d, %d), rc=%d\n", spxxbBidx.gid, spxxbBidx.bid, rc);
         response->set_msg("Failed to load collection for trace back, bidx: (" + std::to_string(spxxbBidx.gid) + ", " + std::to_string(spxxbBidx.bid) + ")");
@@ -1027,6 +1080,8 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
 
 int sysCtlServiceImpl::GetTraceTradeDetail(const bidx &bidx, int64_t tradeId, std::string& result) noexcept {
     int rc = 0;
+    int fsjeCvtLen = 0;
+    int fsjeCvtScale = 0;
     CCollection spjyb(system->dataService->m_diskMan, system->dataService->m_page);
     rc = spjyb.loadFrom(bidx, true);
     if (rc != 0) {
@@ -1043,6 +1098,8 @@ int sysCtlServiceImpl::GetTraceTradeDetail(const bidx &bidx, int64_t tradeId, st
 
     CCollection::collectionStruct csjyb(spjyb.m_cltInfoCache->getPtr(), spjyb.m_cltInfoCache->getLen() * dpfs_lba_size);
     CItem itmjyb(csjyb.m_cols);
+    fsjeCvtLen = csjyb.m_cols[12].getDds().genLen;
+    fsjeCvtScale = csjyb.m_cols[12].getScale();
     gspjyb.release();
 
     char kData[sizeof(tradeId)];
@@ -1086,6 +1143,7 @@ int sysCtlServiceImpl::GetTraceTradeDetail(const bidx &bidx, int64_t tradeId, st
         CValue PREV_JYID = itmjyb.getValue(9);
         CValue LOGISTICS_INFO = itmjyb.getValue(10);
         CValue OTHER_INFO = itmjyb.getValue(11);
+        CValue FSJE = itmjyb.getValue(12);
 
         result += "trade deep : " + std::to_string(traceDeep) + "\n";
         result += "JYID: " + std::to_string(*(int64_t*)JYID.data) + "\n";
@@ -1099,6 +1157,20 @@ int sysCtlServiceImpl::GetTraceTradeDetail(const bidx &bidx, int64_t tradeId, st
         result += "FFLX: " + std::string(FFLX.data, FFLX.len) + "\n";
         result += "LOGISTICS_INFO: " + std::string(LOGISTICS_INFO.data, LOGISTICS_INFO.len) + "\n";
         result += "OTHER_INFO: " + std::string(OTHER_INFO.data, OTHER_INFO.len) + "\n";
+
+        my_decimal dec;
+        rc = binary2my_decimal(0, (unsigned char*)FSJE.data, &dec, fsjeCvtLen, fsjeCvtScale);
+        if (rc != 0) {
+            result += "FSJE: \"error! convert fail.\"\n";
+        } else {
+            String myDecStr;
+            rc = my_decimal2string(0, &dec, &myDecStr);
+            if (rc != 0) {
+                result += "FSJE: \"error! convert fail.\"\n";
+            } else {
+                result += "FSJE: " + std::string(myDecStr.ptr()) + "\n";
+            }
+        }
 
         system->log.log_debug("Trace trade detail for trace back, tradeId: %lld, JYID: %lld, SPJYQSID: %d, SPJYSL: %d\n", tradeId, *(int64_t*)JYID.data, *(int32_t*)SPJYQSID.data, *(int32_t*)SPJYSL.data);
         system->log.log_debug("PREV_JYID for trace back: %d\n", *(int64_t*)PREV_JYID.data);
@@ -1333,6 +1405,8 @@ nextTrade   5 5 5 6 7 7 7 8 8 9
 
     int32_t startid = request->start_uid();
     int32_t limit = request->num();
+    int32_t cvtLen = 0;
+    int32_t cvtScale = 0;
 
     CCollection::CIdxIter spkzbIter;
     std::vector<std::string> cols;
@@ -1380,21 +1454,24 @@ nextTrade   5 5 5 6 7 7 7 8 8 9
     CCollection::collectionStruct spjybCs(spjyb.m_cltInfoCache->getPtr(), spjyb.m_cltInfoCache->getLen() * dpfs_lba_size);
 
     CItem itmspjyb(spjybCs.m_cols);
+    cvtLen = spjybCs.m_cols[12].getDds().genLen;
+    cvtScale = spjybCs.m_cols[12].getScale();
     spjybGuard.release();
     
     // create table manager.apple_SPJYB (
-    // JYID BIGINT not null primary key,    // 交易id
-    // SPJYQSID INT NOT NULL,               // 交易起始产品id
-    // SPJYSL INT NOT NULL,                 // 交易数量
-    // MFMC  CHAR(64) NOT NULL,             // 买方名称
-    // MFDZ  CHAR(64) NOT NULL              // 买方地址
-    // MFLX  CHAR(32) NOT NULL,             // 买方联系方式
-    // FFMC  CHAR(64) NOT NULL,             // 卖方名称
-    // FFDZ  CHAR(64) NOT NULL              // 卖方地址
-    // FFLX  CHAR(32) NOT NULL,             // 卖方联系方式
-    // PREV_JYID BIGINT NOT NULL,           // 上一笔交易的id
-    // LOGISTICS_INFO CHAR(255) NOT NULL,   // 物流信息
-    // OTHER_INFO CHAR(255) NOT NULL        // 其他信息
+    // JYID BIGINT not null primary key,    // 交易id          0 
+    // SPJYQSID INT NOT NULL,               // 交易起始产品id  1
+    // SPJYSL INT NOT NULL,                 // 交易数量        2 
+    // MFMC  CHAR(64) NOT NULL,             // 买方名称        3 
+    // MFDZ  CHAR(64) NOT NULL              // 买方地址        4 
+    // MFLX  CHAR(32) NOT NULL,             // 买方联系方式    5 
+    // FFMC  CHAR(64) NOT NULL,             // 卖方名称        6 
+    // FFDZ  CHAR(64) NOT NULL              // 卖方地址        7
+    // FFLX  CHAR(32) NOT NULL,             // 卖方联系方式    8 
+    // PREV_JYID BIGINT NOT NULL,           // 上一笔交易的id  9 
+    // LOGISTICS_INFO CHAR(255) NOT NULL,   // 物流信息        10 
+    // OTHER_INFO CHAR(255) NOT NULL,       // 其他信息        11 
+    // FSJE DECIMAL(16, 4)                  // 发生金额        12 
     // )
     // get the first item's lastTradeId, update the trade infos, then update the productions.
 
@@ -1402,18 +1479,33 @@ nextTrade   5 5 5 6 7 7 7 8 8 9
     int32_t begin = request->start_uid();
     limit = request->num();
 
-    rc = itmspjyb.updateValue(0, &jyid, sizeof(jyid));                                  if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(1, &begin, sizeof(begin));                                if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(2, &limit, sizeof(limit));                                if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(3, request->mfmc().data(), request->mfmc().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(4, request->mfdz().data(), request->mfdz().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(5, request->mflx().data(), request->mflx().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(6, request->ffmc().data(), request->ffmc().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(7, request->ffdz().data(), request->ffdz().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(8, request->fflx().data(), request->fflx().size());       if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(9, &ltrade, sizeof(ltrade));                              if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(10, request->wlxx().data(), request->wlxx().size());      if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
-    rc = itmspjyb.updateValue(11, "", 0);                                               if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    my_decimal fsjeDecimal;
+    const char* end = request->fsje().c_str() + request->fsje().size();
+    rc = str2my_decimal(0, request->fsje().c_str(), &fsjeDecimal, &end);
+    char decBinary[128];
+    int binLen = 0;
+    rc = my_decimal2binary(0, &fsjeDecimal, (uint8_t*)decBinary, cvtLen, cvtScale);
+    if (rc != 0) {
+        system->log.log_error("Failed to convert decimal to binary for trade record table in MakeTrade, rc=%d\n", rc);
+        response->set_msg("Failed to convert decimal to binary for trade record table in MakeTrade");
+        response->set_rc(rc);
+        return Status::OK;
+    }
+    binLen = my_decimal_get_binary_size(cvtLen, cvtScale);
+
+    rc = itmspjyb.updateValue(0, &jyid, sizeof(jyid));                                          if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(1, &begin, sizeof(begin));                                        if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(2, &limit, sizeof(limit));                                        if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(3, request->mfmc().data(), request->mfmc().size());               if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(4, request->mfdz().data(), request->mfdz().size());               if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(5, request->mflx().data(), request->mflx().size());               if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(6, request->ffmc().data(), request->ffmc().size());               if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(7, request->ffdz().data(), request->ffdz().size());               if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(8, request->fflx().data(), request->fflx().size());               if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(9, &ltrade, sizeof(ltrade));                                      if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(10, request->wlxx().data(), request->wlxx().size());              if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(11, request->others().data(), request->others().size());          if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
+    rc = itmspjyb.updateValue(12, decBinary, binLen);                                           if (rc < 0) { system->log.log_error("Failed to add item"); response->set_rc(rc); return Status::OK; }
 
     #ifdef __DEBUG_GRPCSERVICE__
     system->log.log_debug("prev trade id = {%lld, %lld}", 0, ltrade)
