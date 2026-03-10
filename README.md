@@ -1,6 +1,9 @@
+
+
 ## DPFS
 # Data Partitioned Foodtrace System
 
+```
 需要编译器支持C++17
 spdk编译参数：
 ./configure --with-rdma --with-shared --with-fio=../fio/ --with-isal --with-isal-crypto
@@ -15,6 +18,7 @@ rdma link add rxe_0 type rxe netdev ens160
 ens160改成你的网卡名
 初始化SPDK环境：
 thirdparty/spdk/scripts/setup.sh
+```
 
 # 目前支持编译的系统
 OS                        | Architecture
@@ -22,7 +26,7 @@ OS                        | Architecture
 Centos stream 9           | X86_64
 
 
-# 
+# 目的与现状
 ```
 基于SPDK，使用内核旁路技术访问硬盘（需要SSD设备与nvme驱动）
 设置磁盘组策略访问硬盘，可以访问网络SPDK磁盘组
