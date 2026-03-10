@@ -1232,7 +1232,7 @@ int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std:
         // |SPXXB BIDX(16B)|PRODUCTION ID(4B)|
         // constrict ingredient trace code for ingredient production 0.
         // if you need to trace the ingredient, you need to convert the hex string to binary and use it as the trace code to call TraceBack API.
-        std::string hexTraceCode = toHexString(reinterpret_cast<uint8_t*>(idx.data), idx.len) + "0000000000000000"; // append production id 0
+        std::string hexTraceCode = toHexString(reinterpret_cast<uint8_t*>(idx.data), idx.len) + "00000000"; // append production id 0
 
         result += "Ingredient Trace Code: " + hexTraceCode + "\n";
 

@@ -39,7 +39,18 @@ int main(int argc, char* argv[]) {
 
     
 
-    auto channel = grpc::CreateChannel("127.0.0.1:20500", grpc::InsecureChannelCredentials());
+    std::string ip = "127.0.0.1";
+    std::string port = "20500";
+    
+    if (argc == 3) {
+        ip = argv[1];
+        port = argv[2];
+    }
+    
+    std::string connStr = ip + ":" + port;
+    cout << "connecting to " << connStr << endl;
+    
+    auto channel = grpc::CreateChannel(connStr, grpc::InsecureChannelCredentials());
     if (channel == nullptr) {
         cerr << "Failed to create gRPC channel" << endl;
         return -1;
@@ -240,6 +251,7 @@ int main(int argc, char* argv[]) {
 
 #else
 
+    #ifdef __TEST_TRACEBACK__ || __TEST_TRACEBACK_SECOND__
     fstream inTraceCode("trace_code_prefix.bin", ios::in | ios::binary);
     if (!inTraceCode) {
         cout << "Failed to open file for reading trace code prefix" << endl;
@@ -248,7 +260,7 @@ int main(int argc, char* argv[]) {
     traceCodePrefix.resize(sizeof(bidx));
     inTraceCode.read(const_cast<char*>(traceCodePrefix.data()), traceCodePrefix.size());
     inTraceCode.close();
-
+    #endif
 #endif
 
 #ifdef __TEST_TRACEABLE_PROSTRUCTURE__
