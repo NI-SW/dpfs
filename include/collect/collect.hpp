@@ -1048,8 +1048,8 @@ public:
     std::vector<colInfos> m_colInfos;
 
     // when use this struct, the cache of the dataPtr should be locked.
+    #pragma pack(push, 8)
     struct collectionStruct {
-    
         collectionStruct(void* dataPtr, size_t sz) : 
         ds((dataStruct_t*)dataPtr),
             data((uint8_t*)dataPtr),
@@ -1057,6 +1057,8 @@ public:
             m_pkColPos(ds->m_pkPos, ds->m_pkColNum),
             m_cols(ds->m_colsData, ds->m_colSize),
             m_indexInfos(ds->m_indexInfos, ds->m_indexSize) {
+
+
             if (B_END) {
                 // TODO: convert from little endian to big endian
             }
@@ -1154,7 +1156,7 @@ public:
         CFixLenVec<CColumn, uint8_t, MAX_COL_NUM> m_cols;
         CFixLenVec<CCollectIndexInfo, uint8_t, MAX_INDEX_NUM> m_indexInfos;
     }; // * m_collectionStruct = nullptr;
-
+    #pragma pack(pop, 8)
     // inner locker 1B
     CSpin m_lock;
     CBPlusTree* m_btreeIndex = nullptr;

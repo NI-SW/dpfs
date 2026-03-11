@@ -4,7 +4,7 @@
 #include <collect/collect.hpp>
 #include <mysql_decimal/my_decimal.h>
 
-#define __DEBUG_GRPCCLIENT__
+// #define __DEBUG_GRPCCLIENT__
 
 #ifdef __DEBUG_GRPCCLIENT__
 #include <dpfsdebug.hpp>

@@ -12,12 +12,12 @@
 #include <iostream>
 #include <vector>
 
-#define __LOAD__ 1
+#define __LOAD__ 0
 
-#define __TEST_INSERT__
-#define __TEST_DELETE__
-#define __TEST_SEARCH__
-#define __TEST_UPDATE__
+// #define __TEST_INSERT__
+// #define __TEST_DELETE__
+// #define __TEST_SEARCH__
+// #define __TEST_UPDATE__
 #define __TEST_ITERATOR__
 #define __TEST_INDEX_CREATE__
 #define __TEST_INDEX_SEARCH__
@@ -73,7 +73,9 @@ int main() {
 		delete engine;
         return rc;
 	}
-    
+    log.set_loglevel(logrecord::loglevel::LOG_DEBUG);
+    log.set_async_mode(false);
+
     // this class must be destruct before engine destruct
     CPage* page = new CPage(engines, 128, log);
     CDiskMan* pdman = new CDiskMan(page);

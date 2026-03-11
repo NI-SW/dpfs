@@ -84,9 +84,14 @@ int nvmfDevice::clear() {
 		}
 		qp.second.m_lock.lock();
 		qp.second.state = QPAIR_INVALID;
-		rc = spdk_nvme_ctrlr_free_io_qpair(qp.first);
-		if(rc) {
-			nfhost.log.log_error("spdk_nvme_ctrlr_free_io_qpair failed (%d)\n", rc);
+		try {
+		 	spdk_nvme_ctrlr_free_io_qpair(qp.first);
+		} catch (...) {
+			nfhost.log.log_error("Exception occurred while freeing io qpair %p\n", qp.first);
+			qp.first = nullptr;
+			qp.second.m_lock.unlock();
+			abort();
+			continue;
 		}
 		nfhost.log.log_notic("IO qpair freed %p\n", qp.first);
 		qp.first = nullptr;

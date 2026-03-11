@@ -7,6 +7,7 @@
 #include <log/logbinary.h>
 #include <shared_mutex>
 #include <condition_variable>
+#include <atomic>
 extern const size_t maxBlockLen;
 extern const size_t maxMemBlockLimit;
 
@@ -217,8 +218,8 @@ public:
     // PageClrFn(void* clrFnArg) : engine_list(*static_cast<std::vector<dpfsEngine*>*>(clrFnArg)) {}
     PageClrFn(void* clrFnArg);
     ~PageClrFn();
-    void clearCache(cacheStruct*& p, int* finish_indicator = nullptr);
-    void operator()(cacheStruct*& p, int* finish_indicator = nullptr);
+    void clearCache(cacheStruct*& p, volatile int* finish_indicator = nullptr);
+    void operator()(cacheStruct*& p, volatile int* finish_indicator = nullptr);
     // void flush(std::list<CDpfsCache<bidx, cacheStruct*, PageClrFn>::cacheIter*> p);
     void flush(const std::list<void*>& cacheList);
     CPage* cp;
@@ -226,9 +227,9 @@ public:
     bool m_exit = false;
     struct pageClrSt {
         pageClrSt() : pCache(nullptr), finish_indicator(nullptr) {}
-        pageClrSt(cacheStruct* p, int* fi) : pCache(p), finish_indicator(fi) {}
+        pageClrSt(cacheStruct* p, volatile int* fi) : pCache(p), finish_indicator(fi) {}
         cacheStruct* pCache = nullptr;
-        int* finish_indicator = nullptr;
+        volatile int* finish_indicator = nullptr;
     };
     std::queue<pageClrSt> m_flushQueue;
     std::condition_variable m_convar;
@@ -276,14 +277,14 @@ public:
         @return 0 on success, else on failure
         @note flush data from zptr to cache, bewarn zptr will be take over by CPage
     */
-    int put(const bidx& idx, void* zptr, int* finish_indicator = nullptr, size_t len = 1, bool wb = false, cacheStruct** pCache = nullptr);
+    int put(const bidx& idx, void* zptr, volatile int* finish_indicator = nullptr, size_t len = 1, bool wb = false, cacheStruct** pCache = nullptr);
 
     /*
         @param cache the block that you want to write back to disk
         @param finish_indicator pointer to an integer, if not null, when write back is finished, *finish_indicator will be set to 1 if success, set to -1 if error occur
         @return 0 on success, else on failure
     */
-    int writeBack(cacheStruct* cache, int* finish_indicator = nullptr);
+    int writeBack(cacheStruct* cache, volatile int* finish_indicator = nullptr);
 
     /*
         @note fresh the cache block to the first of lru system
@@ -345,7 +346,7 @@ private:
     bool m_exit;
     CSpin m_cacheLock;
 
-    atomic<size_t> m_currentSizeInByte = 0;
+    std::atomic<size_t> m_currentSizeInByte = 0;
     size_t m_maxSizeInByte = 0;
     
     // 8B (reference)

@@ -19,7 +19,7 @@ public:
 
     }
 
-    void operator()(CPlan& p, int* finish_indicator = nullptr) {
+    void operator()(CPlan& p, volatile int* finish_indicator = nullptr) {
         if (finish_indicator) {
             *finish_indicator = 1;
         }
@@ -45,7 +45,12 @@ public:
 */
 class CDatasvc {
 public:
-    CDatasvc(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : m_page(engine_list, cacheSize, log), m_diskMan(nullptr), m_planCache(MAX_CACHED_SQL, nullptr) {
+
+
+    CDatasvc(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : 
+    m_page(engine_list, cacheSize, log), 
+    m_diskMan(nullptr), 
+    m_planCache(MAX_CACHED_SQL, nullptr) {
         m_diskMan.m_page = &m_page;
         m_sysSchema = new CSysSchemas(m_diskMan, m_page);
     }

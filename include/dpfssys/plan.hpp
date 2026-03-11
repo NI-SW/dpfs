@@ -2,7 +2,7 @@
 #pragma once
 #include <collect/collect.hpp>
 #include <tiparser/tiparser_enum.hpp>
-#define __PLAN_DEBUG__
+// #define __PLAN_DEBUG__
 
 struct CPlanObjects {
 

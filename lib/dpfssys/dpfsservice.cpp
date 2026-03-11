@@ -453,7 +453,7 @@ Status sysCtlServiceImpl::FetchNextRowSets(ServerContext* context, const dpfsgrp
 
         system->log.log_debug("rc = %d for fetching row number = %d for index iterator handle: %d for user: %s\n", rc, i, hidx, usr.username.c_str());
 
-        printMemory(rowData.getPtr(), rowData.getRowLen());
+        // printMemory(rowData.getPtr(), rowData.getRowLen());
         
         response->add_data(rowData.getPtr(), rowData.getRowLen());
 

@@ -25,9 +25,8 @@ public:
     CDiskMan() = delete;
     CDiskMan(CPage* pge) : m_page(pge), m_cbt(pge){};
     ~CDiskMan() {
-        #ifdef __DMDEBUG__
-                
-        cacheStruct *cs = nullptr;
+        #ifdef __DMDEBUG__     
+        cacheStruct* cs = nullptr;
         m_page->get(cs, {nodeId, 999}, 1);
         if (cs != nullptr) {
             cs->lock();

@@ -281,7 +281,7 @@ errReturn:
     return rc;
 }
 
-int CPage::put(const bidx& idx, void* zptr, int* finish_indicator, size_t len, bool wb, cacheStruct** pCache) {
+int CPage::put(const bidx& idx, void* zptr, volatile int* finish_indicator, size_t len, bool wb, cacheStruct** pCache) {
     // if(idx.gid >= m_engine_list.size()) {
     //     return -ERANGE;
     // }
@@ -481,17 +481,15 @@ errReturn:
     return rc;
 }
 
-int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
+int CPage::writeBack(cacheStruct* cache, volatile int* finish_indicator) {
     // TODO check if it need a lock 
     int rc = 0;
-
-
 
     dpfs_engine_cb_struct* cbs = alloccbs();// new dpfs_engine_cb_struct;
     if(!cbs) {
         m_log.log_error("can't malloc dpfs_engine_cb_struct, no memory\n");
         rc = -ENOMEM;
-        goto errReturn;
+        return rc;
     }
 
     cbs->m_arg = this;
@@ -526,7 +524,9 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
         cache->dirty = 0;
         pge->freecbs(cbs);
     };   
-
+    
+    CSpinGuard guard(m_cacheLock);
+    
     rc = cache->lock();
     if(rc) {
         // TODO process error
@@ -547,6 +547,24 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
             return -ENOMEM;
         }
 
+        cbs->m_cb = [cbs, finish_indicator](void* arg, const dpfs_compeletion* dcp){
+            CPage* pge = static_cast<CPage*>(arg);
+            if(dcp->return_code) {
+                pge->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
+                // write error
+                // TODO process error
+                if(finish_indicator) {
+                    *finish_indicator = -1;
+                }
+                pge->freecbs(cbs);
+                return;
+            }
+            if(finish_indicator) {
+                *finish_indicator = 1;
+            }
+            pge->freecbs(cbs);
+        };
+
         // write to 0 to refresh the indicator
         rc = m_engine_list[cache->idx.gid]->write(0, zptr, 1, cbs);
         if(rc < 0) {
@@ -559,6 +577,8 @@ int CPage::writeBack(cacheStruct *cache, int* finish_indicator) {
 
     cache->status = cacheStruct::WRITING;
     cache->unlock();
+
+
     rc = m_engine_list[cache->idx.gid]->write(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
     if(rc < 0) {
         // if error, unlock immediately, else unlock in callback
@@ -916,7 +936,7 @@ PageClrFn::~PageClrFn() {
 }
 
 // write back only
-void PageClrFn::operator()(cacheStruct*& p, int* finish_indicator) {
+void PageClrFn::operator()(cacheStruct*& p, volatile int* finish_indicator) {
     if (!p) {
         if (finish_indicator) {
             *finish_indicator = 1;
@@ -1015,7 +1035,7 @@ void PageClrFn::flush(const std::list<void*>& cacheList) {
     return;
 }
 
-void PageClrFn::clearCache(cacheStruct*& p, int* finish_indicator) {
+void PageClrFn::clearCache(cacheStruct*& p, volatile int* finish_indicator) {
     if (!p) {
         if (finish_indicator) {
             *finish_indicator = 1;

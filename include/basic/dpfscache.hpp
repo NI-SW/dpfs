@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <threadlock.hpp>
 // #define __DPFS_CACHE_DEBUG__
-#define __DPCACHE_DEBUG__
+// #define __DPCACHE_DEBUG__
 
 #ifdef __DPCACHE_DEBUG__
 #include <iostream>
@@ -21,7 +21,7 @@ template<class T>
 class CClearFunc {
     public:
     CClearFunc(void* initArg){}
-    void operator()(T& p, int* finish_indicator = nullptr) {
+    void operator()(T& p, volatile int* finish_indicator = nullptr) {
         // clear cache, for example, write back to disk if dirty
         // set finish_indicator to 1 when finish, set to negative value if error occurred
         #ifdef __DPCACHE_DEBUG__
@@ -76,7 +76,7 @@ public:
         size_t sz = m_cacheMap.size();
 
         if(sz > 0) {
-            int finish_indicator = 0;
+            volatile int finish_indicator = 0;
             m_lock.lock();
             for (auto cacheIt = m_cacheMap.begin(); cacheIt != m_cacheMap.end(); ++cacheIt) {
 

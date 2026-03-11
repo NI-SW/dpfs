@@ -13,7 +13,7 @@
 #include <dpendian.hpp>
 #include <unordered_map>
 
-#define __BPDEBUG__
+// #define __BPDEBUG__
 
 #ifdef __BPDEBUG__
 #include <iostream>
@@ -313,7 +313,7 @@ class CRowVec;
         m_rowPageSize(rowPageSize), 
         m_rowLen(rowLen) {
             #ifdef __BPDEBUG__
-            std::cout << "NodeData constructor called" << std::endl;
+            std::cout << "NodeData constructor called, pagesize = " << pageSize << "rowPageSize = " << rowPageSize << "rowLen = " << rowLen << std::endl;
             #endif
         };
         NodeData(const NodeData& nd) = delete;

@@ -121,10 +121,10 @@ int testnfhost(void* arg = nullptr) {
 				cbs->m_arg = cbs;
 
 
-				rc = nfhost.write(5242879 + i * 10, test[i % 100], 10, cbs); //10 * i + k * 100); //5242879
+				rc = nfhost.write(1590 + i * 10, test[i % 100], 10, cbs); //10 * i + k * 100); //5242879
 					
 			} else {
-				rc = nfhost.write(5242879 + i * 10, test[i % 100], 10);
+				rc = nfhost.write(1590 + i * 10, test[i % 100], 10);
 			}
 			if(rc < 0) {
 				++waitCount;
@@ -159,7 +159,7 @@ int testnfhost(void* arg = nullptr) {
 
 	reqs = 0;
 
-	rc = nfhost.read(10, test[5], 1);
+	rc = nfhost.read(1590 + start * 10, test[5], 1);
 	if(rc) {
 		reqs += rc;
 	} else {
@@ -168,7 +168,7 @@ int testnfhost(void* arg = nullptr) {
 	printf("rc = %d\n", rc);
 	// 等待全部操作完成
 	rc = nfhost.sync();
-	printf("Read data: %s\n", test[5]);
+	printf("Read from %llu data: %s\n", 1590 + start * 10, test[5]);
 
 
 	for(int i = 0; i < 100; ++i) {
@@ -209,6 +209,7 @@ int main() {
 		test.join();
 
 	// testnfhost();
+	printf(" test pass \n");
 	return 0;
 }
 

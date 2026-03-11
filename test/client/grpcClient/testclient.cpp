@@ -453,16 +453,24 @@ int main(int argc, char* argv[]) {
         // memcpy(const_cast<char*>(traceCode.data()), &spxxbBidx, sizeof(spxxbBidx));
         // memcpy(const_cast<char*>(traceCode.data()) + sizeof(spxxbBidx), &productionId, sizeof(productionId));
 
+        // 计算耗时
+        auto start = std::chrono::high_resolution_clock::now();
+
+
         rc = client.traceBack(traceCode, traceResult, true);
         if (rc != 0) {
             cout << "Trace back failed, error code: " << rc << endl;
             cout << "Error message: " << client.msg << endl;
             // return rc;
         } else {
+            auto end = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double, std::milli> elapsed = end - start;
             cout << "Trace back successfully" << endl;
             cout << "Message: " << client.msg << endl;
             cout << "Trace back result: \n\n" << traceResult << endl;
+            std::cout << "Elapsed time: " << elapsed.count() << " ms\n";
         }
+
     }
 
 #endif

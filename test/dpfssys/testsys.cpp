@@ -5,7 +5,7 @@
 #include <dpfssys/dpfsdata.hpp>
 #include <parser/dpfsparser.hpp>
 #include <dpfssys/user.hpp>
-
+#include <dpfsdebug.hpp>
 using namespace std;
 
 volatile bool g_exit = false;
@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
     Analy_Input(argc, argv);
 
 
-    dpfsSystem* a;
+    dpfsSystem* a = nullptr;
     int rc = 0;
     try {
         a = new dpfsSystem(config_file.c_str());
@@ -39,6 +39,7 @@ int main(int argc, char** argv) {
         if(rc != 0) {
             cerr << "Failed to start dpfsSystem, rc=" << rc << endl;
             delete a;
+            a = nullptr;
             return rc;
         }
         cout << "dpfsSystem started successfully." << endl;
@@ -53,6 +54,7 @@ int main(int argc, char** argv) {
             cerr << "Failed to initialize data system, rc=" << rc << endl;
             a->stop();
             delete a;
+            a = nullptr;
             return rc;
         }
         cout << "data System initialized." << endl;
@@ -62,6 +64,7 @@ int main(int argc, char** argv) {
             cerr << "Failed to load data system, rc=" << rc << endl;
             a->stop();
             delete a;
+            a = nullptr;
             return rc;
         }
         cout << "data System loaded." << endl;
@@ -113,7 +116,7 @@ int main(int argc, char** argv) {
 
 
 
-    char buffer[64];
+    char buffer[MAXKEYLEN];
     KEY_T key(buffer, sizeof(buffer), a->dataService->m_sysSchema->systemboot.m_cmpTyps);
 
 
@@ -122,6 +125,7 @@ int main(int argc, char** argv) {
     cout << "get version: " << endl;
     key.len = sizeof("VERSION");
     memcpy(key.data, "VERSION", key.len);
+
     // for one row
 
     auto& sysBoot = a->dataService->m_sysSchema->systemboot;
@@ -190,7 +194,7 @@ int main(int argc, char** argv) {
 
 
 
-    // a->stop();
+    a->stop();
     delete a;
     return 0;
 }

@@ -3,7 +3,7 @@
 #include <collect/bp.hpp>
 
 
-#define __DPFSSYS_SYSTAB_DEBUG__
+// #define __DPFSSYS_SYSTAB_DEBUG__
 
 #ifdef __DPFSSYS_SYSTAB_DEBUG__
 #include <dpfsdebug.hpp>
@@ -12,33 +12,9 @@
 
 class CSysSchemas {
 public:
-    CSysSchemas(CDiskMan& diskman, CPage& page) : 
-    m_diskman(diskman), 
-    m_page(page), 
-    systemboot(m_diskman, m_page),
-    systables(m_diskman, m_page),
-    syscolumns(m_diskman, m_page),
-    sysconstraints(m_diskman, m_page),
-    sysindexes(m_diskman, m_page),
-    sysusers(m_diskman, m_page),
-    sysschemas(m_diskman, m_page),
-    sysauths(m_diskman, m_page),
-    systraceables(m_diskman, m_page) {
-        
-    };
+    CSysSchemas(CDiskMan& diskman, CPage& page);
     
-    ~CSysSchemas() {
-
-        systemboot      .save();
-        systables       .save();
-        syscolumns      .save();
-        sysconstraints  .save();
-        sysindexes      .save();
-        sysusers        .save();
-        sysschemas      .save();
-        sysauths        .save();
-        systraceables   .save();
-    };
+    ~CSysSchemas();
     
 
     /*

@@ -368,7 +368,7 @@ int CCollection::commit() {
         size_t real_lba_len = 0;
 
         // indicator for write complete
-        int indicator = 0;
+        volatile int indicator = 0;
         for(size_t pos = 0; pos < totalDataBlocks; ) {
             if (m_tempStorage.size() <= 0) {
                 break;
@@ -1258,7 +1258,7 @@ int CCollection::save() {
         |perm 1B|nameLen 1B|dataroot 2B|collection name|columns|
     */
     int rc = 0;
-    int indicate = 0;
+    volatile int indicate = 0;
 
     if (!inited) {
         return -EINVAL;
@@ -1270,11 +1270,22 @@ int CCollection::save() {
     }
 
     if (m_cltInfoCache) {
+        // refresh the cache, if not do this, may cause system crash(corrupted double-linked list)
+        cacheLocker cl(m_cltInfoCache, m_page);
+        CTemplateReadGuard guard(cl);
+        if (guard.returnCode() != 0) {
+            rc = guard.returnCode();
+            message = "read lock collection info cache failed.";
+            return rc;
+        }
+        guard.release();
+
         // if is load from disk, write back the disk rather than put new block
         rc = m_page.writeBack(m_cltInfoCache, &indicate);
         if (rc != 0) {
             goto errReturn;
         }
+
         while(!indicate) {
             // write back not finished, wait
         }

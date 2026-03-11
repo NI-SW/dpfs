@@ -4,6 +4,33 @@
 extern uint64_t nodeId;
 using cf = CColumn::constraint_flags;
 
+CSysSchemas::CSysSchemas(CDiskMan& diskman, CPage& page) : 
+m_diskman(diskman), 
+m_page(page), 
+systemboot(m_diskman, m_page),
+systables(m_diskman, m_page),
+syscolumns(m_diskman, m_page),
+sysconstraints(m_diskman, m_page),
+sysindexes(m_diskman, m_page),
+sysusers(m_diskman, m_page),
+sysschemas(m_diskman, m_page),
+sysauths(m_diskman, m_page),
+systraceables(m_diskman, m_page) {
+    
+};
+
+CSysSchemas::~CSysSchemas() {
+    systemboot      .save();
+    systables       .save();
+    syscolumns      .save();
+    sysconstraints  .save();
+    sysindexes      .save();
+    sysusers        .save();
+    sysschemas      .save();
+    sysauths        .save();
+    systraceables   .save();
+};
+
 /*
     systab init sequence:
     1. boottab
@@ -25,10 +52,12 @@ int CSysSchemas::init() {
     rc = initBootTab(tmpbid); if (rc != 0) { return -ENOMEM; }
 
     cacheLocker cl(systemboot.m_cltInfoCache, systemboot.m_page);
-    rc = cl.read_lock(); if (rc != 0) { return rc; }
+    CTemplateReadGuard readGuard(cl);
+    if (readGuard.returnCode()!= 0) { return rc; }
     CCollection::collectionStruct sysbootcs(systemboot.m_cltInfoCache->getPtr(), systemboot.m_cltInfoCache->getLen() * dpfs_lba_size);
-    CItem itm(sysbootcs.m_cols, 16);
-    cl.read_unlock();
+    CItem itm(sysbootcs.m_cols, 32);
+    readGuard.release();
+
  
     // VERSION
     rc = itm.updateValue(0, "VERSION", sizeof("VERSION"));              if (rc < 0) { goto errReturn; }

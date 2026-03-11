@@ -5,7 +5,7 @@
 #include <grpcpp/grpcpp.h>
 #include <proto/sysrpc.grpc.pb.h>
 
-#define __DEBUG_GRPCSERVICE__
+// #define __DEBUG_GRPCSERVICE__
 
 using grpc::Server;
 using grpc::ServerBuilder;

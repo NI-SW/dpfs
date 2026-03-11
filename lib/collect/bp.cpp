@@ -102,7 +102,7 @@ CBPlusTree::~CBPlusTree() {
 }
 
 int CBPlusTree::commit() {
-    int lastIndicator = 0;
+    volatile int lastIndicator = 0;
     int rc = 0;
 
     if (m_commitCache.empty()) {
