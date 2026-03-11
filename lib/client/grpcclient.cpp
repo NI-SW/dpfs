@@ -450,6 +450,11 @@ int CGrpcCli::traceBack(const std::string& trace_code, std::string& trace_result
         return -EINVAL; // Not logged in
     }
 
+    if (trace_code.size() != sizeof(bidx) + sizeof(int32_t)) {
+        msg = "Invalid trace code format.";
+        return -EINVAL; // Invalid trace code format
+    }
+
     dpfsgrpc::TraceBackReq request;
     request.set_husr(husr);
     request.set_trace_code(trace_code);

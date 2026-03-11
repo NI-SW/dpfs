@@ -525,7 +525,7 @@ int CPage::writeBack(cacheStruct* cache, volatile int* finish_indicator) {
         pge->freecbs(cbs);
     };   
     
-    CSpinGuard guard(m_cacheLock);
+    // CSpinGuard guard(m_cacheLock);
     
     rc = cache->lock();
     if(rc) {

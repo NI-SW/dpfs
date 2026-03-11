@@ -251,7 +251,7 @@ int main(int argc, char* argv[]) {
 
 #else
 
-    #ifdef __TEST_TRACEBACK__ || __TEST_TRACEBACK_SECOND__
+    #ifdef __TEST_TRACEBACK__
     fstream inTraceCode("trace_code_prefix.bin", ios::in | ios::binary);
     if (!inTraceCode) {
         cout << "Failed to open file for reading trace code prefix" << endl;
@@ -359,6 +359,9 @@ int main(int argc, char* argv[]) {
 #endif
 
 #ifdef __TEST_MAKETRADEE_SECOND__
+#ifndef __TEST_TRACEBACK__
+
+#else
 
     cout << "---------------------------------------------------------------------second test make trade---------------------------------------------------------------------" << endl;
 
@@ -373,7 +376,7 @@ int main(int argc, char* argv[]) {
         cout << "Message: " << client.msg << endl;
         cout << "Trade ID: " << tradeId << endl;
     }
-
+#endif
 #endif
 
 #ifdef __TEST_TRACEBACK_SECOND__
@@ -428,6 +431,93 @@ int main(int argc, char* argv[]) {
         cin >> inputTraceCode;
         if (inputTraceCode == "q") {
             break;
+        } else if (inputTraceCode == "m") {
+            // make trade
+            tradeId.clear();
+
+            std::vector<std::string> tradeParam;
+            tradeParam.resize(14);
+            cout << "input struct schema : ";
+            cin >> tradeParam[0];
+            cout << endl;
+
+            cout << "input struct name : ";
+            cin >> tradeParam[1];
+            cout << endl;
+
+            cout << "input 交易ID : ";
+            cin >> tradeParam[2];
+            cout << endl;
+            
+            cout << "input 交易商品起始编号 : ";
+            cin >> tradeParam[3];
+            cout << endl;
+            
+            cout << "input 交易商品数量 : ";
+            cin >> tradeParam[4];
+            cout << endl;
+
+            cout << "input 买方名称 : ";
+            cin >> tradeParam[5];
+            cout << endl;
+
+            cout << "input 买方地址 : ";
+            cin >> tradeParam[6];
+            cout << endl;
+
+            cout << "input 买方联系方式 : ";
+            cin >> tradeParam[7];
+            cout << endl;
+
+            cout << "input 卖方名称 : ";
+            cin >> tradeParam[8];
+            cout << endl;
+
+            cout << "input 卖方地址 : ";
+            cin >> tradeParam[9];
+            cout << endl;
+
+            cout << "input 卖方联系方式 : ";
+            cin >> tradeParam[10];
+            cout << endl;
+
+            cout << "input 物流信息 : ";
+            cin >> tradeParam[11];
+            cout << endl;
+
+            cout << "input 备注 : ";
+            cin >> tradeParam[12];
+            cout << endl;
+
+            cout << "input 交易金额 : ";
+            cin >> tradeParam[13];
+            cout << endl;
+
+            rc = client.makeTrade(
+                tradeParam[0], 
+                tradeParam[1], 
+                atoll(tradeParam[2].c_str()), 
+                atoll(tradeParam[3].c_str()), 
+                atoll(tradeParam[4].c_str()), 
+                tradeParam[5],  
+                tradeParam[6], 
+                tradeParam[7], 
+                tradeParam[8], 
+                tradeParam[9], 
+                tradeParam[10], 
+                tradeParam[11], 
+                tradeParam[12], 
+                tradeParam[13]);
+            if (rc != 0) {
+                cout << "Make trade failed, error code: " << rc << endl;
+                cout << "Error message: " << client.msg << endl;
+                // return rc;
+            } else {
+                cout << "Make trade successfully" << endl;
+                cout << "Message: " << client.msg << endl;
+                cout << "Trade ID: " << tradeId << endl;
+            }
+            continue;
         }
 
         // |SPXXB BIDX(16B)|PRODUCTION ID(4B)|
