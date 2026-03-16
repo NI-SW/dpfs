@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
         }
         cout << "data System initialized." << endl;
     } else {
-        rc = a->dataService->load();
+        rc = a->loadDataSvc();
         if(rc != 0) {
             cerr << "Failed to load data system, rc=" << rc << endl;
             a->stop();

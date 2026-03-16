@@ -3,8 +3,13 @@
 #include <parser/dpfsparser.hpp>
 #include <mysql_decimal/my_decimal.h>
 
-constexpr char SPXXBDEF[] = "(name char(32) NOT NULL PRIMARY KEY, value char(128) NOT NULL)";
-constexpr char PLKZBDEF[] = "(name char(64) NOT NULL PRIMARY KEY, bidx binary(16) NOT NULL)";
+constexpr char SPXXBDEF[] = "(\
+name char(32) NOT NULL PRIMARY KEY, \
+value char(128) NOT NULL)";
+constexpr char PLKZBDEF[] = "(\
+name char(64) NOT NULL PRIMARY KEY, \
+bidx binary(16) NOT NULL, \
+percentage decimal(5, 2) NOT NULL)";
 constexpr char SPJYBDEF[] = "(\
                 JYID BIGINT not null primary key, \
                 SPJYQSID INT NOT NULL, \
@@ -729,13 +734,16 @@ create table manager.apple_SPXXB
         return Status::OK;
     }
     CCollection::collectionStruct cs(ingredient.m_cltInfoCache->getPtr(), ingredient.m_cltInfoCache->getLen() * dpfs_lba_size);
-    CItem itmIngre(cs.m_cols, request->ingredient_names().size());
+    int ingPctLen = cs.m_cols[2].getDds().genLen;
+    int ingPctScale = cs.m_cols[2].getScale();
+
+    CItem itmIngre(cs.m_cols, request->ingredient_infos().size());
     ingGuard.release();
 
     // init ingradient table
     bool theFirst = true;
-    for (const auto& it : request->ingredient_names()) {
-        val.resetData(it.data(), it.size());
+    for (const auto& it : request->ingredient_infos()) {
+        val.resetData(it.first.data(), it.first.size());
         
         if (!theFirst) {
             itmIngre.nextRow();
@@ -751,9 +759,34 @@ create table manager.apple_SPXXB
 
         // search in system table. find the bidx of the ingredient table, and insert the ingredient names into the table
         // test data
-        bidx testidx = {0, 7890};
+        bidx testidx = {0, 7890};// = GetTargetTableBidx;
         val.resetData(&testidx, sizeof(testidx));
         itmIngre.updateValue(1, val);
+
+        // transform percentage string to binary and insert into table
+        uint8_t pctbin[16];
+        my_decimal dec;
+        const char* end = it.second.c_str() + it.second.size();
+        rc = str2my_decimal(0, it.second.c_str(), &dec, &end);
+        if (rc != 0) {
+            system->log.log_error("Failed to convert percentage string to decimal for ingredient: %s, value: %s, rc=%d\n", it.first.c_str(), it.second.c_str(), rc);
+            response->set_msg("Failed to convert percentage string to decimal for ingredient: " + it.first + ", value: " + it.second);
+            response->set_rc(rc);
+            return Status::OK;
+        }
+        rc = my_decimal2binary(0, &dec, pctbin, ingPctLen, ingPctScale);
+        if (rc != 0) {
+            system->log.log_error("Failed to convert percentage string to binary for ingredient: %s, value: %s, rc=%d\n", it.first.c_str(), it.second.c_str(), rc);
+            response->set_msg("Failed to convert percentage string to binary for ingredient: " + it.first + ", value: " + it.second);
+            response->set_rc(rc);
+            return Status::OK;
+        }
+
+        int binLen = my_decimal_get_binary_size(ingPctLen, ingPctScale);
+
+        // update percentage of the ingredient
+        val.resetData(pctbin, binLen);
+        itmIngre.updateValue(2, val);
     }
 
     rc = ingredient.addItem(itmIngre);
@@ -861,6 +894,8 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
     bidx spxxbBidx = *(bidx*)request->trace_code().data();
     int32_t productionId = *(int32_t*)(request->trace_code().data() + sizeof(bidx));
     std::string result = "";
+    result.reserve(1024);
+
     int rc = 0;
 
     // check if the trace Table exists.
@@ -1195,6 +1230,8 @@ int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std:
         system->log.log_error("Failed to load collection for trade record table in trace back, bidx: (%d, %d), rc=%d\n", bidx.gid, bidx.bid, rc);
         return -1;
     }
+    int pctdecLen = 0;
+    int pctdecScale = 0;
 
 
     cacheLocker clplkzb(plkzb.m_cltInfoCache, system->dataService->m_page);
@@ -1205,6 +1242,8 @@ int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std:
 
     CCollection::collectionStruct csplkzb(plkzb.m_cltInfoCache->getPtr(), plkzb.m_cltInfoCache->getLen() * dpfs_lba_size);
     CItem itmplkzb(csplkzb.m_cols);
+    pctdecLen = csplkzb.m_cols[2].getDds().genLen;
+    pctdecScale = csplkzb.m_cols[2].getScale();
     gplkzb.release();
 
     // scan the table
@@ -1228,11 +1267,20 @@ int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std:
 
         CValue name = itmplkzb.getValue(0);
         CValue idx = itmplkzb.getValue(1);
+        CValue percentage = itmplkzb.getValue(2);
 /*
         name char(32) not null primary key,   // 物料名称
         bidx binary(16) NOT NULL
 */
         result += "Ingredient Name: " + std::string(name.data) + "\n";
+
+        // transfrom percentage to string with 2 decimal places
+        my_decimal pctdec;
+        binary2my_decimal(0, (unsigned char*)percentage.data, &pctdec, pctdecLen, pctdecScale);
+        String pctdecStr;
+        my_decimal2string(0, &pctdec, &pctdecStr);
+
+        result += "Ingredient Percentage: " + std::string(pctdecStr.ptr()) + "\n";
 
 
         // |SPXXB BIDX(16B)|PRODUCTION ID(4B)|
@@ -1480,6 +1528,22 @@ nextTrade   5 5 5 6 7 7 7 8 8 9
     // FSJE DECIMAL(16, 4)                  // 发生金额        12 
     // )
     // get the first item's lastTradeId, update the trade infos, then update the productions.
+
+/*
+
+对于商品ID不连续的交易执行切片，如
+|                                      100                                        |
+|          ID=1(0,50)         |           ID=2(50,20)           |
+
+            |        ID=3(40,20)             |
+            | ID=3(40,10)     | ID=4(50,10)  |
+
+由于ID=3的商品跨过了ID=1和ID=2的边界，将ID=3的商品切分为两笔交易，向客户端返回实际产生的交易笔数与对应的交易ID，客户端可以根据交易ID查询每笔交易的详情。
+
+
+                  
+
+*/
 
     int64_t jyid = request->jyid();
     int32_t begin = request->start_uid();

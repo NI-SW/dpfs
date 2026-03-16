@@ -347,6 +347,20 @@ int dpfsSystem::initDataSvc() {
     return 0; // Return 0 on success
 }
 
+int dpfsSystem::loadDataSvc() {
+    CRecursiveGuard guard(m_lock);
+
+    if(!dataService) {
+        return -EINVAL;
+    }
+
+    int rc = dataService->load(engine_list[nodeId]->size());
+    if(rc != 0) {
+        return rc; // Return error if initialization fails
+    }
+    return 0; // Return 0 on success
+}
+
 int dpfsSystem::readConfig() {
     // Read configuration from the file
     rapidjson::Document doc;

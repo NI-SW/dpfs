@@ -1111,6 +1111,7 @@ public:
             bidx m_dataEnd {0, 0};
             CCollectIndexInfo m_indexInfos[MAX_INDEX_NUM];
             // ccid: CCollection ID, used to identify the collection info 4B
+            int64_t m_autoIncreaseKey = 0;
             uint32_t m_ccid = 0;
             union{
                 struct perms {
@@ -1127,7 +1128,8 @@ public:
                     // wether use b+ tree index
                     bool m_btreeIndex : 1;
                     bool m_systab : 1;
-                    bool : 7;
+                    bool m_autoIncrease : 1;
+                    bool : 6;
                 } perm;
                 uint16_t permByte = 0;
             } m_perms;
@@ -1156,7 +1158,7 @@ public:
         CFixLenVec<CColumn, uint8_t, MAX_COL_NUM> m_cols;
         CFixLenVec<CCollectIndexInfo, uint8_t, MAX_INDEX_NUM> m_indexInfos;
     }; // * m_collectionStruct = nullptr;
-    #pragma pack(pop, 8)
+    #pragma pack(pop)
     // inner locker 1B
     CSpin m_lock;
     CBPlusTree* m_btreeIndex = nullptr;

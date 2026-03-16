@@ -50,11 +50,12 @@ errReturn:
     return rc;
 }
 
-int CDatasvc::load() {
+int CDatasvc::load(size_t diskSize) {
     // load include node id
     int rc = 0;
     // TODO
 
+    m_diskMan.addBidx(nodeId, diskSize);
     rc = m_diskMan.load();
     if(rc != 0) {
         goto errReturn;

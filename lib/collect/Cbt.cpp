@@ -285,7 +285,7 @@ bool Cbt::Load() {
     // 磁盘组号
     if(!m_gidOffset.empty())
     {
-        testbid.gid = m_gidOffset[0];
+        testbid.gid = nodeId; // m_gidOffset[0];
     }else{
         testbid.gid = nodeId;
     }
@@ -294,8 +294,8 @@ bool Cbt::Load() {
 
     // 保存读取出来数据的结构，可以考虑写死在cbt里？
     // cacheStruct* m_pagePtr[cbtMaxBlocks];
-    auto ptr = new cacheStruct*[1];
-
+    auto ptr = new cacheStruct*;
+    ptr[0] = nullptr;
     // read from disk
     int rc = m_page->get(ptr[0], testbid, 1);
     if(rc) {
@@ -343,7 +343,8 @@ bool Cbt::Load() {
          m_header.Cbtbid[nowCbtPages].bid != testbid.bid) &&
           cbtOffset < m_header.item)
     {
-        auto ptr = new cacheStruct*[1];
+        auto ptr = new cacheStruct*;
+        ptr[0] = nullptr;
 
         // read from disk
         int rc = m_page->get(ptr[0], m_header.Cbtbid[nowCbtPages], 1);

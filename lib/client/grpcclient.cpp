@@ -408,7 +408,7 @@ int CGrpcCli::fetchNextRowSets(const IDXHANDLE& hidx) {
 }
 
 int CGrpcCli::createTracablePro(const std::string& schema_name, const std::string& structure_name, 
-    const std::map<std::string, std::string>& base_info, const std::vector<std::string>& ingredient_names, int32_t total_production_num, std::string& traceCodePrefix) {
+    const std::map<std::string, std::string>& base_info, const std::map<std::string, std::string>& ingredient_infos, int32_t total_production_num, std::string& traceCodePrefix) {
     
     if (husr == -1) {
         msg = "User not logged in.";
@@ -422,8 +422,8 @@ int CGrpcCli::createTracablePro(const std::string& schema_name, const std::strin
     for (const auto& pair : base_info) {
         (*request.mutable_base_info())[pair.first] = pair.second;
     }
-    for (const auto& ingredient : ingredient_names) {
-        request.add_ingredient_names(ingredient);
+    for (const auto& ingredient : ingredient_infos) {
+        (*request.mutable_ingredient_infos())[ingredient.first] = ingredient.second;
     }
     request.set_total_production_num(total_production_num);
 

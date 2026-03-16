@@ -49,9 +49,9 @@ public:
 
     CDatasvc(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log) : 
     m_page(engine_list, cacheSize, log), 
-    m_diskMan(nullptr), 
+    m_diskMan(&m_page), 
     m_planCache(MAX_CACHED_SQL, nullptr) {
-        m_diskMan.m_page = &m_page;
+        // m_diskMan.m_page = &m_page;
         m_sysSchema = new CSysSchemas(m_diskMan, m_page);
     }
     ~CDatasvc() {
@@ -70,7 +70,7 @@ public:
         @return 0 on success, else on failure
         @note load super block to boot dpfs system.
     */
-    int load();
+    int load(size_t diskSize);
 
     // /*
     //     @return 0 on success, else on failure

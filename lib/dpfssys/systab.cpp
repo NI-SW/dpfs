@@ -185,15 +185,15 @@ int CSysSchemas::load() {
 */
     int rc = 0;
     bidx sysBidx = {nodeId, 16};
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = systemboot.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = systables.loadFrom(sysBidx);          sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = syscolumns.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysconstraints.loadFrom(sysBidx);     sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysindexes.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysusers.loadFrom(sysBidx);           sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysschemas.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = sysauths.loadFrom(sysBidx);           sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }     
-    cout << "table from" << sysBidx.gid << "." << sysBidx.bid << endl; rc = systraceables.loadFrom(sysBidx);      sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; } 
+    rc = systemboot.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = systables.loadFrom(sysBidx);          sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = syscolumns.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysconstraints.loadFrom(sysBidx);     sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysindexes.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysusers.loadFrom(sysBidx);           sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysschemas.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
+    rc = sysauths.loadFrom(sysBidx);           sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }     
+    rc = systraceables.loadFrom(sysBidx);      sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; } 
     return 0;
 }
 

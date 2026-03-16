@@ -1271,23 +1271,23 @@ private:
         return m_pageSize;
     }
 
-    union nodeHdr {
-        nodeHdr(){}
-        #pragma pack(push, 1)
-        struct hdr_t {
-            uint64_t parent = 0; // parent bid
-            uint64_t prev = 0;   // leaf prev bid
-            uint64_t next = 0;   // leaf next bid
-            uint16_t count = 0;
-            uint16_t secondCount = 0; // childVec or rowVec count 
-            uint8_t leaf = true;
-            uint8_t isConverted = 0;
-            uint8_t childIsLeaf = 0;
-            char reserve[3];
-        } hdr;
-        uint8_t data[dpfs_lba_size];
-        #pragma pack(pop)
-    };
+    // union nodeHdr {
+    //     nodeHdr(){}
+    //     #pragma pack(push, 1)
+    //     struct hdr_t {
+    //         uint64_t parent = 0; // parent bid
+    //         uint64_t prev = 0;   // leaf prev bid
+    //         uint64_t next = 0;   // leaf next bid
+    //         uint16_t count = 0;
+    //         uint16_t secondCount = 0; // childVec or rowVec count 
+    //         uint8_t leaf = true;
+    //         uint8_t isConverted = 0;
+    //         uint8_t childIsLeaf = 0;
+    //         char reserve[1];
+    //     } hdr;
+    //     uint8_t data[dpfs_lba_size];
+    //     #pragma pack(pop)
+    // };
 
     /*
         @param idx: node index to load

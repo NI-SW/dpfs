@@ -1444,6 +1444,7 @@ int CCollection::initialize(const CCollectionInitStruct& initStruct, const bidx&
     // }
     m_collectionBid = tempBlock;
     cs.ds->m_ccid = initStruct.id;
+    cs.ds->m_autoIncreaseKey = 0;
     memcpy(cs.ds->m_name, initStruct.name.c_str(), initStruct.name.size());
     cs.ds->m_nameLen = initStruct.name.size();
     m_name.assign(initStruct.name);

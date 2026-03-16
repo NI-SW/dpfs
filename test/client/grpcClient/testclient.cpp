@@ -37,7 +37,7 @@ int main(int argc, char* argv[]) {
     bidx spxxbBidx = {0, 0}; 
     int val = 9980;
 
-    
+
 
     std::string ip = "127.0.0.1";
     std::string port = "20500";
@@ -221,14 +221,15 @@ int main(int argc, char* argv[]) {
 #ifdef __TEST_CREATETRACABLEPRO__
 
     std::map<std::string, std::string> base_info;
-
+    std::map<std::string, std::string> ingrendian_info;
     base_info["type"] = "apple";
     base_info["validDate"] = "2024-01-01";
     base_info["brand"] = "洛川苹果";
-
+    ingrendian_info["INGRE1"] = "10";
+    ingrendian_info["INGRE2"] = "12.5";
     
 
-    rc = client.createTracablePro("OOO", "APPLE", base_info, {"INGRE1", "INGRE2"}, 100, traceCodePrefix);
+    rc = client.createTracablePro("OOO", "APPLE", base_info, ingrendian_info, 100, traceCodePrefix);
     if (rc != 0) {
         cout << "Create traceable production failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -429,6 +430,11 @@ int main(int argc, char* argv[]) {
         string inputTraceCode;
         cout << "input trace code: ";
         cin >> inputTraceCode;
+
+        // std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+        // inputTraceCode = "00000000000000000b040000000000000f000000";
+
         if (inputTraceCode == "q") {
             break;
         } else if (inputTraceCode == "m") {
@@ -626,7 +632,7 @@ int printTable(CGrpcCli& client, const std::string& schema, const std::string& t
     std::string gval;
 
     for (int i = 0; i < 20000; ++i) {
-        for (int j = 0; j < colInfo.size(); ++j) {
+        for (uint32_t j = 0; j < colInfo.size(); ++j) {
             rc = client.getDataByIdxIter(hidx, j, gval);
             if (rc != 0) {
                 cout << "Get row by index iterator failed, error code: " << rc << endl;

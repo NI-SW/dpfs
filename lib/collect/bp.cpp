@@ -2262,13 +2262,3 @@ int nodeLocker::reinitStruct() {
 
     return rc;
 }
-
-// class nodeLocker : public cacheLocker {
-// public:
-//     nodeLocker();
-//     virtual ~nodeLocker();
-//     virtual int reinitStruct() override;
-//     CBPlusTree::NodeData& m_nd;
-//     bool m_isLeaf;
-//     const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& m_keyType;
-// };

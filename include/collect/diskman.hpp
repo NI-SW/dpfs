@@ -5,12 +5,11 @@
 #include <list>
 
 // diskman debug flag
-#define __DMDEBUG__
+// #define __DMDEBUG__
 
 #ifdef __DMDEBUG__
 #include <iostream>
 using namespace std;
-
 #endif
 
 /*

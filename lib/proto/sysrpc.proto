@@ -46,6 +46,13 @@ service SysCtl {
   // rpc deleteItem      (htable) returns (operateReply) {}
   // 输入表名，删除表
   // rpc dropTable       (htable) returns (operateReply) {}
+
+  // 加入分布式组
+  // rpc JoinGroup (JoinGroupRequest) returns (JoinGroupReply) {}
+
+  // 请求不属于本节点，转发请求
+  // rpc RequestForward (RequestForwardRequest) returns (RequestForwardReply) {}
+
 }
 
 // 溯源信息包括：
@@ -206,7 +213,9 @@ message CreateTracableProReq {
   string schema_name = 2;
   string structure_name = 3;
   map<string, string> base_info = 4; // 需要包含特定列名和对应的值，例如：SPKZB表中的bidx列和具体的bidx值
-  repeated string ingredient_names = 5; // 需要追溯的原料控制表名
+  // <配料名称，配料占比>
+  map<string, string> ingredient_infos = 5;
+  // repeated string ingredient_names = 5; // 需要追溯的原料控制表名
   int32 total_production_num = 6; // 总商品量
 }
 

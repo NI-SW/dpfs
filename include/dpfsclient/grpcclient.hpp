@@ -84,7 +84,7 @@ public:
         @param repeated string ingredient_names = 5; // 需要追溯的原料控制表名
     */
     int createTracablePro(const std::string& schema_name, const std::string& structure_name, 
-        const std::map<std::string, std::string>& base_info, const std::vector<std::string>& ingredient_names, int32_t total_production_num, std::string& traceCodePrefix);
+        const std::map<std::string, std::string>& base_info, const std::map<std::string, std::string>& ingredient_infos, int32_t total_production_num, std::string& traceCodePrefix);
 
     /*
         @param trace_code the code to identify the table of production's base info and production unique id.
