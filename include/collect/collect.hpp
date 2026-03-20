@@ -776,11 +776,11 @@ public:
         
         int assign(const void* it, int idxPos, cacheStruct* cache, bool isPkIdx = false);
         friend class CCollection;
-        uint8_t* m_collIdxIterPtr;
         int indexInfoPos = -1;
         // CCollectIndexInfo* indexInfo = nullptr;
         cacheStruct* cache = nullptr;
         bool isPkIter = false;
+        uint8_t* m_collIdxIterPtr;
     };
 
     // use ccid to locate the collection (search in system collection table)
@@ -1190,4 +1190,5 @@ public:
 //     sizeof(CCollectIndexInfo);
 //     sizeof(CColumn);
 //     sizeof(CCollection::collectionStruct::dataStruct_t);
+//     sizeof(cmpType);
 // }
