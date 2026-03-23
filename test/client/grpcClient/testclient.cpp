@@ -15,6 +15,7 @@ using namespace std;
 // #define __TEST_TRACEBACK_SECOND__
 // #define __TEST_MAKETRADEE__
 // #define __TEST_MAKETRADEE_SECOND__
+// #define __TEST_MAKETRADEE_LOTS__
 #define __TEST_VARTRACE__
 
 volatile bool g_exit = false;
@@ -229,7 +230,7 @@ int main(int argc, char* argv[]) {
     ingrendian_info["INGRE2"] = "12.5";
     
 
-    rc = client.createTracablePro("OOO", "APPLE", base_info, ingrendian_info, 100, traceCodePrefix);
+    rc = client.createTracablePro("OOO", "APPLE", base_info, ingrendian_info, 1000, traceCodePrefix);
     if (rc != 0) {
         cout << "Create traceable production failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -413,6 +414,45 @@ int main(int argc, char* argv[]) {
 
 #endif
 
+#ifdef __TEST_MAKETRADEE_LOTS__
+    cout << "---------------------------------------------------------------------second test make trade---------------------------------------------------------------------" << endl;
+/*
+100 - 300
+110 - 290
+115 - 285
+120 - 280
+125 - 275
+130 - 270
+135 - 265
+140 - 260
+145 - 255
+150 - 250
+155 - 245
+160 - 240
+165 - 235
+170 - 230
+175 - 225
+180 - 220
+185 - 215
+190 - 210
+192 - 208
+195 - 205
+*/
+    tradeId.clear();
+    for (int i = 0; i < 900; ++i) {
+        rc = client.makeTrade("OOO", "APPLE", i,  i, 900, "TESTNAME", "TESTADDRESS", "TESTPHONE", "TESTFNAME", "TESTFADDRESS", "TESTFPHONE", "TEST上海虹桥冷链运输车牌1234567至北京市大兴区", "TEST交易日期:2026-03-10", "50.201");
+        if (rc != 0) {
+            cout << "Make trade failed, error code: " << rc << endl;
+            cout << "Error message: " << client.msg << endl;
+            // return rc;
+        } else {
+            cout << "Make trade successfully" << endl;
+            cout << "Message: " << client.msg << endl;
+            cout << "Trade ID: " << tradeId << endl;
+        }
+    }
+
+#endif
 
 #ifdef __TEST_VARTRACE__
 
@@ -563,7 +603,7 @@ int main(int argc, char* argv[]) {
             std::chrono::duration<double, std::milli> elapsed = end - start;
             cout << "Trace back successfully" << endl;
             cout << "Message: " << client.msg << endl;
-            cout << "Trace back result: \n\n" << traceResult << endl;
+            // cout << "Trace back result: \n\n" << traceResult << endl;
             std::cout << "Elapsed time: " << elapsed.count() << " ms\n";
         }
 

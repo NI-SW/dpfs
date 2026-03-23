@@ -1401,8 +1401,8 @@ private:
     uint32_t maxkeyCount = 0;
     uint32_t m_rowLen = 0;
     uint16_t keyLen = 0;
-    uint8_t m_indexOrder = 0;
-    uint8_t m_rowOrder = 0;
+    int32_t m_indexOrder = 0;
+    int32_t m_rowOrder = 0;
     uint8_t m_pageSize = 0; // requested page blocks per fetch
     uint8_t m_rowPageSize = 0; // requested page blocks per fetch for row page
     CSpin m_lock;
