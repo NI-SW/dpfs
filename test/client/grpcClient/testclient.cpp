@@ -439,18 +439,23 @@ int main(int argc, char* argv[]) {
 195 - 205
 */
     tradeId.clear();
+    auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < 900; ++i) {
         rc = client.makeTrade("OOO", "APPLE", i,  i, 900, "TESTNAME", "TESTADDRESS", "TESTPHONE", "TESTFNAME", "TESTFADDRESS", "TESTFPHONE", "TEST上海虹桥冷链运输车牌1234567至北京市大兴区", "TEST交易日期:2026-03-10", "50.201");
         if (rc != 0) {
             cout << "Make trade failed, error code: " << rc << endl;
             cout << "Error message: " << client.msg << endl;
             // return rc;
-        } else {
-            cout << "Make trade successfully" << endl;
-            cout << "Message: " << client.msg << endl;
-            cout << "Trade ID: " << tradeId << endl;
-        }
+        } 
+            // cout << "Make trade successfully" << endl;
+            // cout << "Message: " << client.msg << endl;
+            // cout << "Trade ID: " << tradeId << endl;
+        
     }
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> elapsed = end - start;
+    std::cout << "Elapsed time: " << elapsed.count() << " ms\n";
+
 
 #endif
 
