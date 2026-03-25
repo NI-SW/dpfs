@@ -15,7 +15,7 @@ using namespace std;
 // #define __TEST_TRACEBACK_SECOND__
 // #define __TEST_MAKETRADEE__
 // #define __TEST_MAKETRADEE_SECOND__
-#define __TEST_MAKETRADEE_LOTS__
+// #define __TEST_MAKETRADEE_LOTS__
 #define __TEST_VARTRACE__
 
 volatile bool g_exit = false;
