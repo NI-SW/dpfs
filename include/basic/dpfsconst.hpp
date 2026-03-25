@@ -4,8 +4,18 @@
 #include <cstddef>
 #include <string>
 
-constexpr char dpfsVersion[] = {0, 0, 0, 1}; // version 0.0.0.1 version.release.build.bugfix
-constexpr uint32_t versionSize = sizeof(dpfsVersion);
+constexpr const char BASEINFOBEGIN[] = "BASEINFOBEGIN:1\n";
+constexpr const char BASEINFOEND[] = "BASEINFOEND:1\n";
+constexpr const char PRODUCTINFOBEGIN[] = "PRODUCTINFOBEGIN:1\n";
+constexpr const char PRODUCTINFOEND[] = "PRODUCTINFOEND:1\n";
+constexpr const char TRADEBEGIN[] = "TRADEBEGIN:1\n";
+constexpr const char TRADEEND[] = "TRADEEND:1\n";
+constexpr const char INGREDIENTINFOBEGIN[] = "INGREDIENTINFOBEGIN:1\n";
+constexpr const char INGREDIENTINFOEND[] = "INGREDIENTINFOEND:1\n";
+constexpr const size_t JYB_COLNUMBER = 13;
+constexpr const size_t INGREDIENT_COLNUMBER = 3; // Assuming each ingredient block has 3 lines of key-value pairs
+constexpr const char dpfsVersion[] = {0, 0, 0, 1}; // version 0.0.0.1 version.release.build.bugfix
+constexpr const uint32_t versionSize = sizeof(dpfsVersion);
 
 enum class dpfsnetType : int {
     TCP = 0,

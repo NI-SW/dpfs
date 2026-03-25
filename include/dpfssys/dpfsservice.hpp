@@ -5,6 +5,15 @@
 #include <grpcpp/grpcpp.h>
 #include <proto/sysrpc.grpc.pb.h>
 
+// constexpr char BASEINFOBEGIN[] = "BASEINFOBEGIN: 1\n";
+// constexpr char BASEINFOEND[] = "BASEINFOEND: 1\n";
+// constexpr char PRODUCTINFOBEGIN[] = "PRODUCTINFOBEGIN: 1\n";
+// constexpr char PRODUCTINFOEND[] = "PRODUCTINFOEND: 1\n";
+// constexpr char TRADEBEGIN[] = "TRADEBEGIN: 1\n";
+// constexpr char TRADEEND[] = "TRADEEND: 1\n";
+// constexpr char INGREDIENTINFOBEGIN[] = "INGREDIENTINFOBEGIN: 1\n";
+// constexpr char INGREDIENTINFOEND[] = "INGREDIENTINFOEND: 1\n";
+
 // #define __DEBUG_GRPCSERVICE__
 
 using grpc::Server;
@@ -55,6 +64,7 @@ public:
     }
 private:
 
+    bidx LinkIngredient(const std::string& schemaName, const std::string& structureName);
     int GetTraceTradeDetail(const bidx &bidx, int64_t traceId, std::string& result) noexcept;
     int GetIngredientInfo(const bidx &bidx, int64_t traceId, std::string& result) noexcept;
 };

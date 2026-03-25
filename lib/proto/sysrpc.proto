@@ -222,7 +222,7 @@ message CreateTracableProReq {
 message CreateTracableProReply {
   int32 rc = 1;
   string msg = 2;
-  string trace_code_prefix = 3; // 生成的追溯码前缀，用于标识批次
+  bytes trace_code_prefix = 3; // 生成的追溯码前缀，用于标识批次
   // 使用前缀组合产品id可以溯源一件产品
 }
 
@@ -236,7 +236,7 @@ message TraceBackReq {
 message TraceBackReply {
   int32 rc = 1;
   string msg = 2;
-  bytes trace_back_result = 3;
+  string trace_back_result = 3;
 }
 
 message LoginReq {

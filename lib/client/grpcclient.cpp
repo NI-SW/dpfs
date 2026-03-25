@@ -1,6 +1,6 @@
 #include <grpcpp/grpcpp.h>
-
 #include <dpfsclient/grpcclient.hpp>
+#include <basic/dpfsconst.hpp>
 
 // TODO
 int toInt(dpfs_datatype_t src_type, const char* src, size_t len, std::string& dest) {
@@ -529,6 +529,182 @@ int CGrpcCli::makeTrade(
     return 0;
 }
 
+inline int parseResultLine(const std::string& resultStr, size_t& pos, std::unordered_map<std::string, std::string>& resultMap) {
+    // TODO parse the result string into structured data
+
+    size_t sepPos = pos;
+    while (sepPos < resultStr.size() && resultStr[sepPos] != ':' && resultStr[sepPos] != '\n') {
+        ++sepPos;
+    }
+    
+    std::string key = resultStr.substr(pos, sepPos - pos).c_str();
+
+    pos = sepPos + 1;
+
+    
+
+    while(pos < resultStr.size() && (resultStr[pos] == ' ' || pos == '\0')) {
+        if (resultStr[pos] == '\n') {
+            ++pos;
+            resultMap[key] = ""; // Key with empty value
+            return 0; // Invalid format, value is missing
+        }
+        ++pos; // Skip spaces
+    }
+
+    size_t nPos = resultStr.find('\n', pos);
+    if (nPos == std::string::npos) {
+        resultMap[key] = resultStr.substr(pos).c_str();
+        pos = resultStr.size(); // Move position to the end of the string
+        return 0;
+    }
+
+    resultMap[key] = resultStr.substr(pos, nPos - pos).c_str();
+    pos = nPos + 1; // Move position to the start of the next line
+
+    return 0;
+}
+
+// process one trade block
+inline int parseTradeBlock(const std::string& resultStr, size_t& pos, std::vector<CGrpcCli::CResult::CTradeInfo>& resultMap) {
+    // for each deep 
+
+    /* line number = JYB_COLNUMBER
+DEEP: 89
+JYID: 11
+SPJYQSID: 11
+SPJYSL: 900
+MFMC: TESTNAME
+MFDZ: TESTADDRESS
+MFLX: TESTPHONE
+FFMC: TESTFNAME
+FFDZ: TESTFADDRESS
+FFLX: TESTFPHONE
+LOGISTICS_INFO: TEST上海虹桥冷链运输车牌1234567至北京市大兴区
+OTHER_INFO: TEST交易日期:2026-03-10
+FSJE: 50.2010
+    */
+    
+    int rc = 0;
+
+    resultMap.emplace_back();
+    for (int i = 0; i < JYB_COLNUMBER; ++i) { // Assuming JYB_COLNUMBER lines per trade block
+        rc = parseResultLine(resultStr, pos, resultMap.back().trade_info);
+        if (rc != 0) {
+            return rc;
+        }
+    }
+
+    return 0;
+}
+
+// process one ingredient block
+inline int parseIngreBlock(const std::string& resultStr, size_t& pos, std::vector<CGrpcCli::CResult::CIngredientInfo>& resultMap) {
+    // for each deep 
+
+    /* line number = INGREDIENT_COLNUMBER
+INGREDIENTINFOBEGIN: 1
+Ingredient Name: 白糖
+Ingredient Percentage: 75.00
+Ingredient Trace Code: 0000000000000000ce0400000000000000000000
+Ingredient Name: 食用油
+Ingredient Percentage: 10.00
+Ingredient Trace Code: 00000000000000000a0400000000000000000000
+Ingredient Name: 食盐
+Ingredient Percentage: 15.00
+Ingredient Trace Code: 00000000000000007f0400000000000000000000
+INGREDIENTINFOEND: 1
+    */
+    
+    int rc = 0;
+
+    resultMap.emplace_back();
+    for (int i = 0; i < INGREDIENT_COLNUMBER; ++i) { // Assuming INGREDIENT_COLNUMBER lines per ingredient block
+        rc = parseResultLine(resultStr, pos, resultMap.back().ingredient_info);
+        if (rc != 0) {
+            return rc;
+        }
+    }
+
+    return 0;
+}
+
+int CGrpcCli::parseTraceResult(const std::string& trace_result, CResult& result) {
+
+    size_t parsePos = 0, nextPos = 0;
+    size_t endPos = 0, nextEndPos = 0;
+    const std::string& str = trace_result;
+    // parse base info
+    nextPos = str.find(BASEINFOBEGIN, parsePos);
+    nextEndPos = str.find(BASEINFOEND, nextPos);
+    if (nextPos != std::string::npos && nextEndPos != std::string::npos && nextPos < nextEndPos) {
+        parsePos = nextPos;
+        endPos = nextEndPos;
+        parsePos += sizeof(BASEINFOBEGIN) - 1;
+
+        while(parsePos < endPos) {
+            int rc = parseResultLine(str, parsePos, result.base_info);
+            if (rc != 0) {
+                msg = "Failed to parse base info line.";
+                return rc; // Failed to parse base info line
+            }
+        }
+    }
+
+    // parse product info
+    nextPos = str.find(PRODUCTINFOBEGIN, parsePos);
+    nextEndPos = str.find(PRODUCTINFOEND, nextPos);
+    if (nextPos != std::string::npos && nextEndPos != std::string::npos && nextPos < nextEndPos) {
+        parsePos = nextPos;
+        endPos = nextEndPos;
+
+        parsePos += sizeof(PRODUCTINFOBEGIN) - 1;
+        while(parsePos < endPos) {
+            int rc = parseResultLine(str, parsePos, result.base_info);
+            if (rc != 0) {
+                msg = "Failed to parse product info line.";
+                return rc; // Failed to parse product info line
+            }
+        }
+    } 
 
 
+    // parse trade info
+    nextPos = str.find(TRADEBEGIN, parsePos);
+    nextEndPos = str.find(TRADEEND, nextPos);
+    if (nextPos != std::string::npos && nextEndPos != std::string::npos && nextPos < nextEndPos) {
+        parsePos = nextPos;
+        endPos = nextEndPos;
+        parsePos += sizeof(TRADEBEGIN) - 1;
+
+        while(parsePos < endPos) {
+            int rc = parseTradeBlock(str, parsePos, result.trade_info);
+            if (rc != 0) {
+                msg = "Failed to parse trade info line.";
+                return rc; // Failed to parse trade info line
+            }
+        }
+    }
+
+
+    // parse ingredient info
+    nextPos = str.find(INGREDIENTINFOBEGIN, parsePos);
+    nextEndPos = str.find(INGREDIENTINFOEND, nextPos);
+    if (nextPos != std::string::npos && nextEndPos != std::string::npos && nextPos < nextEndPos) {
+        parsePos = nextPos;
+        endPos = nextEndPos;
+
+        parsePos += sizeof(INGREDIENTINFOBEGIN) - 1;
+
+        while(parsePos < endPos) {
+            int rc = parseIngreBlock(str, parsePos, result.ingredient_info);
+            if (rc != 0) {
+                msg = "Failed to parse ingredient info line.";
+                return rc; // Failed to parse ingredient info line
+            }
+        }
+    }
+
+    return 0;
+}
 

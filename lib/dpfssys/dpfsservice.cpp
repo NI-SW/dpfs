@@ -10,6 +10,8 @@ constexpr char PLKZBDEF[] = "(\
 name char(64) NOT NULL PRIMARY KEY, \
 bidx binary(16) NOT NULL, \
 percentage decimal(5, 2) NOT NULL)";
+
+// if change the definition of SPJYBDEF, need to change the JYB_COLNUMBER in dpfsconst.hpp accordingly
 constexpr char SPJYBDEF[] = "(\
                 JYID BIGINT not null primary key, \
                 SPJYQSID INT NOT NULL, \
@@ -643,7 +645,7 @@ create table manager.apple_SPXXB
                 response->set_rc(rc);
                 return Status::OK;
             }
-            
+            system->log.log_debug("Created table %s.%s with bidx: (%lu, %lu)\n", schema.c_str(), spxxbTableName.c_str(), out.plan.planObjects[0].collectionBidx.gid, out.plan.planObjects[0].collectionBidx.bid);
             response->set_trace_code_prefix((char*)&out.plan.planObjects[0].collectionBidx, sizeof(bidx));
 
             cacheLocker cl(spxxb.m_cltInfoCache, system->dataService->m_page);
@@ -759,7 +761,18 @@ create table manager.apple_SPXXB
 
         // search in system table. find the bidx of the ingredient table, and insert the ingredient names into the table
         // test data
-        bidx testidx = {0, 7890};// = GetTargetTableBidx;
+        
+        // link ingredient trace code.
+        
+        bidx testidx = {nodeId, 0};// = GetTargetTableBidx;
+        // use the same sachema to search ingredient table.
+        testidx = LinkIngredient(schema, it.first);
+        // if (testidx.bid == 0) {
+        //     system->log.log_error("Failed to link ingredient: %s to its trace code\n", it.first.c_str());
+        //     response->set_msg("Failed to link ingredient: " + it.first + " to its trace code");
+        //     response->set_rc(-ENOENT);
+        //     return Status::OK;
+        // }
         val.resetData(&testidx, sizeof(testidx));
         itmIngre.updateValue(1, val);
 
@@ -959,6 +972,7 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
     bidx spjybBidx {0, 0};
     bidx plkzbBidx {0, 0};
     bidx spkzbBidx {0, 0};
+    result += BASEINFOBEGIN;
     while (1) {
         rc = spxxb.getByScanIter(colliter, itm);
         if (rc != 0) {
@@ -971,7 +985,7 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
         CValue name = itm.getValue(0);
         CValue value = itm.getValue(1);
 
-        std::string nameStr(name.data, name.len);
+        std::string nameStr(name.data);
         // std::string valueStr(value.data, value.len);
         
         // TODO:: 
@@ -996,7 +1010,7 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
         } else {
             std::string valueStr(value.data);
             system->log.log_debug("Found base info in SPXXB table for trace back, key: %s, value: %s\n", nameStr.c_str(), valueStr.c_str());
-            result += nameStr + ": " + valueStr + "\n";
+            result += nameStr + ":" + valueStr + "\n";
         }
         
         rc = ++colliter;
@@ -1010,6 +1024,7 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
             return Status::OK;
         }
     }
+    result += BASEINFOEND;
 
     if (spkzbBidx.bid == 0 || plkzbBidx.bid == 0 || spjybBidx.bid == 0) {
         system->log.log_error("Failed to find necessary table bidx in SPXXB for trace back, SPKZB bidx: (%d, %d), PLKZB bidx: (%d, %d), SPJYB bidx: (%d, %d)\n", spkzbBidx.gid, spkzbBidx.bid, plkzbBidx.gid, plkzbBidx.bid, spjybBidx.gid, spjybBidx.bid);
@@ -1065,10 +1080,11 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
         ltrade bigint not null, \
         )";
     */
-    result += "uid/产品编号:         " + std::to_string(productionId) + "\n";
-    result += "ctime/上一次校验时间  " + std::to_string(*(int64_t*)itmkzb.getValue(1).data) + "\n";
-    result += "cstate/校验状态:      " + std::to_string(*(bool*)itmkzb.getValue(2).data) + "\n";
-    result += "ccount/校验次数:      " + std::to_string(*(int32_t*)itmkzb.getValue(3).data) + "\n";
+    result += PRODUCTINFOBEGIN;
+    result += "uid/产品编号:" + std::to_string(productionId) + "\n";
+    result += "ctime/上一次校验时间:" + std::to_string(*(int64_t*)itmkzb.getValue(1).data) + "\n";
+    result += "cstate/校验状态:" + std::to_string(*(bool*)itmkzb.getValue(2).data) + "\n";
+    result += "ccount/校验次数:" + std::to_string(*(int32_t*)itmkzb.getValue(3).data) + "\n";
     int64_t lastTradeId = *(int64_t*)itmkzb.getValue(4).data;
 
     time_t lt = time(nullptr);
@@ -1085,11 +1101,12 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
         response->set_rc(rc);
         return Status::OK;
     }
+    result += PRODUCTINFOEND;
 
     if (lastTradeId == -1) {
-        result += "lastTradeId: trade info not found\n";
+        result += "lastTradeId: null\n";
     } else {
-        result += "lastTradeId: " + std::to_string(lastTradeId) + "\n";
+        result += "lastTradeId:" + std::to_string(lastTradeId) + "\n";
 
         if (request->show_detail()) {
             // 根据商品控制表中交易id的记录，查找交易链
@@ -1102,7 +1119,9 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
             }
         }
     }
+    
 
+    result += INGREDIENTINFOBEGIN;
     // 查找配料表中的记录
     rc = GetIngredientInfo(plkzbBidx, productionId, result);
     if (rc != 0) {
@@ -1111,6 +1130,7 @@ Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::Trac
         response->set_rc(rc);
         return Status::OK;
     }
+    result += INGREDIENTINFOEND;
 
     response->set_trace_back_result(result);
     response->set_msg("Trace back completed successfully.");
@@ -1149,6 +1169,7 @@ int sysCtlServiceImpl::GetTraceTradeDetail(const bidx &bidx, int64_t tradeId, st
 
     int32_t traceDeep = 0;
 
+    result += TRADEBEGIN;
     while ((*(int64_t*)kjyb.data) >= 0) {
         rc = spjyb.getRow(kjyb, &itmjyb);
         if (rc != 0) {
@@ -1186,30 +1207,30 @@ int sysCtlServiceImpl::GetTraceTradeDetail(const bidx &bidx, int64_t tradeId, st
         CValue OTHER_INFO = itmjyb.getValue(11);
         CValue FSJE = itmjyb.getValue(12);
 
-        result += "trade deep : " + std::to_string(traceDeep) + "\n";
-        result += "JYID: " + std::to_string(*(int64_t*)JYID.data) + "\n";
-        result += "SPJYQSID: " + std::to_string(*(int32_t*)SPJYQSID.data) + "\n";
-        result += "SPJYSL: " + std::to_string(*(int32_t*)SPJYSL.data) + "\n";
-        result += "MFMC: " + std::string(MFMC.data, MFMC.len) + "\n";
-        result += "MFDZ: " + std::string(MFDZ.data, MFDZ.len) + "\n";
-        result += "MFLX: " + std::string(MFLX.data, MFLX.len) + "\n";
-        result += "FFMC: " + std::string(FFMC.data, FFMC.len) + "\n";
-        result += "FFDZ: " + std::string(FFDZ.data, FFDZ.len) + "\n";
-        result += "FFLX: " + std::string(FFLX.data, FFLX.len) + "\n";
-        result += "LOGISTICS_INFO: " + std::string(LOGISTICS_INFO.data, LOGISTICS_INFO.len) + "\n";
-        result += "OTHER_INFO: " + std::string(OTHER_INFO.data, OTHER_INFO.len) + "\n";
+        result += "DEEP:" + std::to_string(traceDeep) + "\n";
+        result += "JYID:" + std::to_string(*(int64_t*)JYID.data) + "\n";
+        result += "SPJYQSID:" + std::to_string(*(int32_t*)SPJYQSID.data) + "\n";
+        result += "SPJYSL:" + std::to_string(*(int32_t*)SPJYSL.data) + "\n";
+        result += "MFMC:" + std::string(MFMC.data, MFMC.len) + "\n";
+        result += "MFDZ:" + std::string(MFDZ.data, MFDZ.len) + "\n";
+        result += "MFLX:" + std::string(MFLX.data, MFLX.len) + "\n";
+        result += "FFMC:" + std::string(FFMC.data, FFMC.len) + "\n";
+        result += "FFDZ:" + std::string(FFDZ.data, FFDZ.len) + "\n";
+        result += "FFLX:" + std::string(FFLX.data, FFLX.len) + "\n";
+        result += "LOGISTICS_INFO:" + std::string(LOGISTICS_INFO.data, LOGISTICS_INFO.len) + "\n";
+        result += "OTHER_INFO:" + std::string(OTHER_INFO.data, OTHER_INFO.len) + "\n";
 
         my_decimal dec;
         rc = binary2my_decimal(0, (unsigned char*)FSJE.data, &dec, fsjeCvtLen, fsjeCvtScale);
         if (rc != 0) {
-            result += "FSJE: \"error! convert fail.\"\n";
+            result += "FSJE:\"error! convert fail.\"\n";
         } else {
             String myDecStr;
             rc = my_decimal2string(0, &dec, &myDecStr);
             if (rc != 0) {
-                result += "FSJE: \"error! convert fail.\"\n";
+                result += "FSJE:\"error! convert fail.\"\n";
             } else {
-                result += "FSJE: " + std::string(myDecStr.ptr()) + "\n";
+                result += "FSJE:" + std::string(myDecStr.ptr()) + "\n";
             }
         }
 
@@ -1218,6 +1239,7 @@ int sysCtlServiceImpl::GetTraceTradeDetail(const bidx &bidx, int64_t tradeId, st
         memcpy(kjyb.data, PREV_JYID.data, sizeof(tradeId));
         traceDeep++;
     }
+    result += TRADEEND;
 
     return 0;
 }
@@ -1272,7 +1294,7 @@ int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std:
         name char(32) not null primary key,   // 物料名称
         bidx binary(16) NOT NULL
 */
-        result += "Ingredient Name: " + std::string(name.data) + "\n";
+        result += "Ingredient Name:" + std::string(name.data) + "\n";
 
         // transfrom percentage to string with 2 decimal places
         my_decimal pctdec;
@@ -1280,7 +1302,7 @@ int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std:
         String pctdecStr;
         my_decimal2string(0, &pctdec, &pctdecStr);
 
-        result += "Ingredient Percentage: " + std::string(pctdecStr.ptr()) + "\n";
+        result += "Ingredient Percentage:" + std::string(pctdecStr.ptr()) + "\n";
 
 
         // |SPXXB BIDX(16B)|PRODUCTION ID(4B)|
@@ -1288,7 +1310,7 @@ int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std:
         // if you need to trace the ingredient, you need to convert the hex string to binary and use it as the trace code to call TraceBack API.
         std::string hexTraceCode = toHexString(reinterpret_cast<uint8_t*>(idx.data), idx.len) + "00000000"; // append production id 0
 
-        result += "Ingredient Trace Code: " + hexTraceCode + "\n";
+        result += "Ingredient Trace Code:" + hexTraceCode + "\n";
 
         rc = ++scanIter;
         if (rc == -ENOENT) {
@@ -1638,3 +1660,23 @@ nextTrade   5 5 5 6 7 7 7 8 8 9
 }
 
 
+bidx sysCtlServiceImpl::LinkIngredient(const std::string& schemaName, const std::string& structureName) {
+    bidx result = {0, 0};
+    std::string tableName = structureName + "_SPXXB";
+    int rc = 0;
+
+    // rc = system->dataService->checkExist(schemaName, tableName);
+    // if (rc != -EEXIST) {
+    //     system->log.log_error("Table does not exist: %s.%s, rc=%d\n", schemaName.c_str(), tableName.c_str(), rc);
+    //     return result;
+    // }
+
+    rc = system->dataService->getTableBidx(schemaName, tableName, result);
+    if (rc != 0) {
+        system->log.log_error("Failed to get table bidx for table: %s.%s, rc=%d\n", schemaName.c_str(), tableName.c_str(), rc);
+        result = {0, 0};
+        return result;
+    }
+
+    return result;
+}

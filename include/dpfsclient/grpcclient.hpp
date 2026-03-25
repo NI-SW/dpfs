@@ -93,6 +93,64 @@ public:
     */
     int traceBack(const std::string& trace_code, std::string& trace_result, bool show_detail = false);
 
+    struct CResult {
+        /*
+        three part:
+        | baseInfo | tradeInfo | IngredientInfo |
+        */
+
+        void clear() {
+            base_info.clear();
+            trade_info.clear();
+            ingredient_info.clear();
+        }
+
+        struct CTradeInfo {
+            // std::string name;
+            std::unordered_map<std::string, std::string> trade_info;
+        };
+
+        struct CIngredientInfo {
+            // std::string name;
+            std::unordered_map<std::string, std::string> ingredient_info;
+        };
+
+        void print() const {
+            std::cout << "Base Info:" << std::endl;
+            for (const auto& [key, value] : base_info) {
+                std::cout << key << ": " << value << std::endl;
+            }
+
+            std::cout << "\nTrade Info:" << std::endl;
+            for (const auto& trade : trade_info) {
+                for (const auto& [key, value] : trade.trade_info) {
+                    std::cout << key << ": " << value << std::endl;
+                }
+                std::cout << "-----------------" << std::endl;
+            }
+
+            std::cout << "\nIngredient Info:" << std::endl;
+            for (const auto& ingredient : ingredient_info) {
+                for (const auto& [key, value] : ingredient.ingredient_info) {
+                    std::cout << key << ": " << value << std::endl;
+                }
+                std::cout << "-----------------" << std::endl;
+            }
+        }
+
+        // base info of the production.
+        std::unordered_map<std::string, std::string> base_info;
+        // trade info of one product
+        std::vector<CTradeInfo> trade_info;
+        // ingredient info of production.
+        std::vector<CIngredientInfo> ingredient_info;
+    };
+
+    /*
+        
+    */
+    int parseTraceResult(const std::string& trace_result, CResult& result);
+
     /*
   string schema_name = 2;
   string structure_name = 3;

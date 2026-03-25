@@ -15,7 +15,7 @@ using namespace std;
 // #define __TEST_TRACEBACK_SECOND__
 // #define __TEST_MAKETRADEE__
 // #define __TEST_MAKETRADEE_SECOND__
-// #define __TEST_MAKETRADEE_LOTS__
+#define __TEST_MAKETRADEE_LOTS__
 #define __TEST_VARTRACE__
 
 volatile bool g_exit = false;
@@ -221,16 +221,44 @@ int main(int argc, char* argv[]) {
 
 #ifdef __TEST_CREATETRACABLEPRO__
 
+    std::string ing[3] = {"食用油", "食盐", "白糖"};
+
+    if (1) {
+        for(int i = 0; i < 3; ++i) {
+            std::map<std::string, std::string> base_info;
+            std::map<std::string, std::string> ingrendian_info;
+            ingrendian_info.clear();
+            base_info["name"] = ing[i];
+            // base_info["validDate"] = "";
+            // base_info["brand"] = "";
+            ingrendian_info["none"] = "0";
+
+            //init ingredient info
+            rc = client.createTracablePro("OOO", ing[i], base_info, ingrendian_info, 1000, traceCodePrefix);
+            if (rc != 0) {
+                cout << "Create traceable production failed, error code: " << rc << endl;
+                cout << "Error message: " << client.msg << endl;
+                return rc;
+            } else {
+                cout << "Create traceable production successfully" << endl;
+                cout << "Message: " << client.msg << endl;
+                cout << "Trace code prefix: " << endl;
+                printMemory(traceCodePrefix.data(), traceCodePrefix.size());
+                cout << endl;
+            }
+        }
+    }
+
     std::map<std::string, std::string> base_info;
     std::map<std::string, std::string> ingrendian_info;
-    base_info["type"] = "apple";
-    base_info["validDate"] = "2024-01-01";
-    base_info["brand"] = "洛川苹果";
-    ingrendian_info["INGRE1"] = "10";
-    ingrendian_info["INGRE2"] = "12.5";
-    
+    base_info["type"] = "sause";
+    base_info["validDate"] = "2031-05-01";
+    base_info["brand"] = "北京烤肉股份有限公司";
+    ingrendian_info[ing[0]] = "10";
+    ingrendian_info[ing[1]] = "15";
+    ingrendian_info[ing[2]] = "75";
 
-    rc = client.createTracablePro("OOO", "APPLE", base_info, ingrendian_info, 1000, traceCodePrefix);
+    rc = client.createTracablePro("OOO", "烧烤酱", base_info, ingrendian_info, 1000, traceCodePrefix);
     if (rc != 0) {
         cout << "Create traceable production failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -441,7 +469,7 @@ int main(int argc, char* argv[]) {
     tradeId.clear();
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < 900; ++i) {
-        rc = client.makeTrade("OOO", "APPLE", i,  i, 900, "TESTNAME", "TESTADDRESS", "TESTPHONE", "TESTFNAME", "TESTFADDRESS", "TESTFPHONE", "TEST上海虹桥冷链运输车牌1234567至北京市大兴区", "TEST交易日期:2026-03-10", "50.201");
+        rc = client.makeTrade("OOO", "烧烤酱", i,  i, 900, "TESTNAME", "TESTADDRESS", "TESTPHONE", "TESTFNAME", "TESTFADDRESS", "TESTFPHONE", "TEST上海虹桥冷链运输车牌1234567至北京市大兴区", "TEST交易日期:2026-03-10", "50.201");
         if (rc != 0) {
             cout << "Make trade failed, error code: " << rc << endl;
             cout << "Error message: " << client.msg << endl;
@@ -608,8 +636,19 @@ int main(int argc, char* argv[]) {
             std::chrono::duration<double, std::milli> elapsed = end - start;
             cout << "Trace back successfully" << endl;
             cout << "Message: " << client.msg << endl;
-            // cout << "Trace back result: \n\n" << traceResult << endl;
+            cout << "Trace back result: \n\n" << traceResult << endl;
             std::cout << "Elapsed time: " << elapsed.count() << " ms\n";
+
+            CGrpcCli::CResult res;
+            rc = client.parseTraceResult(traceResult, res);
+            if (rc != 0) {
+                cout << "Parse trace result failed, error code: " << rc << endl;
+                cout << "Error message: " << client.msg << endl;
+            } else {
+                cout << "Parse trace result successfully" << endl;
+                res.print();
+            }
+
         }
 
     }
