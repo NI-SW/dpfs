@@ -431,11 +431,9 @@ Status sysCtlServiceImpl::FetchNextRowSets(ServerContext* context, const dpfsgrp
         response->set_rc(-EAGAIN);
         return Status::OK;
     }
-
     CCollection::collectionStruct cs(collection.m_cltInfoCache->getPtr(), collection.m_cltInfoCache->getLen() * dpfs_lba_size);
-
-    
     CItem rowData(cs.m_cols, 1);
+    guard.release();
     
     system->log.log_debug("Start fetching rows for index iterator handle: %d for user: %s\n", hidx, usr.username.c_str());
 

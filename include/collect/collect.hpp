@@ -1008,7 +1008,7 @@ public:
         @return 0 on success, else on failure
         @warning must be called after initialize and columns are set.
     */
-    int initBPlusTreeIndex();
+    int initBPlusTreeIndex(bool createIndex = false);
 
     /*
         create a new index for the collection

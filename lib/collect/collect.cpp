@@ -1468,7 +1468,7 @@ int CCollection::initialize(const CCollectionInitStruct& initStruct, const bidx&
     return 0;
 }
 
-int CCollection::initBPlusTreeIndex() {
+int CCollection::initBPlusTreeIndex(bool createIndex) {
 
     if (!inited) {
         message = "collection has not been inited.";
@@ -1587,19 +1587,10 @@ int CCollection::getRow(KEY_T key, CItem* out) const {
         message = "collection has not been inited.";
         return -EFAULT;
     }
-    // if (!m_collectionStruct->ds->m_perms.perm.m_btreeIndex) {
-    //     message = "collection has no b+ tree index.";
-    //     return -EINVAL;
-    // }
     int rc = 0;
 
-    rc = m_page.fresh(m_cltInfoCache);
-    if (rc < 0) {
-        message = "fresh collection info cache failed.";
-        return rc;
-    }
-
-    CTemplateReadGuard guard(*m_cltInfoCache);
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateReadGuard guard(cl);
     if (guard.returnCode() != 0) {
         rc = guard.returnCode();
         message = "read lock collection info cache failed.";
@@ -1670,12 +1661,14 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
 
     int rc = 0;
     
-    rc = m_cltInfoCache->read_lock();
-    if (rc != 0) {
-        message = "collection cache read lock fail.";
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        rc = guard.returnCode();
+        message = "read lock collection info cache failed.";
         return rc;
     }
-
     collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
     auto& indexVec = cs.m_indexInfos;
 
@@ -1717,15 +1710,6 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
         }
     }
 
-    m_cltInfoCache->read_unlock();
-
-
-    
-    CTemplateGuard lockGuard(*m_cltInfoCache);
-    if (lockGuard.returnCode() != 0) {
-        message = "collection cache lock fail.";
-        return lockGuard.returnCode();
-    }
 
     uint32_t backPos = indexVec.size();
     // push back one empty index info
@@ -1820,6 +1804,12 @@ int CCollection::createIdx(const CIndexInitStruct& initStruct) {
 
         auto it = m_btreeIndex->begin();
         auto end = m_btreeIndex->end();
+        if (it == end) {
+            // no data in the collection, just return
+            m_indexTrees.emplace_back(indexTree);
+            return 0;
+        }
+
         rc = it.loadNode();
         if (rc != 0) {
             message = "load b+ tree node fail.";
@@ -2171,7 +2161,6 @@ int CCollection::getByIndexIter(CIdxIter& idxIter, CItem& out) const  {
 
 
     cacheLocker cl(m_cltInfoCache, m_page);
-
     CTemplateReadGuard guard(cl);
     if (guard.returnCode() != 0) {
         int rc = guard.returnCode();

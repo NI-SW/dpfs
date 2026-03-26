@@ -1411,7 +1411,7 @@ private:
     bidx* m_root;
     bidx* m_begin;
     bidx* m_end;
-    const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& cmpTyps;
+    std::vector<std::pair<uint8_t, dpfs_datatype_t>> cmpTyps;
     std::unordered_map<bidx, NodeData> m_commitCache;
 };
 
