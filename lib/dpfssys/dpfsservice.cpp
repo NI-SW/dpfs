@@ -13,7 +13,7 @@ percentage decimal(5, 2) NOT NULL)";
 
 // if change the definition of SPJYBDEF, need to change the JYB_COLNUMBER in dpfsconst.hpp accordingly
 constexpr char SPJYBDEF[] = "(\
-                JYID BIGINT not null primary key, \
+                JYID BIGINT not null primary key AUTO_INCREMENT, \
                 SPJYQSID INT NOT NULL, \
                 SPJYSL INT NOT NULL, \
                 MFMC CHAR(64) NOT NULL, \
@@ -1615,7 +1615,9 @@ nextTrade   5 5 5 6 7 7 7 8 8 9
     spjyb.m_btreeIndex->printTree();
 
 
-    int64_t tradeId = jyid;
+    CValue jyid_act = itmspjyb.getValue(0);
+
+    int64_t tradeId = jyid_act.data ? *(int64_t*)jyid_act.data : -1;
     // update spkzb for the products in this trade, set their last trade id to the new trade id.
 
     while(limit) {

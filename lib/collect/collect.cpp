@@ -1029,6 +1029,15 @@ int CCollection::addItem(const CItem& item) {
             char keyBuf[MAXKEYLEN];
             KEY_T key(keyBuf, 0, m_btreeIndex->cmpTyps);
 
+            // for each col test it's increment
+            for (uint32_t i = 0; i < cs.m_cols.size(); ++i) {
+                auto& col = cs.m_cols[i];
+                if (col.getDds().constraints.unionData & CColumn::constraint_flags::AUTO_INC) {
+                    CValue keyVal = it[i];
+                    memcpy(keyVal.data, &cs.ds->m_autoIncreaseCols[i], sizeof(int64_t));
+                    ++cs.ds->m_autoIncreaseCols[i];
+                }
+            }
 
             // get primary key columns and length
             auto& pkCols = cs.m_pkColPos;
@@ -1444,7 +1453,7 @@ int CCollection::initialize(const CCollectionInitStruct& initStruct, const bidx&
     // }
     m_collectionBid = tempBlock;
     cs.ds->m_ccid = initStruct.id;
-    cs.ds->m_autoIncreaseKey = 0;
+    memset(cs.ds->m_autoIncreaseCols, 0, sizeof(cs.ds->m_autoIncreaseCols));
     memcpy(cs.ds->m_name, initStruct.name.c_str(), initStruct.name.size());
     cs.ds->m_nameLen = initStruct.name.size();
     m_name.assign(initStruct.name);

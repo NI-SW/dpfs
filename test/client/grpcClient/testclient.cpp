@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
     int32_t productionId = 0;
     std::string tradeId;
     bidx spxxbBidx = {0, 0}; 
-    int val = 9980;
+    int64_t val = 1;
 
 
 
@@ -103,10 +103,26 @@ int main(int argc, char* argv[]) {
 #endif
 
 #ifdef __TEST_IDXITER__
+
+    std::string getSchema = "";
+    std::string getTable = "";
+
+    cout << "Input schema name to query:" << endl;
+    cin >> getSchema;
+
+    cout << "Input table name to query:" << endl;
+    cin >> getTable;
+
+
+    if (getSchema.empty() || getTable.empty()) {
+        cout << "Schema name and table name cannot be empty" << endl;
+        return -1;
+    }
+
     /* 
         test get table handle
     */
-    rc = client.getTableHandle("OOO", "PPP1");
+    rc = client.getTableHandle(getSchema, getTable);
     if (rc != 0) {
         cout << "Get table handle failed, error code: " << rc << endl;
         cout << "Error message: " << client.msg << endl;
@@ -115,16 +131,36 @@ int main(int argc, char* argv[]) {
         cout << "Message: " << client.msg << endl;
     }
 
+    cout << "Input index col to query" << endl;
     /*
         test get table index iterator
     */
-    vector<string> idxCol = {"A"};
+    vector<string> idxCol;
+
+    while (1) {
+        idxCol.emplace_back();
+        cin >> idxCol.back();
+        if (idxCol.back() == "end") {
+            idxCol.pop_back();
+            break;
+        }
+    }
+    if (idxCol.empty()) {
+        cout << "Index column cannot be empty" << endl;
+        return -1;
+    }
 
     // if key is not string, use the string like an int pointer
 
     idxVals.clear();
     idxVals.resize(1);
-    val = 1;
+    cout << "Input START KEY to query" << endl;
+    cin >> val;
+
+    size_t rt = 5;
+
+    cout << "Input row count" << endl;
+    cin >> rt;
     idxVals[0].resize(sizeof(val));
     memcpy(const_cast<char*>(idxVals[0].data()), &val, sizeof(val));
 
@@ -156,7 +192,8 @@ int main(int argc, char* argv[]) {
 
     std::string gval;
 
-    for (int i = 0; i < 10; ++i) {
+    // max get 10 rows
+    for (int i = 0; i < rt; ++i) {
         for (int j = 0; j < colInfo.size(); ++j) {
             rc = client.getDataByIdxIter(hidx, j, gval);
             if (rc != 0) {
@@ -195,6 +232,10 @@ int main(int argc, char* argv[]) {
                     int ival;
                     memcpy(&ival, gval.data(), sizeof(ival));
                     cout << "Get row by index iterator success, int value: " << ival << endl;
+                } else if (colInfo[j].getType() == dpfs_datatype_t::TYPE_BIGINT) {
+                    int64_t bval;
+                    memcpy(&bval, gval.data(), sizeof(bval));
+                    cout << "Get row by index iterator success, big int value: " << bval << endl;
                 } else {   
                     cout << "Get row by index iterator success, type is not string, binary value: ";
                     printMemory(gval.data(), gval.size()); cout << endl;
@@ -444,31 +485,9 @@ int main(int argc, char* argv[]) {
 
 #ifdef __TEST_MAKETRADEE_LOTS__
     cout << "---------------------------------------------------------------------second test make trade---------------------------------------------------------------------" << endl;
-/*
-100 - 300
-110 - 290
-115 - 285
-120 - 280
-125 - 275
-130 - 270
-135 - 265
-140 - 260
-145 - 255
-150 - 250
-155 - 245
-160 - 240
-165 - 235
-170 - 230
-175 - 225
-180 - 220
-185 - 215
-190 - 210
-192 - 208
-195 - 205
-*/
     tradeId.clear();
     auto start = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < 900; ++i) {
+    for (int i = 1; i < 900; ++i) {
         rc = client.makeTrade("OOO", "烧烤酱", i,  i, 900, "TESTNAME", "TESTADDRESS", "TESTPHONE", "TESTFNAME", "TESTFADDRESS", "TESTFPHONE", "TEST上海虹桥冷链运输车牌1234567至北京市大兴区", "TEST交易日期:2026-03-10", "50.201");
         if (rc != 0) {
             cout << "Make trade failed, error code: " << rc << endl;

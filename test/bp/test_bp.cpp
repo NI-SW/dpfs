@@ -14,10 +14,10 @@
 
 #define __LOAD__ 0
 
-// #define __TEST_INSERT__
-// #define __TEST_DELETE__
-// #define __TEST_SEARCH__
-// #define __TEST_UPDATE__
+#define __TEST_INSERT__
+#define __TEST_DELETE__
+#define __TEST_SEARCH__
+#define __TEST_UPDATE__
 #define __TEST_ITERATOR__
 #define __TEST_INDEX_CREATE__
 #define __TEST_INDEX_SEARCH__
@@ -29,13 +29,13 @@
 
 
 
-const bidx BOOTDIX = {0, 1000};
+const bidx BOOTDIX = {0, 500};
 
 
 uint8_t gdata[MAXKEYLEN] { 0 };
 int searchByIndex(CCollection* coll, const std::vector<std::string>& colNames, const std::vector<CValue>& keyVals);
 
-static KEY_T make_key(uint64_t v1, uint64_t v2, const CBPlusTree& bpt) {
+static KEY_T make_key(int64_t v1, int64_t v2, const CBPlusTree& bpt) {
     
     std::memset(gdata, 0, MAXKEYLEN);
     std::memcpy(gdata, &v1, sizeof(v1));
@@ -43,10 +43,10 @@ static KEY_T make_key(uint64_t v1, uint64_t v2, const CBPlusTree& bpt) {
     return { gdata, sizeof(v1) + sizeof(v2), bpt.cmpTyps };
 }
 
-static void expect_insert(CBPlusTree& bpt, uint64_t val1, uint64_t val2, uint64_t payload) {
+static void expect_insert(CBPlusTree& bpt, int64_t val1, int64_t val2, int64_t payload) {
     auto key = make_key(val1, val2, bpt);
-    uint64_t row[3] = {val1, val2, payload};
-    cout << "key data : " << *(uint64_t*)key.data << " key data2 : " << *((uint64_t*)key.data + 1) << ", len=" << (int)key.len << endl;
+    int64_t row[3] = {val1, val2, payload};
+    cout << "key data : " << *(int64_t*)key.data << " key data2 : " << *((int64_t*)key.data + 1) << ", len=" << (int)key.len << endl;
     int rc = bpt.insert(key, row, sizeof(row));
     if (rc != 0) {
         cout << rc << endl;
@@ -79,6 +79,7 @@ int main() {
     // this class must be destruct before engine destruct
     CPage* page = new CPage(engines, 128, log);
     CDiskMan* pdman = new CDiskMan(page);
+    pdman->init(0, engine[0].size());
     CDiskMan& dman = *pdman;
     CCollection* coll = new CCollection(dman, *page);
 
@@ -92,15 +93,17 @@ int main() {
     } else {
         CCollectionInitStruct initStruct;
         initStruct.indexPageSize = 1;
+        initStruct.m_perms.perm.m_systab = 1;
+        // initStruct.m_perms.perm.m_autoIncrease = 1;
         rc = coll->initialize(initStruct, BOOTDIX);
         if (rc != 0) {
             cout << " load collection fail, rc=" << rc << endl;
         }
 
 
-        rc = coll->addCol("pk", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t), 0, static_cast<uint8_t>(CColumn::constraint_flags::PRIMARY_KEY));
+        rc = coll->addCol("pk", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t), 0, static_cast<uint8_t>(CColumn::constraint_flags::PRIMARY_KEY | CColumn::constraint_flags::AUTO_INC));
         assert(rc == 0);
-        rc = coll->addCol("val", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t), 0, static_cast<uint8_t>(CColumn::constraint_flags::PRIMARY_KEY));
+        rc = coll->addCol("val", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t), 0, static_cast<uint8_t>(CColumn::constraint_flags::PRIMARY_KEY | CColumn::constraint_flags::AUTO_INC));
         assert(rc == 0);
         rc = coll->addCol("val2", dpfs_datatype_t::TYPE_BIGINT, sizeof(int64_t));
         assert(rc == 0);
@@ -120,13 +123,13 @@ int main() {
 
 #else
     try {
-        expect_insert(bpt, 1, 4, 481);
-        expect_insert(bpt, 2, 1, 646);
-        expect_insert(bpt, 2, 3, 785);
-        expect_insert(bpt, 2, 6, 235);
-        expect_insert(bpt, 4, 2, 125);
-        expect_insert(bpt, 4, 4, 456);
-        // expect_insert(bpt, 3, 6, 999);
+        expect_insert(bpt, -1, 4, 481);
+        expect_insert(bpt, -2, 1, 646);
+        expect_insert(bpt, -2, 3, 785);
+        expect_insert(bpt, -2, 6, 235);
+        expect_insert(bpt, -4, 2, 125);
+        expect_insert(bpt, -4, 4, 456);
+        expect_insert(bpt, -3, 6, 999);
 
     } catch (const std::exception& ex) {
         threw = true;
@@ -156,14 +159,14 @@ int main() {
     cacheLocker cl(coll->m_cltInfoCache, coll->m_page);
     CCollection::collectionStruct cs(coll->m_cltInfoCache->getPtr(), coll->m_cltInfoCache->getLen() * dpfs_lba_size);
 
-    uint64_t* row = new uint64_t[cs.m_cols.size()];
+    int64_t* row = new int64_t[cs.m_cols.size()];
 #ifdef __TEST_INSERT__
     cout << "-------------------------------------------------------------------------------------------test insert-------------------------------------------------------------------------" << endl;
     while(1) {
         
         cout << " insert key val (0 to exit): " << endl;
         for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
-            uint64_t val = 0;
+            int64_t val = 0;
             const CColumn& col = cs.m_cols[i];
             cout << " insert to :";
             cout << " col " << i << " name: " << col.getName() << ", len: " << (int)col.getLen() << endl;
@@ -182,9 +185,9 @@ int main() {
 
         CItem itm(cs.m_cols);
 
-        rc = itm.updateValue(0, (uint8_t*)&row[0], sizeof(uint64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
-        rc = itm.updateValue(1, (uint8_t*)&row[1], sizeof(uint64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
-        rc = itm.updateValue(2, (uint8_t*)&row[2], sizeof(uint64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
+        rc = itm.updateValue(0, (uint8_t*)&row[0], sizeof(int64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
+        rc = itm.updateValue(1, (uint8_t*)&row[1], sizeof(int64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
+        rc = itm.updateValue(2, (uint8_t*)&row[2], sizeof(int64_t)); if (rc < 0) { cout << " update fail rc = " << rc << endl; }
         rc = itm.nextRow(); if (rc != 0) { cout << " nextRow fail rc = " << rc << endl; }
 
         
@@ -205,7 +208,7 @@ int main() {
         cout << " remove key val (0 to exit): ";
 
         for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
-            uint64_t val = 0;
+            int64_t val = 0;
             const CColumn& col = cs.m_cols[i];
             if(!(col.getDds().constraints.unionData & CColumn::constraint_flags::PRIMARY_KEY)) {
                 continue;
@@ -240,7 +243,7 @@ int main() {
         cout << " update key val (0 to exit): ";
 
         for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
-            uint64_t val = 0;
+            int64_t val = 0;
             const CColumn& col = cs.m_cols[i];
             // if(!(col.getDds().constraints.unionData & CColumn::constraint_flags::PRIMARY_KEY)) {
             //     continue;
@@ -261,7 +264,7 @@ int main() {
         }
 
         auto key = make_key(row[0], row[1], bpt);
-        rc = bpt.update(key, row, sizeof(uint64_t) * cs.m_cols.size());
+        rc = bpt.update(key, row, sizeof(int64_t) * cs.m_cols.size());
         if (rc != 0) {
             cout << " update key " << row[0] << " fail, rc=" << rc << endl;
         }
@@ -276,7 +279,7 @@ int main() {
         cout << " search key val (0 to exit): ";
 
         for(uint32_t i = 0; i < cs.m_cols.size(); ++i) {
-            uint64_t val = 0;
+            int64_t val = 0;
             const CColumn& col = cs.m_cols[i];
             if(!(col.getDds().constraints.unionData & CColumn::constraint_flags::PRIMARY_KEY)) {
                 continue;
@@ -391,10 +394,10 @@ int main() {
     cout << "-------------------------------------------------------------------------------------------test search by index-------------------------------------------------------------------------" << endl;
     row[0] = 6;
     row[1] = 235;
-    keyVals.emplace_back(sizeof(uint64_t));
-    keyVals[0].setData(&row[0], sizeof(uint64_t));
-    keyVals.emplace_back(sizeof(uint64_t));
-    keyVals[1].setData(&row[1], sizeof(uint64_t));
+    keyVals.emplace_back(sizeof(int64_t));
+    keyVals[0].setData(&row[0], sizeof(int64_t));
+    keyVals.emplace_back(sizeof(int64_t));
+    keyVals[1].setData(&row[1], sizeof(int64_t));
     {
         CItem tmpItm(cs.m_cols);
         rc = coll->getByIndex({"val", "val2"}, keyVals, tmpItm);
@@ -438,10 +441,10 @@ int main() {
     CCollection::CIdxIter indexIter;
     row[0] = 6;
     row[1] = 235;
-    keyVals.emplace_back(sizeof(uint64_t));
-    keyVals[0].setData(&row[0], sizeof(uint64_t));
-    keyVals.emplace_back(sizeof(uint64_t));
-    keyVals[1].setData(&row[1], sizeof(uint64_t));
+    keyVals.emplace_back(sizeof(int64_t));
+    keyVals[0].setData(&row[0], sizeof(int64_t));
+    keyVals.emplace_back(sizeof(int64_t));
+    keyVals[1].setData(&row[1], sizeof(int64_t));
 
     rc = coll->getIdxIter({"val", "val2"}, keyVals, indexIter);
     if (rc != 0) {
@@ -482,12 +485,12 @@ int main() {
     // get index iter
     cout << "-------------------------------------------------------------------------------------------test get PK index iterator-------------------------------------------------------------------------" << endl;
     CCollection::CIdxIter indexIter;
-    row[0] = 2;
+    row[0] = -2;
     row[1] = 3;
-    keyVals.emplace_back(sizeof(uint64_t));
-    keyVals[0].setData(&row[0], sizeof(uint64_t));
-    keyVals.emplace_back(sizeof(uint64_t));
-    keyVals[1].setData(&row[1], sizeof(uint64_t));
+    keyVals.emplace_back(sizeof(int64_t));
+    keyVals[0].setData(&row[0], sizeof(int64_t));
+    keyVals.emplace_back(sizeof(int64_t));
+    keyVals[1].setData(&row[1], sizeof(int64_t));
 
     rc = coll->getIdxIter({"pk", "val"}, keyVals, indexIter);
     if (rc != 0) {

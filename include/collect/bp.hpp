@@ -20,7 +20,6 @@
 #include <string>
 using namespace std;
 constexpr int indOrder = 5;
-constexpr int rowOrder = 5;
 
 // static int myabort() {
 //     return -ERANGE;
@@ -1418,7 +1417,7 @@ private:
 
 class nodeLocker : public cacheLocker {
 public:
-    nodeLocker(cacheStruct*& cs, CPage& pge, CBPlusTree::NodeData& node, bool isLeaf, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& keyType);
+    nodeLocker(cacheStruct* cs, CPage& pge, CBPlusTree::NodeData& node, bool isLeaf, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& keyType);
     virtual ~nodeLocker();
     virtual int reinitStruct() override;
     CBPlusTree::NodeData& m_nd;

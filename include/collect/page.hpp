@@ -375,7 +375,7 @@ private:
 
 class cacheLocker {
 public:
-    cacheLocker(cacheStruct*& cs, CPage& pge) : m_cs(cs), m_page(pge) {
+    cacheLocker(cacheStruct* cs, CPage& pge) : m_cs(cs), m_page(pge) {
         
     }
 
@@ -459,7 +459,7 @@ public:
     private:
     bool isChange = false;
     // cache struct pointer
-    cacheStruct*& m_cs;
+    cacheStruct* m_cs;
     CPage& m_page;
 
 };

@@ -35,9 +35,18 @@ CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& tree
     //     // should not happen
     //     throw std::runtime_error("Row length exceeds maximum allowed size in BPlusTree constructor");
     // }
+#ifdef __BPDEBUG__
 
+
+    m_indexOrder = indOrder;
+    cout << "BPlusTree initialized with page size: " << (int)m_pageSize << " row page size: " << (int)m_rowPageSize << " LBA, key length: " << (int)keyLen 
+    << ", index order: " << (int)m_indexOrder << ", row length: " << m_rowLen << endl;
+
+#else
     // reserve 1 for split
     m_indexOrder = static_cast<int32_t>(maxkeyCount) - 2;
+#endif
+
     m_rowOrder = m_indexOrder; // ((m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen)) - 1;
 
     // m_leafRowCount = (m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen);
@@ -47,14 +56,6 @@ CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& tree
     
     m_rowPageSize = static_cast<uint8_t>( rowLenInByte % dpfs_lba_size == 0 ? rowLenInByte / dpfs_lba_size : (rowLenInByte / dpfs_lba_size) + 1 );
 
-#ifdef __BPDEBUG__
-
-    cout << "BPlusTree initialized with page size: " << (int)m_pageSize << " row page size: " << (int)m_rowPageSize << " LBA, key length: " << (int)keyLen 
-    << ", index order: " << (int)m_indexOrder << ", row order: " << (int)m_rowOrder << ", row length: " << m_rowLen << endl;
-
-    m_indexOrder = indOrder;
-    m_rowOrder = rowOrder;
-#endif
 
 }
 
@@ -416,6 +417,8 @@ int32_t CBPlusTree::insert_recursive(const bidx& idx, const KEY_T& key, const vo
                 [5,8,9]
 
         */
+
+        // the node will be moved, node.pCache may be invalid after split
         nodeLocker nl(node.pCache, m_page, node, isLeaf, cmpTyps);
         CTemplateGuard g(nl);
         if (g.returnCode() != 0) {
@@ -440,8 +443,8 @@ int32_t CBPlusTree::insert_recursive(const bidx& idx, const KEY_T& key, const vo
 
         // use upChild to return new created right node index
         upChild = right.self;
-        store_node(node);
-        store_node(right);
+        rc = store_node(node);  if (rc != 0) { return rc; }
+        rc = store_node(right); if (rc != 0) { return rc; }
         return SPLIT;
     }
     return store_node(node);
@@ -2243,7 +2246,7 @@ int CBPlusTree::iterator::loadNode() {
 }
 
 
-nodeLocker::nodeLocker(cacheStruct*& cs, CPage& pge, CBPlusTree::NodeData& node, bool isLeaf, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& keyType) : 
+nodeLocker::nodeLocker(cacheStruct* cs, CPage& pge, CBPlusTree::NodeData& node, bool isLeaf, const std::vector<std::pair<uint8_t, dpfs_datatype_t>>& keyType) : 
 cacheLocker(cs, pge), 
 m_nd(node), 
 m_isLeaf(isLeaf), 
