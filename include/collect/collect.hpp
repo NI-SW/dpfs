@@ -1100,6 +1100,7 @@ public:
             dataStruct_t() = delete;
             ~dataStruct_t() = default;
 
+            size_t m_rowCount = 0;
             //above 1B
             // 16B
             // b plus tree root 

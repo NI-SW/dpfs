@@ -180,6 +180,7 @@ public:
         const std::string& fflx, const std::string& wlxx, const std::string& other_info, const std::string& fsje);
 
     const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& getColInfo(const IDXHANDLE& hidx);
+    size_t getTotalRowCount(const IDXHANDLE& hidx);
     
     std::string msg;
     

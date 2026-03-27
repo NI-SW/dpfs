@@ -1064,7 +1064,7 @@ int CCollection::addItem(const CItem& item) {
                 message = "insert item to b+ tree index failed.";
                 return rc;
             }
-
+            ++cs.ds->m_rowCount;
 
 
             #ifdef __COLLECT_DEBUG__

@@ -355,6 +355,14 @@ const CFixLenVec<CColumn, uint8_t, MAX_COL_NUM>& CGrpcCli::getColInfo(const IDXH
     return it->second.cs.m_cols;
 }
 
+ size_t CGrpcCli::getTotalRowCount(const IDXHANDLE& hidx) {
+    auto it = idxHandles.find(hidx);
+    if (it == idxHandles.end()) {
+        throw std::invalid_argument("Invalid index handle.");
+    }
+    return it->second.cs.ds->m_rowCount;
+ }
+
 int CGrpcCli::fetchNextRowSets(const IDXHANDLE& hidx) {
     if (husr == -1) {
         msg = "User not logged in.";
