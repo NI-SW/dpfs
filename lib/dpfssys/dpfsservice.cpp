@@ -242,7 +242,7 @@ Status sysCtlServiceImpl::GetTableHandle(ServerContext* context, const dpfsgrpc:
     rc = system->dataService->checkExist(schemaName, tableName);
     if (rc != -EEXIST) {
         response->set_msg("Table does not exist: " + schemaName + "." + tableName);
-        response->set_rc(rc);
+        response->set_rc(-ENOENT);
         return Status::OK;
     }
 
@@ -342,14 +342,23 @@ Status sysCtlServiceImpl::GetIdxIter(ServerContext* context, const dpfsgrpc::Get
 
     // init iter
     CCollection::CIdxIter iter;
-    
-    rc = c.getIdxIter(colNames, keyVals, iter);
-    if (rc != 0) {
-        system->log.log_error("Failed to get index iterator for table: %s.%s, rc=%d\n", std::to_string(tabIdx.gid).c_str(), std::to_string(tabIdx.bid).c_str(), rc);
-        response->set_msg("Failed to get index iterator for table: " + std::to_string(tabIdx.gid) + "." + std::to_string(tabIdx.bid));
-        response->set_rc(rc);
-        return Status::OK;
-    }
+    if (colNames.size() == 0) {
+        rc = c.getScanIter(iter);
+        if (rc != 0) {
+            system->log.log_error("Failed to get scan iterator for table: %s.%s, rc=%d\n", std::to_string(tabIdx.gid).c_str(), std::to_string(tabIdx.bid).c_str(), rc);
+            response->set_msg("Failed to get scan iterator for table: " + std::to_string(tabIdx.gid) + "." + std::to_string(tabIdx.bid));
+            response->set_rc(rc);
+            return Status::OK;
+        }
+    } else {
+        rc = c.getIdxIter(colNames, keyVals, iter);
+        if (rc != 0) {
+            system->log.log_error("Failed to get index iterator for table: %s.%s, rc=%d\n", std::to_string(tabIdx.gid).c_str(), std::to_string(tabIdx.bid).c_str(), rc);
+            response->set_msg("Failed to get index iterator for table: " + std::to_string(tabIdx.gid) + "." + std::to_string(tabIdx.bid));
+            response->set_rc(rc);
+            return Status::OK;
+        }
+    }    
 
     usr.idxIterMap.emplace(usr.idxHandleCount, make_pair(std::move(c), std::move(iter)));
 
@@ -1342,7 +1351,7 @@ Status sysCtlServiceImpl::MakeTrade(ServerContext* context, const dpfsgrpc::Make
     rc = system->dataService->checkExist(schemaName, tableName);
     if (rc != -EEXIST) {
         response->set_msg("Table does not exist: " + schemaName + "." + tableName);
-        response->set_rc(rc);
+        response->set_rc(-ENOENT);
         return Status::OK;
     }
 
