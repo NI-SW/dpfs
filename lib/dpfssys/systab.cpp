@@ -4,6 +4,13 @@
 extern uint64_t nodeId;
 using cf = CColumn::constraint_flags;
 
+/*
+    class constructor -> CSysSchemas::CSysSchemas(CDiskMan& diskman, CPage& page) 
+    collect load -> CSysSchemas::load()
+    collect save -> CSysSchemas::~CSysSchemas() 
+    collect init -> CSysSchemas::init()
+*/
+
 CSysSchemas::CSysSchemas(CDiskMan& diskman, CPage& page) : 
 m_diskman(diskman), 
 m_page(page), 
@@ -15,7 +22,8 @@ sysindexes(m_diskman, m_page),
 sysusers(m_diskman, m_page),
 sysschemas(m_diskman, m_page),
 sysauths(m_diskman, m_page),
-systraceables(m_diskman, m_page) {
+systraceables(m_diskman, m_page),
+sysriskwarns(m_diskman, m_page) {
     
 };
 
@@ -29,6 +37,7 @@ CSysSchemas::~CSysSchemas() {
     sysschemas      .save();
     sysauths        .save();
     systraceables   .save();
+    sysriskwarns    .save();
 };
 
 /*
@@ -203,6 +212,16 @@ int CSysSchemas::init() {
     rc = stitm.nextRow();                                                       if (rc != 0) { goto errReturn; }
     rc = updateStitm(1, "SYSTRACEABLES", tmpbid);                               if (rc < 0) { goto errReturn; }
 
+    // SYSRISKWARNS ROOT BIDX
+    tmpbid.bid += MAX_COLLECTION_INFO_LBA_SIZE;
+    std::cout << "Initializing SYSRISKWARNS with root bidx: " << tmpbid.gid << "." << tmpbid.bid << std::endl;
+    rc = initRiskWarnTab(tmpbid);                                              if (rc != 0) { goto errReturn; }
+    rc = itm.nextRow();                                                         if (rc != 0) { goto errReturn; }
+    rc = itm.updateValue(0, "SYSRISKWARNSRT", sizeof("SYSRISKWARNSRT"));      if (rc < 0) { goto errReturn; }
+    rc = itm.updateValue(1, &tmpbid, sizeof(tmpbid));                           if (rc < 0) { goto errReturn; }
+    rc = stitm.nextRow();                                                       if (rc != 0) { goto errReturn; }
+    rc = updateStitm(1, "SYSRISKWARNS", tmpbid);                               if (rc < 0) { goto errReturn; }
+
     // itm.resetScan();
     // systemboot.addItem(*itm); if (rc < 0) { goto errReturn; }
 
@@ -247,6 +266,7 @@ int CSysSchemas::load() {
     rc = sysschemas.loadFrom(sysBidx);         sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
     rc = sysauths.loadFrom(sysBidx);           sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }     
     rc = systraceables.loadFrom(sysBidx);      sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; } 
+    rc = sysriskwarns.loadFrom(sysBidx);       sysBidx.bid += MAX_COLLECTION_INFO_LBA_SIZE; if (rc != 0) { return rc; }
     return 0;
 }
 
@@ -605,4 +625,45 @@ errReturn:
     }
     systraceables.clearCols();
     return rc;
+}
+
+int CSysSchemas::initRiskWarnTab(const bidx& sysBidx) {
+    int rc = 0;
+    CCollectionInitStruct initstruct;
+    CIndexInitStruct idxInitStruct;
+    initstruct.id = 0;
+    initstruct.name = "SYSRISKWARNS";
+    initstruct.m_perms.perm.m_systab = 1;
+    initstruct.m_perms.perm.m_ddl = 0;
+    initstruct.m_perms.perm.m_select = 1;
+    initstruct.m_perms.perm.m_insertable = 1;
+    initstruct.m_perms.perm.m_updatable = 1;
+    initstruct.m_perms.perm.m_deletable = 1;
+    rc = sysriskwarns.initialize(initstruct, sysBidx);                                                                         if (rc != 0) { goto errReturn; }
+
+    // grant ... TODO:: finish grant clause
+    // 为尽量保证前缀命中，ID不作为第一主键列
+    rc = sysriskwarns.addCol("SCHEMA",    dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);            if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.addCol("NAME",      dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);            if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.addCol("RTID",      dpfs_datatype_t::TYPE_BIGINT,    8,   0, cf::NOT_NULL | cf::UNIQUE |cf::AUTO_INC);   if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.addCol("ROOT",      dpfs_datatype_t::TYPE_BINARY,    16,  0, cf::NOT_NULL);                              if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.initBPlusTreeIndex();                                                                                    if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.save();                                                                                                  if (rc != 0) { goto errReturn; }
+
+    idxInitStruct.id = 0;
+    idxInitStruct.name = "SYSRISKWARNS_RTID_IDX";
+    idxInitStruct.colNames.emplace_back("RTID");
+    idxInitStruct.indexPageSize = 4;
+    rc = sysriskwarns.createIdx(idxInitStruct);          if (rc != 0) { goto errReturn; }
+
+    
+    return 0;
+errReturn:
+    if(sysriskwarns.m_btreeIndex) {
+        delete sysriskwarns.m_btreeIndex;
+        sysriskwarns.m_btreeIndex = nullptr;
+    }
+    sysriskwarns.clearCols();
+    return rc;
+    return 0;
 }
