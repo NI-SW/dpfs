@@ -51,6 +51,7 @@ public:
     int initSchemaTab(const bidx& sysBidx);
     int initAuthTab(const bidx& sysBidx);
     int initTraceableTab(const bidx& sysBidx);
+    int initRiskWarnTab(const bidx& sysBidx);
 
     CDiskMan& m_diskman;
     CPage& m_page;
@@ -71,6 +72,8 @@ public:
     CCollection sysauths;
     // traceable structure collection
     CCollection systraceables;
+    // risk report table
+    CCollection sysriskwarns;
 
 };
 
@@ -88,4 +91,5 @@ KEY                 VALUE
 ('SYSTABLESIDX',     '16'    )
 ('SYSCOLUMNSIDX',    '20'    )
 ('SYSINDEXESIDX',      '24'    )
+('SYSRISKWARNIDX',     '28'    )
 */
