@@ -642,10 +642,10 @@ int CSysSchemas::initRiskWarnTab(const bidx& sysBidx) {
     rc = sysriskwarns.initialize(initstruct, sysBidx);                                                                         if (rc != 0) { goto errReturn; }
 
 
-    rc = sysriskwarns.addCol("SCHEMA",      dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);               if (rc != 0) { goto errReturn; }
-    rc = sysriskwarns.addCol("NAME",        dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::PRIMARY_KEY);               if (rc != 0) { goto errReturn; }
-    rc = sysriskwarns.addCol("DESCRIPTION", dpfs_datatype_t::TYPE_CHAR,      1024, 0, cf::NOT_NULL | cf::PRIMARY_KEY);              if (rc != 0) { goto errReturn; }
-    rc = sysriskwarns.addCol("RTID",        dpfs_datatype_t::TYPE_BIGINT,    8,   0, cf::NOT_NULL | cf::UNIQUE |cf::AUTO_INC);      if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.addCol("SCHEMA",      dpfs_datatype_t::TYPE_CHAR,      64,   0, cf::NOT_NULL | cf::PRIMARY_KEY);              if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.addCol("NAME",        dpfs_datatype_t::TYPE_CHAR,      64,   0, cf::NOT_NULL | cf::PRIMARY_KEY);              if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.addCol("DESCRIPTION", dpfs_datatype_t::TYPE_CHAR,      1024, 0, cf::NOT_NULL);                                if (rc != 0) { goto errReturn; }
+    rc = sysriskwarns.addCol("RTID",        dpfs_datatype_t::TYPE_BIGINT,    8,    0, cf::NOT_NULL | cf::UNIQUE |cf::AUTO_INC);     if (rc != 0) { goto errReturn; }
     rc = sysriskwarns.initBPlusTreeIndex();                                                                                         if (rc != 0) { goto errReturn; }
     rc = sysriskwarns.save();                                                                                                       if (rc != 0) { goto errReturn; }
 
