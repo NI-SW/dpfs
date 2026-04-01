@@ -158,7 +158,7 @@ dpfsSystem::~dpfsSystem() {
 int dpfsSystem::cleanup() {
     // Cleanup the system, detach devices, stop services, etc.
     CRecursiveGuard guard(m_lock);
-    
+    this->m_userCache.clear();
     if(ctrlSvr) {
         ctrlSvr->stop();
         delete ctrlSvr;
