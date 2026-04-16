@@ -1242,8 +1242,111 @@ int CCollection::updateByIter(CIdxIter& idxIter, const CItem& item, uint32_t col
     TODO:
 */
 int CCollection::delItem(const CItem& item) {
-    // TODO
-    return -ENOTSUP;
+    if (!inited) {
+        message = "Collection is not initialized.";
+        return -EFAULT;
+    }
+
+    if (!m_btreeIndex) {
+        message = "b+ tree index not initialized.";
+        return -EINVAL;
+    }
+
+    cacheLocker cl(m_cltInfoCache, m_page);
+    CTemplateGuard guard(cl);
+    if (guard.returnCode() != 0) {
+        int rc = guard.returnCode();
+        message = "lock collection info cache failed.";
+        return rc;
+    }
+
+    collectionStruct cs(m_cltInfoCache->getPtr(), m_cltInfoCache->getLen() * dpfs_lba_size);
+
+    if (!cs.ds->m_perms.perm.m_btreeIndex) {
+        message = "collection has no b+ tree index.";
+        return -ENOTSUP;
+    }
+
+    if (cs.m_pkColPos.size() == 0) {
+        message = "primary key is required for delete.";
+        return -EINVAL;
+    }
+
+    if (cl.isChanged()) {
+        m_btreeIndex->reinitBase(
+            &cs.ds->m_btreeHigh,
+            &cs.ds->m_dataRoot,
+            &cs.ds->m_dataBegin,
+            &cs.ds->m_dataEnd
+        );
+
+        for (uint32_t idx = 0; idx < cs.m_indexInfos.size() && idx < m_indexTrees.size(); ++idx) {
+            m_indexTrees[idx]->reinitBase(
+                &cs.m_indexInfos[idx].indexHigh,
+                &cs.m_indexInfos[idx].indexRoot,
+                &cs.m_indexInfos[idx].indexBegin,
+                &cs.m_indexInfos[idx].indexEnd
+            );
+        }
+    }
+
+    int rc = 0;
+    auto& pkCols = cs.m_pkColPos;
+    for (auto it = item.begin(); it != item.end(); ++it) {
+        char keyBuf[MAXKEYLEN];
+        KEY_T key(keyBuf, 0, m_cmpTyps);
+
+        // Build the primary-key from the input row.
+        for (uint32_t i = 0; i < pkCols.size(); ++i) {
+            CValue keyVal = it[pkCols[i]];
+            memcpy(key.data + key.len, keyVal.data, keyVal.len);
+            key.len += item.m_dataLen[pkCols[i]];
+        }
+
+        // Load the full row first so index keys can be rebuilt for index deletion.
+        CItem oldRow(cs.m_cols);
+        rc = m_btreeIndex->search(key, oldRow.data, oldRow.rowLen);
+        if (rc != 0) {
+            message = "search key in b+ tree index fail.";
+            return rc;
+        }
+
+        // Remove from main tree first; secondary index cleanup follows.
+        rc = m_btreeIndex->remove(key);
+        if (rc != 0) {
+            message = "remove item from b+ tree index failed.";
+            return rc;
+        }
+
+        if (cs.ds->m_rowCount > 0) {
+            --cs.ds->m_rowCount;
+        }
+
+        auto oldIt = oldRow.begin();
+        for (uint32_t idx = 0; idx < cs.m_indexInfos.size() && idx < m_indexTrees.size(); ++idx) {
+            auto& indexInfo = cs.m_indexInfos[idx];
+            auto& cmpTp = m_indexCmpTps[idx];
+            auto& indexBpt = *m_indexTrees[idx];
+
+            char indexKeyBuf[MAXKEYLEN * 2];
+            KEY_T indexKey(indexKeyBuf, 0, cmpTp);
+
+            for (uint32_t i = 0; i < indexInfo.cmpKeyColNum; ++i) {
+                CValue indexKeyVal = oldIt[indexInfo.keySequence[i]];
+                memcpy(indexKey.data + indexKey.len, indexKeyVal.data, indexKeyVal.len);
+                indexKey.len += oldRow.m_dataLen[indexInfo.keySequence[i]];
+            }
+
+            rc = indexBpt.remove(indexKey);
+            if (rc != 0) {
+                message = "remove item from secondary index failed.";
+                return rc;
+            }
+        }
+    }
+
+    cs.ds->m_perms.perm.m_dirty = true;
+    return 0;
 }
 
 /*
