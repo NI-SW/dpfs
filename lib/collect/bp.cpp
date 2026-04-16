@@ -793,7 +793,7 @@ int CBPlusTree::destroy_recursive(const bidx& idx, bool isLeaf) {
         }
     }
 
-    m_commitCache.emplace(idx, std::move(node));
+    // m_commitCache.emplace(idx, std::move(node));
 
     // free current node
     rc = free_node(idx, isLeaf);
