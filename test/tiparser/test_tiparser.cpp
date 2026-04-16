@@ -5,7 +5,7 @@
 
 
 using namespace std;
-#define fieldName "Cols"
+#define fieldName "Tables"
 void printNode(const TidbAstNode* ast, std::string indent = "|");
 void printArray(const TidbAstArray& arr, std::string indent = "|");
 
@@ -14,7 +14,8 @@ void printArray(const TidbAstArray& arr, std::string indent = "|");
 // test select
 // std::string SQL = "select a.a,b.b from qwer.asdf as a left join qwer.qqqq as b on a.a = b.a and a.c = b.c or a.b = b.b and a.c=c.c where a.a > 10 and b.b < 20";
 // std::string SQL = "select a,b from qwer.asdf where a > 10 and b < 20 or c = 10 and 1 = 1;";
-std::string SQL = "CREATE TABLE OOO.TEST(A INT NOT NULL PRIMARY KEY AUTO_INCREMENT, B CHAR(20) NOT NULL)";
+// std::string SQL = "CREATE TABLE OOO.TEST(A INT NOT NULL PRIMARY KEY AUTO_INCREMENT, B CHAR(20) NOT NULL)";
+std::string SQL = "DROP TABLE OOO.TEST";
 
 /*
 op=2

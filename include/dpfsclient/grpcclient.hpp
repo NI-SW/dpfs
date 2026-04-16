@@ -87,6 +87,13 @@ public:
         const std::map<std::string, std::string>& base_info, const std::map<std::string, std::string>& ingredient_infos, int32_t total_production_num, std::string& traceCodePrefix);
 
     /*
+        @param schema_name schema name of the traceable production set.
+        @param structure_name name of the traceable production.
+        @return 0 if drop success, otherwise return the error code, and set msg to the error message
+    */
+    int DropTracablePro(const std::string& schema_name, const std::string& structure_name);
+
+    /*
         @param trace_code the code to identify the table of production's base info and production unique id.
         @param trace_result the trace result, which contains the production base info, trace info and ingredient info.
         @return 0 if trace back success, otherwise return the error code, and set msg

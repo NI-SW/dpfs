@@ -452,6 +452,42 @@ int CGrpcCli::createTracablePro(const std::string& schema_name, const std::strin
 
 }
 
+int CGrpcCli::DropTracablePro(const std::string& schema_name, const std::string& structure_name) {
+    if (husr == -1) {
+        msg = "User not logged in.";
+        return -EINVAL;
+    }
+
+    if (schema_name.empty() || structure_name.empty()) {
+        msg = "schema_name and structure_name must not be empty.";
+        return -EINVAL;
+    }
+
+    const std::string spxxbTableName = structure_name + "_SPXXB";
+    const std::string plkzbTableName = structure_name + "_PLKZB";
+    const std::string spjybTableName = structure_name + "_SPJYB";
+    const std::string spkzbTableName = structure_name + "_SPKZB";
+
+    // Drop all traceability tables created by createTracablePro.
+    const std::string dropSqlList[] = {
+        "drop table " + schema_name + "." + spxxbTableName,
+        "drop table " + schema_name + "." + plkzbTableName,
+        "drop table " + schema_name + "." + spjybTableName,
+        "drop table " + schema_name + "." + spkzbTableName
+    };
+
+    for (const auto& sql : dropSqlList) {
+        int rc = execSQL(sql);
+        if (rc != 0) {
+            msg = "Drop traceable production failed, SQL: " + sql + ", rc=" + std::to_string(rc) + ", detail: " + msg;
+            return rc;
+        }
+    }
+
+    msg = "Drop traceable production success: " + schema_name + "." + structure_name;
+    return 0;
+}
+
 int CGrpcCli::traceBack(const std::string& trace_code, std::string& trace_result, bool show_detail) {
     if (husr == -1) {
         msg = "User not logged in.";
@@ -715,4 +751,5 @@ int CGrpcCli::parseTraceResult(const std::string& trace_result, CResult& result)
 
     return 0;
 }
+
 

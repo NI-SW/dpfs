@@ -729,8 +729,135 @@ int CParser::buildSelectPlan(const std::string& osql, const TidbAstNode* stmt, C
 }
 
 int CParser::buildDropPlan(const TidbAstNode* stmt, CPlanHandle& out) {
-    //TODO
-    return -ENOTSUP; // Not supported yet
+
+    /*
+Statement 1 AST Type: github.com/pingcap/tidb/pkg/parser/ast.DropTableStmt
+  Field 1: IfExists
+  Field 2: Tables
+ Found, printing its AST node:
+    Array Length: 1
+    Array Item 1:
+|       Node Type: github.com/pingcap/tidb/pkg/parser/ast.TableName
+|       Position: 0
+|       Field Count: 7
+|       Field 1 Name: Schema
+|   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+|   |       Field Count: 2
+|   |       object Field 1 Name: O
+|   |        kind : 5
+|   |        str value : OOO
+|   |       object Field 2 Name: L
+|   |        kind : 5
+|   |        str value : ooo
+|   |       ,
+|       Field 2 Name: Name
+|   |       Object Type: github.com/pingcap/tidb/pkg/parser/ast.CIStr
+|   |       Field Count: 2
+|   |       object Field 1 Name: O
+|   |        kind : 5
+|   |        str value : TEST
+|   |       object Field 2 Name: L
+|   |        kind : 5
+|   |        str value : test
+    */
+    
+    enum dropPlanMap {
+        IfExists = 0,
+        Tables,
+        IsView,
+        TemporaryKeyword
+    };
+
+    if (!stmt) {
+        return -EINVAL; // Invalid statement node
+    }
+    int rc = 0;
+    bool ifExists = false;
+    std::string schema;
+    std::string tabName;
+
+
+    // if not exist
+    ifExists = stmt->fields[(int)dropPlanMap::IfExists].value.b;
+
+    // find schema and table name
+    auto& tabNode = stmt->fields[(int)dropPlanMap::Tables].value.array.items[0].node;
+    schema = std::string(tabNode->fields[0].value.object.fields[0].value.str.data,
+                         tabNode->fields[0].value.object.fields[0].value.str.len);
+
+    if (schema == "") {
+        // schema = "NULLID"; // default schema
+        schema = usr.username;
+    }
+
+    tabName = std::string(tabNode->fields[1].value.object.fields[0].value.str.data,
+                         tabNode->fields[1].value.object.fields[0].value.str.len);
+
+    // check table existence first, checkExist returns:
+    //   0 -> not exist, -EEXIST -> exists
+    rc = dataSvc.checkExist(schema, tabName);
+    if (rc == 0) {
+        if (ifExists) {
+            out.type = planType::DropTable;
+            return 0;
+        }
+        return -ENOENT;
+    }
+    if (rc != -EEXIST) {
+        return rc;
+    }
+
+    // privilege check for drop operation
+    rc = dataSvc.checkPrivilege(usr, schema, tabName, tbPrivilege::TBPRIVILEGE_DROP);
+    if (rc != 0) {
+        return rc;
+    }
+
+    bidx tableBidx{0, 0};
+    rc = dataSvc.getTableBidx(schema, tabName, tableBidx);
+    if (rc != 0) {
+        return rc;
+    }
+
+    // destroy physical table data and table meta block
+    CCollection coll(dataSvc.m_diskMan, dataSvc.m_page);
+    rc = coll.loadFrom(tableBidx, true);
+    if (rc != 0) {
+        return rc;
+    }
+
+    rc = coll.destroy();
+    if (rc != 0) {
+        return rc;
+    }
+
+    // remove one record from SYSTABLES by its primary key:
+    // (TABLE_SCHEMA, TABLE_NAME)
+    CCollection& sysTables = dataSvc.m_sysSchema->systables;
+    cacheLocker systabLocker(sysTables.m_cltInfoCache, sysTables.m_page);
+    CTemplateReadGuard stGuard(systabLocker);
+    if (stGuard.returnCode() != 0) {
+        return stGuard.returnCode();
+    }
+    CCollection::collectionStruct systabCs(sysTables.m_cltInfoCache->getPtr(), sysTables.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem delKey(systabCs.m_cols);
+    stGuard.release();
+
+    rc = delKey.updateValue(0, schema.c_str(), schema.size());
+    if (rc < 0) {
+        return rc;
+    }
+    rc = delKey.updateValue(1, tabName.c_str(), tabName.size());
+    if (rc < 0) {
+        return rc;
+    }
+
+    rc = sysTables.delItem(delKey);
+    if (rc != 0) {
+        return rc;
+    }
+
+    out.type = planType::DropTable;
     return 0;
 }
 
