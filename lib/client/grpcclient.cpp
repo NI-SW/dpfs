@@ -463,25 +463,22 @@ int CGrpcCli::DropTracablePro(const std::string& schema_name, const std::string&
         return -EINVAL;
     }
 
-    const std::string spxxbTableName = structure_name + "_SPXXB";
-    const std::string plkzbTableName = structure_name + "_PLKZB";
-    const std::string spjybTableName = structure_name + "_SPJYB";
-    const std::string spkzbTableName = structure_name + "_SPKZB";
+    dpfsgrpc::DropTracableProReq request;
+    request.set_husr(husr);
+    request.set_schema_name(schema_name);
+    request.set_structure_name(structure_name);
 
-    // Drop all traceability tables created by createTracablePro.
-    const std::string dropSqlList[] = {
-        "drop table " + schema_name + "." + spxxbTableName,
-        "drop table " + schema_name + "." + plkzbTableName,
-        "drop table " + schema_name + "." + spjybTableName,
-        "drop table " + schema_name + "." + spkzbTableName
-    };
+    dpfsgrpc::OperateReply reply;
+    grpc::ClientContext context;
+    grpc::Status status = _stub->DropTracablePro(&context, request, &reply);
+    if (!status.ok()) {
+        msg = "RPC failed: " + status.error_message();
+        return status.error_code();
+    }
 
-    for (const auto& sql : dropSqlList) {
-        int rc = execSQL(sql);
-        if (rc != 0) {
-            msg = "Drop traceable production failed, SQL: " + sql + ", rc=" + std::to_string(rc) + ", detail: " + msg;
-            return rc;
-        }
+    if (reply.rc() != 0) {
+        msg = "Drop traceable production failed: " + reply.msg();
+        return reply.rc();
     }
 
     msg = "Drop traceable production success: " + schema_name + "." + structure_name;
