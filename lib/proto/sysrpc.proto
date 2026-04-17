@@ -31,6 +31,8 @@ service SysCtl {
 
   // 创建可溯源结构
   rpc CreateTracablePro (CreateTracableProReq) returns (CreateTracableProReply) {}
+  // 销毁可溯源结构
+  rpc DropTracablePro (DropTracableProReq) returns (OperateReply) {}
   // 查询溯源信息，返回溯源结果
   rpc TraceBack(TraceBackReq) returns (TraceBackReply) {}
 
@@ -224,6 +226,12 @@ message CreateTracableProReply {
   string msg = 2;
   bytes trace_code_prefix = 3; // 生成的追溯码前缀，用于标识批次
   // 使用前缀组合产品id可以溯源一件产品
+}
+
+message DropTracableProReq {
+  int32 husr = 1;
+  string schema_name = 2;
+  string structure_name = 3;
 }
 
 message TraceBackReq {

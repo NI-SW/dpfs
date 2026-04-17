@@ -53,6 +53,7 @@ class sysCtlServiceImpl final : public dpfsgrpc::SysCtl::Service {
     Status FetchNextRowSets(ServerContext* context, const dpfsgrpc::FetchNextRowSetsReq* request, dpfsgrpc::FetchNextRowSetsReply* response) override;
 
     Status CreateTracablePro(ServerContext* context, const dpfsgrpc::CreateTracableProReq* request, dpfsgrpc::CreateTracableProReply* response) override;
+    Status DropTracablePro(ServerContext* context, const dpfsgrpc::DropTracableProReq* request, dpfsgrpc::OperateReply* response) override;
 
     Status TraceBack(ServerContext* context, const dpfsgrpc::TraceBackReq* request, dpfsgrpc::TraceBackReply* response) override;
 

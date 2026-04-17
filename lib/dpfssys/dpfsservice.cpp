@@ -900,6 +900,114 @@ create table manager.apple_SPXXB
 
 }
 
+Status sysCtlServiceImpl::DropTracablePro(ServerContext* context, const dpfsgrpc::DropTracableProReq* request, dpfsgrpc::OperateReply* response) {
+    int32_t husr = request->husr();
+    const std::string& schemaName = request->schema_name();
+    const std::string& structureName = request->structure_name();
+
+    if (schemaName.empty() || structureName.empty()) {
+        response->set_msg("schema_name and structure_name must not be empty");
+        response->set_rc(-EINVAL);
+        return Status::OK;
+    }
+
+    CUser* puser = nullptr;
+    int rc = getUserInfo(husr, puser);
+    if (rc != 0) {
+        response->set_msg("Failed to get user info for handle: " + std::to_string(husr));
+        response->set_rc(rc);
+        return Status::OK;
+    }
+    CUser& usr = *puser;
+
+    const std::string spxxbTableName = structureName + "_SPXXB";
+    const std::string plkzbTableName = structureName + "_PLKZB";
+    const std::string spjybTableName = structureName + "_SPJYB";
+    const std::string spkzbTableName = structureName + "_SPKZB";
+
+    // Read SPXXB bidx before dropping tables so we can remove systraceables metadata.
+    bidx spxxbBidx;
+    rc = system->dataService->getTableBidx(schemaName, spxxbTableName, spxxbBidx);
+    if (rc != 0) {
+        response->set_msg("Failed to get table bidx for table: " + schemaName + "." + spxxbTableName);
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    const std::string traceTableNames[] = {
+        spxxbTableName,
+        plkzbTableName,
+        spjybTableName,
+        spkzbTableName,
+    };
+
+    CParser parser(usr, *system->dataService);
+    for (const auto& tableName : traceTableNames) {
+        rc = system->dataService->checkExist(schemaName, tableName);
+        if (rc != -EEXIST) {
+            response->set_msg("Table does not exist: " + schemaName + "." + tableName);
+            response->set_rc(-ENOENT);
+            return Status::OK;
+        }
+
+        rc = system->dataService->checkPrivilege(usr, schemaName, tableName, tbPrivilege::TBPRIVILEGE_DROP);
+        if (rc != 0) {
+            response->set_msg("User does not have drop privilege on table: " + schemaName + "." + tableName);
+            response->set_rc(rc);
+            return Status::OK;
+        }
+
+        const std::string sql = "drop table " + schemaName + "." + tableName;
+
+        rc = parser(sql);
+        if (rc != 0) {
+            response->set_msg("Failed to parse and build execution plan for SQL: " + sql);
+            response->set_rc(rc);
+            return Status::OK;
+        }
+
+        CPlanHandle out(system->dataService->m_page, system->dataService->m_diskMan);
+        rc = parser.buildPlan(sql, out);
+        if (rc != 0) {
+            response->set_msg("Failed to build execution plan for SQL: " + sql);
+            response->set_rc(rc);
+            return Status::OK;
+        }
+    }
+
+    CCollection& systraceables = system->dataService->m_sysSchema->systraceables;
+    cacheLocker traceableLocker(systraceables.m_cltInfoCache, system->dataService->m_page);
+    CTemplateReadGuard traceableGuard(traceableLocker);
+    if (traceableGuard.returnCode() != 0) {
+        system->log.log_error("Failed to acquire read lock on collection info cache for systraceables table, rc=%d\n", traceableGuard.returnCode());
+        response->set_msg("Failed to acquire read lock on collection info cache for systraceables table");
+        response->set_rc(-EAGAIN);
+        return Status::OK;
+    }
+
+    CCollection::collectionStruct traceableCs(systraceables.m_cltInfoCache->getPtr(), systraceables.m_cltInfoCache->getLen() * dpfs_lba_size);
+    CItem delKey(traceableCs.m_cols);
+    traceableGuard.release();
+
+    rc = delKey.updateValue(0, &spxxbBidx, sizeof(spxxbBidx));
+    if (rc < 0) {
+        response->set_msg("Failed to build systraceables delete key");
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    rc = systraceables.delItem(delKey);
+    if (rc != 0) {
+        response->set_msg("Failed to remove traceable metadata from systraceables");
+        response->set_rc(rc);
+        return Status::OK;
+    }
+
+    response->set_msg("command completed successfully.");
+    response->set_rc(0);
+    return Status::OK;
+}
+
 Status sysCtlServiceImpl::TraceBack(ServerContext* context, const dpfsgrpc::TraceBackReq* request, dpfsgrpc::TraceBackReply* response) {
 
     /*
