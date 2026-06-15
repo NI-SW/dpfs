@@ -244,7 +244,7 @@ message TraceBackReq {
 message TraceBackReply {
   int32 rc = 1;
   string msg = 2;
-  string trace_back_result = 3;
+  bytes trace_back_result = 3;
 }
 
 message LoginReq {

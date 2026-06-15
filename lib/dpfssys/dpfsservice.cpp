@@ -1409,7 +1409,7 @@ int sysCtlServiceImpl::GetIngredientInfo(const bidx &bidx, int64_t traceId, std:
         name char(32) not null primary key,   // 物料名称
         bidx binary(16) NOT NULL
 */
-        result += "Ingredient Name:" + std::string(name.data) + "\n";
+        result += "Ingredient Name:" + std::string(name.data, name.len) + "\n";
 
         // transfrom percentage to string with 2 decimal places
         my_decimal pctdec;
