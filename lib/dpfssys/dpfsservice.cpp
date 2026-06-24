@@ -64,7 +64,11 @@ Status sysCtlServiceImpl::Login(ServerContext* context, const dpfsgrpc::LoginReq
     // check the user authentication.
     
     const auto& sysUsr = system->dataService->m_sysSchema->sysusers;
-    KEY_T userName(const_cast<char*>(usrName.data()), usrName.size(), sysUsr.m_cmpTyps);
+    // Pad username to primary key column length for correct B+ tree comparison
+    size_t pkLen = sysUsr.m_cmpTyps.empty() ? usrName.size() : sysUsr.m_cmpTyps[0].first;
+    std::string paddedName(usrName);
+    paddedName.resize(pkLen, '\0');
+    KEY_T userName(const_cast<char*>(paddedName.data()), paddedName.size(), sysUsr.m_cmpTyps);
 
     cacheLocker cl(sysUsr.m_cltInfoCache, system->dataService->m_page);
     CTemplateReadGuard guard(cl);

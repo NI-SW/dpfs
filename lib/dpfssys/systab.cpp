@@ -228,7 +228,15 @@ int CSysSchemas::init() {
     #ifdef __DPFSSYS_SYSTAB_DEBUG__
     cout << "System Boot Info Inserted:" << endl;
     #endif
+    // Update endIter to actual row count before addItem
+    // rowNumber counts nextRow() calls, but the first row is set without nextRow(),
+    // so actual row count = rowNumber + 1
+    itm.setActualRowNumber(itm.getRowNumber() + 1);
+
     rc = systemboot.addItem(itm); if (rc != 0) { std::cout << "error message: " << systemboot.message << " code : " << rc << std::endl; goto errReturn; }
+
+    // Update stitm endIter to actual row count before addItem
+    stitm.setActualRowNumber(stitm.getRowNumber() + 1);
 
     // init systables
     rc = systables.addItem(stitm); if (rc != 0) { std::cout << "error message: " << systables.message << " code : " << rc << std::endl; goto errReturn; }

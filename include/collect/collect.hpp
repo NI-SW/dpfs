@@ -394,7 +394,18 @@ public:
         return this->rowLen;
     }
 
+    size_t getRowNumber() const noexcept {
+        return this->rowNumber;
+    }
+
+    void setActualRowNumber(size_t n) noexcept {
+        rowNumber = n;
+        endIter.m_pos = n;
+        endIter.m_ptr = data + rowLen * n;
+    }
+
     size_t curPos() const noexcept {
+        if (this->rowLen == 0) return 0;
         return (this->rowPtr - this->data) / this->rowLen;
     }
 
@@ -576,6 +587,12 @@ private:
     int dataCopy(size_t pos, const void* ptr, size_t len) noexcept;
     size_t getDataOffset(size_t pos) const noexcept;
     // int resetOffset(size_t begPos) noexcept;
+
+    // Keep endIter in sync with rowNumber
+    void syncEndIter() noexcept {
+        endIter.m_pos = rowNumber;
+        endIter.m_ptr = data + rowLen * rowNumber;
+    }
 
 
 

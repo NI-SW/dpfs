@@ -283,6 +283,7 @@ int CItem::assign(const uint8_t* data, size_t rowCount) noexcept {
     rowPtr = (char*)this->data;
     validLen = len;
     rowNumber = rowCount;
+    syncEndIter();
     return 0;
 }
 
@@ -568,7 +569,7 @@ endIter(this) {
     }
 
     // row data in data[]
-    data = (char*)malloc(len);
+    data = (char*)calloc(1, len);
     if (!data) {
         throw std::bad_alloc();
     }
@@ -602,7 +603,7 @@ endIter(this) {
     }
 
     // row data in data[]
-    data = (char*)malloc(len * maxRowNumber);
+    data = (char*)calloc(maxRowNumber, len);
     if (!data) {
         throw std::bad_alloc();
     }
@@ -656,8 +657,7 @@ int CItem::clear() noexcept {
     validLen = 0;
     beginIter.m_pos = 0;
     beginIter.m_ptr = data;
-    endIter.m_pos = 1;
-    endIter.m_ptr = data + rowLen;
+    syncEndIter();
     return 0;
 }
 
@@ -691,6 +691,7 @@ int CItem::nextRow() noexcept {
 int CItem::resetScan() noexcept {
     rowNumber = 0;
     rowPtr = data;
+    syncEndIter();
     return 0;
 }
 

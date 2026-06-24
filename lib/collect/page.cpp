@@ -1083,15 +1083,18 @@ void PageClrFn::clearCache(cacheStruct*& p, volatile int* finish_indicator) {
 
         
         if(dcp->return_code) {
-            pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
-            // write error
-            // TODO process error
+            pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s, re-inserting dirty cache\n", dcp->return_code, dcp->errMsg);
+            // write failed in async callback, keep dirty cache and re-insert into LRU
+            // to avoid use-after-free: other threads may still hold references to this cacheStruct
+            // also avoids data loss by preserving dirty data for future retry
             if(finish_indicator) {
                 *finish_indicator = -1;
             }
-            // p->status = cacheStruct::ERROR;
-            p->release();
+            p->dirty = 1;
+            p->status = cacheStruct::VALID;
             pcf->cp->freecbs(cbs);
+            pcf->cp->m_currentSizeInByte += p->len * dpfs_lba_size;
+            pcf->cp->m_cache.loadCache(p->idx, p);
             return;
         }
         // after write back, the cache should be invalid
@@ -1140,15 +1143,18 @@ void PageClrFn::clearCache(cacheStruct*& p, volatile int* finish_indicator) {
             cout << "Write back cb called for gid: " << p->idx.gid << " bid: " << p->idx.bid << " finish_indicator: " << (finish_indicator ? *finish_indicator : -9999) << endl;
             #endif
             if(dcp->return_code) {
-                pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s\n", dcp->return_code, dcp->errMsg);
-                // write error
-                // TODO process error
+                pcf->cp->m_log.log_error("write to disk error, rc = %d, message: %s, re-inserting dirty cache\n", dcp->return_code, dcp->errMsg);
+                // write failed in async callback, keep dirty cache and re-insert into LRU
+                // to avoid use-after-free: other threads may still hold references to this cacheStruct
+                // also avoids data loss by preserving dirty data for future retry
+                // NOTE: m_currentSizeInByte was NOT reduced (lock failure path, line 1186 not reached)
                 if(finish_indicator) {
                     *finish_indicator = -1;
                 }
-
-                p->release();
+                p->dirty = 1;
+                p->status = cacheStruct::VALID;
                 pcf->cp->freecbs(cbs);
+                pcf->cp->m_cache.loadCache(p->idx, p);
                 return;
             }
             // after write back, the cache is invalid
@@ -1164,8 +1170,15 @@ void PageClrFn::clearCache(cacheStruct*& p, volatile int* finish_indicator) {
         // write to 0 to refresh the indicator
         rc = cp->m_engine_list[p->idx.gid]->write(0, zptr, 1, cbs);
         if(rc < 0) {
-            cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
-            p->release();
+            cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d, re-inserting dirty cache\n", p->idx.gid, p->idx.bid, p->len, rc);
+            // write failed synchronously, keep dirty cache and re-insert into LRU
+            // to avoid use-after-free: other threads may still hold references to this cacheStruct
+            // NOTE: m_currentSizeInByte was NOT reduced yet (line 1186 is after lock success)
+            //       so we do NOT add it back here
+            p->dirty = 1;
+            p->status = cacheStruct::VALID;
+            cp->freecbs(cbs);
+            cp->m_cache.loadCache(p->idx, p);
         }
         return;
     }
@@ -1183,14 +1196,15 @@ void PageClrFn::clearCache(cacheStruct*& p, volatile int* finish_indicator) {
         // if write is successfully called, the unlock and release will be in callback function
         rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
         if(rc < 0) {
-            cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
-            // write error
-            // !-!QUESTION!-!
-            // TODO
-            
-            // cout << "log write error, but still release the cache, maybe cause data loss, need reconsider" << endl;
-
-            p->release();
+            cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d, re-inserting dirty cache\n", p->idx.gid, p->idx.bid, p->len, rc);
+            // write failed synchronously, keep dirty cache and re-insert into LRU
+            // to avoid use-after-free: other threads may still hold references to this cacheStruct
+            // also avoids data loss by preserving dirty data for future retry
+            p->dirty = 1;
+            p->status = cacheStruct::VALID;
+            cp->freecbs(cbs);
+            cp->m_currentSizeInByte += p->len * dpfs_lba_size;
+            cp->m_cache.loadCache(p->idx, p);
             return;
         }
 

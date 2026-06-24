@@ -26,7 +26,7 @@ all: $(LIB)
 $(LIB):
 	mkdir -p $(CURDIR)/cache
 	GOCACHE="$(CURDIR)/cache/.gocache" GOMODCACHE="$(CURDIR)/cache/.gomodcache" \
-		go build -buildmode=c-shared -o "$(LIB)" .
+		go build -buildvcs=false -buildmode=c-shared -o "$(LIB)" .
 	cp tidb_parser.h "$(HEADER)"
 	
 
