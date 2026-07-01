@@ -638,6 +638,11 @@ int CParser::buildCreatePlan(const TidbAstNode* stmt, CPlanHandle& out) {
     
     rc = this->dataSvc.createTable(usr, schema, coll, out);
     if (rc != 0) {
+        // IF NOT EXISTS: suppress -EEXIST so idempotent CREATE TABLE succeeds
+        if (ifNotExist && rc == -EEXIST) {
+            this->dataSvc.m_log.log_inf("Table %s.%s already exists, IF NOT EXISTS specified, skipping.\n", schema.c_str(), tabName.c_str());
+            return 0;
+        }
         this->dataSvc.m_log.log_error("Failed to create table in data service, rc=%d\n", rc);
         return rc; // Return error code if table creation failed
     }
