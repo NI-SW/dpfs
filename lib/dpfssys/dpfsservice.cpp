@@ -594,12 +594,12 @@ create table manager.apple_SPXXB
             // ('保质期', '30'),
             // ('质检报告', 'https://mytest.com/jsbg.png'),
             // (其它自定义信息)
-            sql = "create table if not exists " + schema + "." + spxxbTableName + SPXXBDEF;
+            sql = "create table " + schema + "." + spxxbTableName + SPXXBDEF;
         } else if (i == 1) {
             // create table manager.apple_PLKZB (
             // bidx binary(16) NOT NULL PRIMARY KEY
             // );
-            sql = "create table if not exists " + schema + "." + plkzbTableName + PLKZBDEF;
+            sql = "create table " + schema + "." + plkzbTableName + PLKZBDEF;
         } else if (i == 2) {
             // create table manager.apple_SPJYB (
             // JYID BIGINT not null primary key,    // 交易id
@@ -616,7 +616,7 @@ create table manager.apple_SPXXB
             // OTHER_INFO CHAR(255) NOT NULL,       // 其他信息
             // FSJE  DECIMAL(16, 4)                 // 发生金额
             // )
-            sql = "create table if not exists " + schema + "." + spjybTableName + SPJYBDEF;
+            sql = "create table " + schema + "." + spjybTableName + SPJYBDEF;
         } else if (i == 3) {
             // create table manager.apple_SPKZB(
             // uid int not null primary key,   // 唯一标识一件商品
@@ -625,7 +625,7 @@ create table manager.apple_SPXXB
             // ccount int not null             // 查验次数
             // ltrade bigint not null,         // 上一笔交易id
             // )         
-            sql = "create table if not exists " + schema + "." + spkzbTableName + SPKZBDEF;
+            sql = "create table " + schema + "." + spkzbTableName + SPKZBDEF;
         }
             
         rc = parser(sql);

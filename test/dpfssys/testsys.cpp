@@ -2,8 +2,6 @@
 #include <iostream>
 #include <csignal>
 #include <string>
-#include <thread>
-#include <chrono>
 #include <dpfssys/dpfsdata.hpp>
 #include <parser/dpfsparser.hpp>
 #include <dpfssys/user.hpp>
@@ -22,7 +20,7 @@ string config_file = "./example.json";
 
 int main(int argc, char** argv) {
     signal(SIGINT, sigfun);
-    signal(SIGTERM, sigfun);
+    signal(SIGKILL, sigfun);
 
     Analy_Input(argc, argv);
 
@@ -164,16 +162,7 @@ int main(int argc, char** argv) {
     while(1) {
         cout << "input sql : " << endl;
         string sql;
-        if (!getline(cin, sql)) {
-            // stdin closed (background mode) — wait for signal then exit cleanly
-            while(!g_exit) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            }
-            break;
-        }
-        if(sql.empty()) {
-            continue;
-        }
+        getline(cin, sql);
         if(sql == "exit" || sql == "quit" || sql == "q") {
             break;
         }

@@ -922,26 +922,17 @@ PageClrFn::PageClrFn(void* clrFnArg) : cp(reinterpret_cast<CPage*>(clrFnArg)) {
             }
         }
 
-        // Drain remaining dirty pages before exit to prevent data loss
-        m_queueMutex.lock();
-        localQueue.swap(m_flushQueue);
-        m_queueMutex.unlock();
-        while(!localQueue.empty()) {
-            auto& cacheItem = localQueue.front();
-            clearCache(cacheItem.pCache, cacheItem.finish_indicator);
-            localQueue.pop();
-        }
-
     });
 
 }
 
 PageClrFn::~PageClrFn() {
+
     m_exit = true;
-    m_convar.notify_one();
     if (clfThd.joinable()) {
         clfThd.join();
     }
+
 }
 
 // write back only
