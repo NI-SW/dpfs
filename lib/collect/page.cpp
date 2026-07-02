@@ -64,11 +64,20 @@ void cacheStruct::release() {
     }
 }
 
+// 引擎列表地址备份，应对引用被意外清零的问题
+static std::vector<dpfsEngine*>* g_engine_list_backup = nullptr;
+
+// 安全获取引擎列表引用
+static inline std::vector<dpfsEngine*>& safe_engines(std::vector<dpfsEngine*>& mref) {
+    return g_engine_list_backup ? *g_engine_list_backup : mref;
+}
+
 CPage::CPage(std::vector<dpfsEngine*>& engine_list, size_t cacheSize, logrecord& log, size_t maxCacheSizeInByte) : 
 m_log(log),
 m_engine_list(engine_list), 
 // implicit conversion from CPage* to PageClrFn
 m_cache(cacheSize, this) {
+    g_engine_list_backup = &engine_list;  // 保存备份
     // the length larger then 10 need Special Processing
     m_zptrList.resize(maxBlockLen);
     m_zptrLock.resize(maxBlockLen);
@@ -101,7 +110,7 @@ CPage::~CPage() {
 // }
 
 int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
-    if(idx.gid >= m_engine_list.size()) {
+    if(idx.gid >= safe_engines(m_engine_list).size()) {
         return -ERANGE;
     }
 
@@ -212,7 +221,7 @@ int CPage::get(cacheStruct*& cptr, const bidx& idx, size_t len) {
         cbs->m_arg = this;
         
         // read from disk
-        rc = m_engine_list[idx.gid]->read(idx.bid, zptr, len, cbs);
+        rc = safe_engines(m_engine_list)[idx.gid]->read(idx.bid, zptr, len, cbs);
         if(rc < 0) {
             m_log.log_error("read from disk err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
             freecbs(cbs);
@@ -282,7 +291,7 @@ errReturn:
 }
 
 int CPage::put(const bidx& idx, void* zptr, volatile int* finish_indicator, size_t len, bool wb, cacheStruct** pCache) {
-    // if(idx.gid >= m_engine_list.size()) {
+    // if(idx.gid >= safe_engines(m_engine_list).size()) {
     //     return -ERANGE;
     // }
 
@@ -433,7 +442,7 @@ int CPage::put(const bidx& idx, void* zptr, volatile int* finish_indicator, size
             }
 
             // write to 0 to refresh the indicator
-            rc = m_engine_list[idx.gid]->write(0, zptr, 1, cbs);
+            rc = safe_engines(m_engine_list)[idx.gid]->write(0, zptr, 1, cbs);
             if(rc < 0) {
                 m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", idx.gid, idx.bid, len, rc);
             }
@@ -442,7 +451,7 @@ int CPage::put(const bidx& idx, void* zptr, volatile int* finish_indicator, size
         cptr->cache->status = cacheStruct::WRITING;
         cptr->cache->unlock();
 
-        rc = m_engine_list[idx.gid]->write(idx.bid, zptr, len, cbs);
+        rc = safe_engines(m_engine_list)[idx.gid]->write(idx.bid, zptr, len, cbs);
         
 
         if(rc < 0) {
@@ -566,7 +575,7 @@ int CPage::writeBack(cacheStruct* cache, volatile int* finish_indicator) {
         };
 
         // write to 0 to refresh the indicator
-        rc = m_engine_list[cache->idx.gid]->write(0, zptr, 1, cbs);
+        rc = safe_engines(m_engine_list)[cache->idx.gid]->write(0, zptr, 1, cbs);
         if(rc < 0) {
             m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
         }
@@ -579,7 +588,7 @@ int CPage::writeBack(cacheStruct* cache, volatile int* finish_indicator) {
     cache->unlock();
 
 
-    rc = m_engine_list[cache->idx.gid]->write(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
+    rc = safe_engines(m_engine_list)[cache->idx.gid]->write(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
     if(rc < 0) {
         // if error, unlock immediately, else unlock in callback
         m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
@@ -601,7 +610,7 @@ int CPage::fresh(cacheStruct*& cache) {
         return -EINVAL;
     }
 
-    if(cache->idx.gid >= m_engine_list.size()) {
+    if(cache->idx.gid >= safe_engines(m_engine_list).size()) {
         return -ERANGE;
     }
 
@@ -688,7 +697,7 @@ int CPage::fresh(cacheStruct*& cache) {
     cbs->m_arg = this;
     
     // read from disk
-    rc = m_engine_list[cache->idx.gid]->read(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
+    rc = safe_engines(m_engine_list)[cache->idx.gid]->read(cache->idx.bid, cache->getPtr(), cache->getLen(), cbs);
     if(rc < 0) {
         m_log.log_error("read from disk err, gid=%llu bid=%llu len=%llu rc = %d\n", cache->idx.gid, cache->idx.bid, cache->getLen(), rc);
         goto errReturn;
@@ -749,18 +758,18 @@ int CPage::flush() {
 //     void* zptr = nullptr;
 //     if(sz < maxBlockLen) {
 //         if(m_zptrList[sz].empty()) {
-//             return m_engine_list[0]->zmalloc((sz + 1) * dpfs_lba_size);
+//             return safe_engines(m_engine_list)[0]->zmalloc((sz + 1) * dpfs_lba_size);
 //         }
 //         m_zptrLock[sz].lock();
 //         if(m_zptrList[sz].empty()) {
 //             m_zptrLock[sz].unlock();
-//             return m_engine_list[0]->zmalloc((sz + 1) * dpfs_lba_size);
+//             return safe_engines(m_engine_list)[0]->zmalloc((sz + 1) * dpfs_lba_size);
 //         }
 //         zptr = m_zptrList[sz].front();
 //         m_zptrList[sz].pop_front();
 //         m_zptrLock[sz].unlock();
 //     } else {
-//         zptr = m_engine_list[0]->zmalloc((sz + 1) * dpfs_lba_size);
+//         zptr = safe_engines(m_engine_list)[0]->zmalloc((sz + 1) * dpfs_lba_size);
 //     }
 //     return zptr;
 // }
@@ -810,10 +819,10 @@ void CPage::freezptr(void* zptr, size_t sz) {
             m_zptrList[sz].push(zptr);
             m_zptrLock[sz].unlock();
         } else {
-            m_engine_list[0]->zfree(zptr);
+            safe_engines(m_engine_list)[0]->zfree(zptr);
         }
     } else {
-        m_engine_list[0]->zfree(zptr);
+        safe_engines(m_engine_list)[0]->zfree(zptr);
     }
 }
 
@@ -829,17 +838,17 @@ void* CPage::alloczptr(size_t sz) {
 
             if(m_zptrList[sz].empty()) {
                 m_zptrLock[sz].unlock();
-                return m_engine_list[0]->zmalloc((sz + 1) * dpfs_lba_size);
+                return safe_engines(m_engine_list)[0]->zmalloc((sz + 1) * dpfs_lba_size);
             }
             zptr = m_zptrList[sz].front();
             m_zptrList[sz].pop();
             m_zptrLock[sz].unlock();
             memset(zptr, 0, (sz + 1) * dpfs_lba_size);
         } else {
-            zptr = m_engine_list[0]->zmalloc((sz + 1) * dpfs_lba_size);
+            zptr = safe_engines(m_engine_list)[0]->zmalloc((sz + 1) * dpfs_lba_size);
         }
     } else {
-        zptr = m_engine_list[0]->zmalloc((sz + 1) * dpfs_lba_size);
+        zptr = safe_engines(m_engine_list)[0]->zmalloc((sz + 1) * dpfs_lba_size);
     }
     return zptr;
 }
@@ -1020,7 +1029,7 @@ void PageClrFn::flush(const std::list<void*>& cacheList) {
             pcf->cp->freecbs(cbs);
         };
 
-        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
+        rc = safe_engines(cp->m_engine_list)[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
         if(rc < 0) {
 
             cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);
@@ -1177,7 +1186,7 @@ void PageClrFn::clearCache(cacheStruct*& p, volatile int* finish_indicator) {
         
 
         // write to 0 to refresh the indicator
-        rc = cp->m_engine_list[p->idx.gid]->write(0, zptr, 1, cbs);
+        rc = safe_engines(cp->m_engine_list)[p->idx.gid]->write(0, zptr, 1, cbs);
         if(rc < 0) {
             cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d, re-inserting dirty cache\n", p->idx.gid, p->idx.bid, p->len, rc);
             // write failed synchronously, keep dirty cache and re-insert into LRU
@@ -1203,7 +1212,7 @@ void PageClrFn::clearCache(cacheStruct*& p, volatile int* finish_indicator) {
 
 
         // if write is successfully called, the unlock and release will be in callback function
-        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
+        rc = safe_engines(cp->m_engine_list)[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
         if(rc < 0) {
             cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d, re-inserting dirty cache\n", p->idx.gid, p->idx.bid, p->len, rc);
             // write failed synchronously, keep dirty cache and re-insert into LRU
@@ -1275,7 +1284,7 @@ void PageClrFn::flush(cacheStruct*& p) {
             pcf->cp->freecbs(cbs);
         };
 
-        rc = cp->m_engine_list[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
+        rc = safe_engines(cp->m_engine_list)[p->idx.gid]->write(p->idx.bid, zptr, p->len, cbs);
         if(rc < 0) {
 
             cp->m_log.log_error("write to disk err, gid=%llu bid=%llu len=%llu rc = %d\n", p->idx.gid, p->idx.bid, p->len, rc);

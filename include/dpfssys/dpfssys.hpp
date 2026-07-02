@@ -117,6 +117,9 @@ public:
     CSpin m_usrCacheLock;
     int32_t m_usrHandleCount = 0;
     std::unordered_map<int32_t, CUser> m_userCache; // user cache for authentication, key is the hash of the username
+
+    // 全局 gRPC 请求序列化锁（防止并发请求导致 user cache 指针失效和死锁）
+    std::mutex m_grpcMutex;
 };
 
 

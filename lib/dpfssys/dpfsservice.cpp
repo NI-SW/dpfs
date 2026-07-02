@@ -129,6 +129,10 @@ Status sysCtlServiceImpl::Login(ServerContext* context, const dpfsgrpc::LoginReq
     usr.logOff = false;
 
     system->m_usrCacheLock.lock();
+    // 预分配 user cache 容量，防止 emplace 触发 rehash 导致指针失效
+    if (system->m_userCache.bucket_count() < 1024) {
+        system->m_userCache.reserve(1024);
+    }
     // find next not used handle
     while (system->m_userCache.find(system->m_usrHandleCount) != system->m_userCache.end()) {
         ++system->m_usrHandleCount;
