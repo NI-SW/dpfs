@@ -84,9 +84,6 @@ int CDpfsGrpcsvr::listen(const char* serverString, void* service) {
     grpc::Service* svc = static_cast<grpc::Service*>(service);
 
     ServerBuilder builder;
-    // 单线程模式：序列化所有 gRPC 请求，避免并发竞态导致 robust mutex 崩溃
-    builder.SetSyncServerOption(ServerBuilder::SyncServerOption::MAX_POLLERS, 1);
-    builder.SetSyncServerOption(ServerBuilder::SyncServerOption::MIN_POLLERS, 1);
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(svc);
     std::unique_ptr<Server> server(builder.BuildAndStart());

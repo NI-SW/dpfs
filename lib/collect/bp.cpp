@@ -44,7 +44,7 @@ CBPlusTree::CBPlusTree(CPage& pge, CDiskMan& cdm, size_t pageSize, uint8_t& tree
 
 #else
     // reserve 1 for split
-    m_indexOrder = static_cast<int32_t>(maxkeyCount) - 3;
+    m_indexOrder = static_cast<int32_t>(maxkeyCount) - 2;
 #endif
 
     m_rowOrder = m_indexOrder; // ((m_pageSize * dpfs_lba_size - hdrSize) / (keyLen + m_rowLen)) - 1;
