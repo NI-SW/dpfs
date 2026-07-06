@@ -316,7 +316,7 @@ int CGrpcCli::fetchNextRow(const IDXHANDLE& hidx) {
         return -EINVAL; // Invalid index handle
     }
 
-    cout << "curser pos = " << idxHandles.begin()->second.item.curPos() << endl;
+    // cout << "curser pos = " << idxHandles.begin()->second.item.curPos() << endl;
 
     auto& rs = it->second;
     ++rs.currentRowPos;
