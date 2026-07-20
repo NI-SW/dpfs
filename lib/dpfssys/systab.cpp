@@ -591,6 +591,7 @@ int CSysSchemas::initTraceableTab(const bidx& sysBidx) {
     int rc = 0;
     CCollectionInitStruct initstruct;
     CIndexInitStruct idxInitStruct;
+    CIndexInitStruct idxInitStruct1;
     initstruct.id = 0;
     initstruct.name = "SYSTRACEABLES";
     initstruct.m_perms.perm.m_systab = 1;
@@ -604,9 +605,9 @@ int CSysSchemas::initTraceableTab(const bidx& sysBidx) {
     // grant ... TODO:: finish grant clause
     // 为尽量保证前缀命中，ID不作为第一主键列
     rc = systraceables.addCol("ROOT",      dpfs_datatype_t::TYPE_BINARY,    16,  0, cf::NOT_NULL | cf::PRIMARY_KEY);            if (rc != 0) { goto errReturn; }
-    rc = systraceables.addCol("NAME",      dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL);                              if (rc != 0) { goto errReturn; }
+    rc = systraceables.addCol("NAME",      dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL | cf::UNIQUE);                              if (rc != 0) { goto errReturn; }
     rc = systraceables.addCol("SCHEMA",    dpfs_datatype_t::TYPE_CHAR,      64,  0, cf::NOT_NULL);                              if (rc != 0) { goto errReturn; }
-    rc = systraceables.addCol("TID",       dpfs_datatype_t::TYPE_BIGINT,    8,   0, cf::NOT_NULL | cf::UNIQUE |cf::AUTO_INC);   if (rc != 0) { goto errReturn; }
+    rc = systraceables.addCol("TID",       dpfs_datatype_t::TYPE_BIGINT,    8,   0, cf::NOT_NULL | cf::UNIQUE | cf::AUTO_INC);  if (rc != 0) { goto errReturn; }
     rc = systraceables.initBPlusTreeIndex();                                                                                    if (rc != 0) { goto errReturn; }
     rc = systraceables.save();                                                                                                  if (rc != 0) { goto errReturn; }
 
@@ -614,8 +615,12 @@ int CSysSchemas::initTraceableTab(const bidx& sysBidx) {
     idxInitStruct.name = "SYSTRACEABLES_TID_IDX";
     idxInitStruct.colNames.emplace_back("TID");
     idxInitStruct.indexPageSize = 4;
+    idxInitStruct1.id = 1;
+    idxInitStruct1.name = "SYSTRACEABLES_NAME_IDX";
+    idxInitStruct1.colNames.emplace_back("NAME");
+    idxInitStruct1.indexPageSize = 4;
     rc = systraceables.createIdx(idxInitStruct);          if (rc != 0) { goto errReturn; }
-
+    rc = systraceables.createIdx(idxInitStruct1);         if (rc != 0) { goto errReturn; }
     
     return 0;
 errReturn:
