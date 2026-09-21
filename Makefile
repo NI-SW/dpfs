@@ -2,7 +2,7 @@
 #  Copyright (C) 2025 Libr Corporation.
 #  All rights reserved.
 #
-SUBDIRS := lib test 
+SUBDIRS := lib test app
 
 all clean::
 	@for subdir in $(SUBDIRS); \
